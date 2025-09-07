@@ -1,0 +1,24 @@
+# fastapi
+# uvicorn
+# supabase
+# pydantic
+# pydantic-settings
+# python-multipart
+# celery
+# redis
+# sendgrid
+# websockets
+# python-dateutil
+
+fastapi~=0.111.0
+uvicorn~=0.30.1
+pydantic~=2.7.4
+pydantic-settings~=2.2.1
+python-multipart~=0.0.9
+celery~=5.3.6
+redis~=5.0.4
+sendgrid~=6.11.0
+websockets~=12.0
+python-dateutil~=2.9.0
+supabase~=2.5.0
+sqlalchemy

@@ -1,0 +1,322 @@
+from typing import List, Dict, Optional, Any
+from decimal import Decimal
+from datetime import datetime, timedelta
+import re
+import random
+import string
+import math
+import requests
+import base64
+from datetime import datetime, timedelta
+from ..database import supabase
+from ..services.redis import redis_client
+from ..core.cache import CacheKeys
+
+
+class CustomerService:
+    @staticmethod
+    def extract_name_from_email(email: str) -> str:
+        """Extract full name from email address"""
+        local_part = email.split('@')[0]
+        
+        # Remove numbers and common separators
+        name_part = re.sub(r'[0-9_\.\-]+', ' ', local_part)
+        
+        # Split and capitalize
+        words = name_part.split()
+        if len(words) >= 2:
+            return ' '.join(word.capitalize() for word in words)
+        elif len(words) == 1:
+            return words[0].capitalize() + " User"
+        else:
+            return "Customer User"
+    
+    @staticmethod
+    async def get_or_create_customer(email: str, phone: str = None, full_name: str = None) -> Dict[str, Any]:
+        """Get existing customer or create new one"""
+        # Check if customer exists
+        existing = supabase.table("website_customers").select("*").eq("email", email).execute()
+        
+        if existing.data:
+            # Update last_seen
+            supabase.table("website_customers").update({
+                "last_seen": datetime.utcnow().isoformat()
+            }).eq("id", existing.data[0]["id"]).execute()
+            
+            return existing.data[0]
+        
+        # Create new customer
+        if not full_name:
+            full_name = CustomerService.extract_name_from_email(email)
+        
+        customer_data = {
+            "email": email,
+            "full_name": full_name,
+            "phone": phone,
+            "last_seen": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("website_customers").insert(customer_data).execute()
+        return result.data[0]
+    
+    @staticmethod
+    def generate_pin() -> str:
+        """Generate 4-digit PIN"""
+        return ''.join(random.choices(string.digits, k=4))
+    
+    @staticmethod
+    async def send_login_pin(email: str) -> bool:
+        """Generate and send login PIN to email"""
+        pin = CustomerService.generate_pin()
+        
+        # Store PIN in Redis with 10-minute expiry
+        redis_client.set(f"login_pin:{email}", pin, 600)
+        
+        # TODO: Send email with PIN
+        # For now, just log it
+        print(f"Login PIN for {email}: {pin}")
+        
+        return True
+    
+    @staticmethod
+    async def verify_pin(email: str, pin: str) -> bool:
+        """Verify login PIN"""
+        stored_pin = redis_client.get(f"login_pin:{email}")
+        
+        if stored_pin == pin:
+            redis_client.delete(f"login_pin:{email}")
+            return True
+        
+        return False
+    
+    @staticmethod
+    async def create_customer_session(customer_id: str) -> str:
+        """Create 5-year customer session"""
+        session_token = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+        
+        # Store session with 5-year expiry
+        session_data = {
+            "customer_id": customer_id,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        redis_client.set(f"customer_session:{session_token}", session_data, 60*60*24*365*5)
+        
+        return session_token
+
+class DeliveryService:
+    RESTAURANT_LAT = 7.3775  # Ibadan coordinates
+    RESTAURANT_LNG = 3.9470
+    
+    @staticmethod
+    def calculate_distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+        """Calculate distance between two points in kilometers"""
+        R = 6371  # Earth's radius in kilometers
+        
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        delta_lat = math.radians(lat2 - lat1)
+        delta_lng = math.radians(lng2 - lng1)
+        
+        a = (math.sin(delta_lat / 2) * math.sin(delta_lat / 2) +
+             math.cos(lat1_rad) * math.cos(lat2_rad) *
+             math.sin(delta_lng / 2) * math.sin(delta_lng / 2))
+        
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        
+        return R * c
+    
+    @staticmethod
+    def calculate_delivery_fee(distance_km: float) -> Decimal:
+        """Calculate delivery fee based on distance"""
+        if distance_km <= 5:
+            return Decimal('500')
+        elif distance_km <= 10:
+            return Decimal('1000')
+        elif distance_km <= 15:
+            return Decimal('1500')
+        elif distance_km <= 20:
+            return Decimal('2000')
+        else:
+            # ₦500 base + ₦250 per additional 5km
+            extra_distance = distance_km - 20
+            extra_fee = math.ceil(extra_distance / 5) * 250
+            return Decimal('2000') + Decimal(str(extra_fee))
+    
+    @staticmethod
+    def estimate_delivery_time(distance_km: float) -> str:
+        """Estimate delivery time based on distance"""
+        if distance_km <= 5:
+            return "20-30 minutes"
+        elif distance_km <= 10:
+            return "30-45 minutes"
+        elif distance_km <= 15:
+            return "45-60 minutes"
+        else:
+            return "60-90 minutes"
+
+class CartService:
+    @staticmethod
+    async def validate_cart_items(items: List[Dict]) -> List[Dict]:
+        """Validate cart items and return processed data"""
+        processed_items = []
+        
+        for item in items:
+            # Get product details
+            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            
+            if not product.data:
+                raise ValueError(f"Product {item['product_id']} not found")
+            
+            product_data = product.data[0]
+            
+            if not product_data["is_available"] or product_data["status"] == "out_of_stock":
+                raise ValueError(f"{product_data['name']} is not available")
+            
+            if product_data["units"] < item["quantity"]:
+                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
+            
+            processed_items.append({
+                "product_id": item["product_id"],
+                "product_name": product_data["name"],
+                "quantity": item["quantity"],
+                "unit_price": Decimal(str(product_data["price"])),
+                "total_price": Decimal(str(product_data["price"])) * item["quantity"],
+                "notes": item.get("notes")
+            })
+        
+        return processed_items
+    
+    @staticmethod
+    def calculate_order_total(items: List[Dict]) -> Dict[str, Decimal]:
+        """Calculate order totals"""
+        subtotal = sum(item["total_price"] for item in items)
+        vat = subtotal * Decimal("0.075")  # 7.5% VAT
+        
+        return {
+            "subtotal": subtotal,
+            "vat": vat,
+            "total": subtotal + vat
+        }
+
+class AddressService:
+    @staticmethod
+    async def save_customer_address(customer_id: str, address_data: Dict) -> Dict:
+        """Save customer address"""
+        # If this is set as default, unset other defaults
+        if address_data.get("is_default"):
+            supabase.table("customer_addresses").update({
+                "is_default": False
+            }).eq("customer_id", customer_id).execute()
+        
+        address_entry = {
+            "customer_id": customer_id,
+            **address_data
+        }
+        
+        result = supabase.table("customer_addresses").insert(address_entry).execute()
+        return result.data[0]
+    
+    @staticmethod
+    async def get_customer_addresses(customer_id: str) -> List[Dict]:
+        """Get all customer addresses"""
+        result = supabase.table("customer_addresses").select("*").eq("customer_id", customer_id).order("is_default", desc=True).execute()
+        return result.data
+    
+class MonnifyService:
+    BASE_URL = "https://sandbox-api.monnify.com"  # Use production URL for live
+    
+    @staticmethod
+    async def get_access_token() -> str:
+        """Get Monnify access token"""
+        from ..config import settings
+        
+        # Encode API key and secret
+        credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        headers = {
+            "Authorization": f"Basic {encoded_credentials}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(
+            f"{MonnifyService.BASE_URL}/api/v1/auth/login",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            return response.json()["responseBody"]["accessToken"]
+        else:
+            raise Exception("Failed to get Monnify access token")
+    
+    @staticmethod
+    async def create_virtual_account(
+        payment_reference: str,
+        amount: Decimal,
+        customer_email: str,
+        customer_name: str
+    ) -> Dict[str, Any]:
+        """Create one-time virtual account"""
+        from ..config import settings
+        
+        access_token = await MonnifyService.get_access_token()
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "transactionReference": payment_reference,
+            "amount": float(amount),
+            "customerEmail": customer_email,
+            "customerName": customer_name,
+            "contractCode": settings.MONNIFY_CONTRACT_CODE,
+            "currencyCode": "NGN",
+            "paymentMethods": ["ACCOUNT_TRANSFER"],
+            "incomeSplitConfig": []
+        }
+        
+        response = requests.post(
+            f"{MonnifyService.BASE_URL}/api/v1/merchant/transactions/init-transaction",
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code == 200:
+            data = response.json()["responseBody"]
+            
+            # Extract account details
+            account_details = data["accountDetails"][0]  # First account
+            
+            return {
+                "payment_reference": payment_reference,
+                "account_number": account_details["accountNumber"],
+                "account_name": account_details["accountName"],
+                "bank_name": account_details["bankName"],
+                "amount": amount,
+                "expires_at": datetime.utcnow() + timedelta(hours=1)  # 1 hour expiry
+            }
+        else:
+            raise Exception(f"Failed to create virtual account: {response.text}")
+    
+    @staticmethod
+    async def verify_payment(payment_reference: str) -> Dict[str, Any]:
+        """Verify payment status"""
+        access_token = await MonnifyService.get_access_token()
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.get(
+            f"{MonnifyService.BASE_URL}/api/v2/transactions/{payment_reference}",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            return response.json()["responseBody"]
+        else:
+            raise Exception(f"Failed to verify payment: {response.text}")
