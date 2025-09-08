@@ -42,7 +42,7 @@ async def get_products_for_website(
     if max_price:
         query = query.lte("price", max_price)
     
-    result = query.order("categories.name, product_templates.name").execute()
+    result = query.order("categories.name").order("product_templates.name").execute()
     
     products = []
     for product in result.data:
