@@ -58,6 +58,18 @@ class RedisClient:
         values = self.client.lrange(key, start, stop)
         return [json.loads(v) if v.startswith('{') else v for v in values]
     
+    def get(self, key: str) -> Optional[Any]:
+        try:
+            value = self.client.get(key)
+            if value:
+                try:
+                    return json.loads(value)
+                except:
+                    return value
+            return None
+        except redis.ConnectionError:
+            return None 
+    
     # Hash operations for session
     def hset(self, name: str, mapping: dict):
         self.client.hset(name, mapping=mapping)
