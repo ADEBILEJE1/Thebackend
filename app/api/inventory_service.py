@@ -171,7 +171,7 @@ class InventoryService:
         products = products_result.data
         
         category_valuations = {}
-        total_value = Decimal('0')
+        total_value = 0.0
         total_units = 0
         
         for product in products:
@@ -182,13 +182,13 @@ class InventoryService:
             
             if category_name not in category_valuations:
                 category_valuations[category_name] = {
-                    "total_value": Decimal('0'),
+                    "total_value": 0.0,
                     "total_units": 0,
                     "product_count": 0,
                     "products": []
                 }
             
-            category_valuations[category_name]["total_value"] += product_value
+            category_valuations[category_name]["total_value"] += float(product_value)
             category_valuations[category_name]["total_units"] += product["units"]
             category_valuations[category_name]["product_count"] += 1
             category_valuations[category_name]["products"].append({
