@@ -2,6 +2,7 @@ from typing import Optional, Any
 from datetime import datetime
 from ..database import supabase
 from fastapi import Request
+from ..database import supabase, supabase_admin
 
 async def log_activity(
     user_id: str,
@@ -25,4 +26,4 @@ async def log_activity(
         "ip_address": request.client.host if request else None
     }
     
-    supabase.table("activity_logs").insert(activity).execute()
+    supabase_admin.table("activity_logs").insert(activity).execute()
