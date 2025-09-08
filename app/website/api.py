@@ -42,10 +42,11 @@ async def get_products_for_website(
     if max_price:
         query = query.lte("price", max_price)
     
-    result = query.order("categories(name)").order("product_templates(name)").execute()
+    result = query.execute()
+    sorted_data = sorted(result.data, key=lambda x: (x["categories"]["name"], x["product_templates"]["name"]))
     
     products = []
-    for product in result.data:
+    for product in sorted_data:  # Changed from result.data to sorted_data
         display_name = product["product_templates"]["name"]
         if product["variant_name"]:
             display_name += f" - {product['variant_name']}"
