@@ -35,7 +35,7 @@ class InventoryService:
         out_of_stock_count = len([p for p in products if p["status"] == StockStatus.OUT_OF_STOCK])
         
         # Calculate total inventory value
-        total_value = sum(Decimal(str(p["price"])) * p["units"] for p in products)
+        total_value = sum(float(p["price"]) * p["units"] for p in products)
         
         # Get low stock items
         critical_items = [
@@ -176,7 +176,7 @@ class InventoryService:
         
         for product in products:
             category_name = product["categories"]["name"]
-            product_value = Decimal(str(product["price"])) * product["units"]
+            product_value = float(product["price"]) * product["units"]
             total_value += product_value
             total_units += product["units"]
             
