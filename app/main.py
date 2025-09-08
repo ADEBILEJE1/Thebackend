@@ -125,30 +125,5 @@ async def test_auth(request: Request, current_user: dict = Depends(get_current_u
     return {"user": current_user, "message": "Auth working"}
 
 
-# @app.get("/metrics")
-# async def get_metrics(
-#    current_user: dict = Depends(require_super_admin)
-# ):
-#    """System metrics for monitoring"""
-#    from .services.redis import redis_client
-#    from .core.session import session_manager
-   
-#    # Get Redis info
-#    redis_info = redis_client.client.info()
-   
-#    metrics = {
-#        "active_sessions": session_manager.get_active_sessions(),
-#        "redis": {
-#            "connected_clients": redis_info.get("connected_clients", 0),
-#            "used_memory": redis_info.get("used_memory_human", "0"),
-#            "total_commands": redis_info.get("total_commands_processed", 0),
-#            "cache_hits": redis_info.get("keyspace_hits", 0),
-#            "cache_misses": redis_info.get("keyspace_misses", 0)
-#        },
-#        "queues": {
-#            "pending_orders": len(redis_client.lrange("orders:queue:pending", 0, -1)),
-#            "kitchen_queue": len(redis_client.lrange("orders:queue:kitchen", 0, -1))
-#        }
-#    }
-   
-#    return metrics
+
+app = app 
