@@ -359,3 +359,15 @@ async def logout(
         pass
     
     return {"message": "Logged out successfully"}
+
+
+
+@router.get("/debug/auth-test")
+async def debug_auth():
+    import os
+    return {
+        "supabase_url": os.getenv("SUPABASE_URL", "NOT_SET")[:30] + "...",
+        "has_supabase_key": bool(os.getenv("SUPABASE_KEY")),
+        "has_service_key": bool(os.getenv("SUPABASE_SERVICE_KEY")),
+        "environment": "production"
+    }
