@@ -220,7 +220,7 @@ async def create_product(
             "notes": "Initial stock",
             "entered_by": current_user["id"]
         }
-        supabase.table("stock_entries").insert(stock_entry).execute()
+        supabase_admin.table("stock_entries").insert(stock_entry).execute()
     
     return {"message": "Product created", "data": result.data[0]}
 
