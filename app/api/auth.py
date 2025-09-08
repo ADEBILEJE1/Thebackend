@@ -371,3 +371,51 @@ async def debug_auth():
         "has_service_key": bool(os.getenv("SUPABASE_SERVICE_KEY")),
         "environment": "production"
     }
+
+@router.post("/debug/login", response_model=dict)
+async def debug_login(credentials: UserLogin, request: Request):
+    print(f"DEBUG: Starting login for email: {credentials.email}")
+    
+    try:
+        print("DEBUG: Attempting Supabase authentication")
+        
+        # Use Supabase Auth
+        response = supabase.auth.sign_in_with_password({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+        
+        print(f"DEBUG: Auth successful! User ID: {response.user.id}")
+        
+        # Get profile
+        print("DEBUG: Attempting to fetch user profile")
+        profile = supabase_admin.table("profiles").select("*").eq("id", response.user.id).single().execute()
+        
+        print(f"DEBUG: Profile query executed")
+        print(f"DEBUG: Profile data: {profile.data}")
+        
+        if not profile.data:
+            print("DEBUG: No profile found")
+            return {"error": "No profile found", "user_id": response.user.id}
+        
+        print(f"DEBUG: Profile found for user: {profile.data.get('email')}")
+        print(f"DEBUG: User is_active: {profile.data.get('is_active')}")
+        
+        if not profile.data["is_active"]:
+            print("DEBUG: User account is deactivated")
+            return {"error": "Account deactivated", "profile": profile.data}
+        
+        return {
+            "success": True,
+            "user_id": response.user.id,
+            "profile": profile.data,
+            "auth_user": {
+                "email": response.user.email,
+                "id": response.user.id
+            }
+        }
+        
+    except Exception as e:
+        print(f"DEBUG: Error: {str(e)}")
+        print(f"DEBUG: Error type: {type(e)}")
+        return {"error": str(e), "error_type": str(type(e))}
