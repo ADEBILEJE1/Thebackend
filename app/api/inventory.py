@@ -187,10 +187,10 @@ async def create_product(
             raise HTTPException(status_code=404, detail="Supplier not found")
     
     # Check SKU uniqueness if provided
-    if product.sku:
-        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).execute()
+    if product.sku and product.supplier_id:
+        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
         if existing_sku.data:
-            raise HTTPException(status_code=400, detail="SKU already exists")
+            raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
     
     # Determine stock status
     status = StockStatus.OUT_OF_STOCK
