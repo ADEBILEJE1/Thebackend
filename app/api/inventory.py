@@ -146,7 +146,13 @@ async def update_category(
     update: CategoryUpdate,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    updates = {k: v for k, v in update.dict().items() if v is not None}
+    updates = {}
+    for k, v in update.dict().items():
+        if v is not None:
+            if k == "price":
+                updates[k] = float(v)
+            else:
+                updates[k] = v
     
     if updates:
         result = supabase.table("categories").update(updates).eq("id", category_id).execute()
@@ -190,8 +196,10 @@ async def create_product(
     elif product.units > 0:
         status = StockStatus.LOW_STOCK
     
+    product_dict = product.dict()
+    product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
     product_data = {
-        **product.dict(),
+        **product_dict,
         "status": status,
         "created_by": current_user["id"],
         "updated_by": current_user["id"]
@@ -272,7 +280,13 @@ async def update_product(
     update: ProductUpdate,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    updates = {k: v for k, v in update.dict().items() if v is not None}
+    updates = {}
+    for k, v in update.dict().items():
+        if v is not None:
+            if k == "price":
+                updates[k] = float(v)
+            else:
+                updates[k] = v
     
     if updates:
         updates["updated_by"] = current_user["id"]
