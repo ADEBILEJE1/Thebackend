@@ -11,6 +11,66 @@ from .services import MonnifyService
 router = APIRouter(prefix="/website", tags=["Website"])
 
 # Product Browsing
+# @router.get("/products")
+# async def get_products_for_website(
+#     category_id: Optional[str] = None,
+#     search: Optional[str] = None,
+#     min_price: Optional[float] = None,
+#     max_price: Optional[float] = None
+# ):
+#     """Get products for website display"""
+#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     query = supabase.table("products").select("""
+#         id, sku, variant_name, price, description, image_url, units, status, is_available,
+#         product_templates(name),
+#         categories(id, name)
+#     """).eq("is_available", True).neq("status", "out_of_stock")
+    
+#     if category_id:
+#         query = query.eq("category_id", category_id)
+    
+#     if search:
+#         query = query.or_(f"product_templates.name.ilike.%{search}%,categories.name.ilike.%{search}%")
+    
+#     if min_price:
+#         query = query.gte("price", min_price)
+    
+#     if max_price:
+#         query = query.lte("price", max_price)
+    
+#     result = query.execute()
+#     sorted_data = sorted(result.data, key=lambda x: (
+#         x.get("categories", {}).get("name", ""), 
+#         x.get("product_templates", {}).get("name", "")
+#     ))
+    
+#     products = []
+#     for product in sorted_data:  # Changed from result.data to sorted_data
+#         display_name = product.get("product_templates", {}).get("name") if product.get("product_templates") else product.get("name", "Unknown")
+#         if product["variant_name"]:
+#             display_name += f" - {product['variant_name']}"
+        
+#         products.append({
+#             "id": product["id"],
+#             "name": display_name,
+#             "price": float(product["price"]),
+#             "description": product["description"],
+#             "image_url": product["image_url"],
+#             "available_stock": product["units"],
+#             "category": product["categories"]
+#         })
+    
+#     redis_client.set(cache_key, products, 300)
+#     return products
+
+
+
+
+
 @router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
@@ -44,15 +104,29 @@ async def get_products_for_website(
     
     result = query.execute()
     sorted_data = sorted(result.data, key=lambda x: (
-        x.get("categories", {}).get("name", ""), 
-        x.get("product_templates", {}).get("name", "")
+        x.get("categories", {}).get("name", "") if x.get("categories") else "", 
+        x.get("product_templates", {}).get("name", "") if x.get("product_templates") else ""
     ))
     
     products = []
-    for product in sorted_data:  # Changed from result.data to sorted_data
-        display_name = product["product_templates"]["name"]
-        if product["variant_name"]:
-            display_name += f" - {product['variant_name']}"
+    for product in sorted_data:
+        # Handle missing product_templates
+        template_name = ""
+        if product.get("product_templates") and product["product_templates"]:
+            template_name = product["product_templates"]["name"]
+        
+        display_name = template_name
+        if product.get("variant_name"):
+            display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
+        
+        # Fallback if no template name and no variant
+        if not display_name:
+            display_name = f"Product {product['id'][:8]}"
+        
+        # Handle missing categories
+        category = {"id": None, "name": "Uncategorized"}
+        if product.get("categories") and product["categories"]:
+            category = product["categories"]
         
         products.append({
             "id": product["id"],
@@ -61,11 +135,14 @@ async def get_products_for_website(
             "description": product["description"],
             "image_url": product["image_url"],
             "available_stock": product["units"],
-            "category": product["categories"]
+            "category": category
         })
     
     redis_client.set(cache_key, products, 300)
     return products
+
+
+
 
 @router.get("/categories")
 async def get_categories_for_website():
