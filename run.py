@@ -27,18 +27,7 @@
 #     )
 
 
+from app.main import app
 
-{
-  "builds": [
-    {
-      "src": "app/main.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/app/main.py"
-    }
-  ]
-}
+# Export for Vercel
+app = app
