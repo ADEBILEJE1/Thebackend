@@ -165,7 +165,7 @@ async def register(user_data: UserCreate):
 @router.post("/login", response_model=dict)
 async def login(credentials: UserLogin, request: Request):
     # Rate limiting
-    await auth_limiter.check_rate_limit(request, credentials.email)
+    # await auth_limiter.check_rate_limit(request, credentials.email)
     
     try:
         # Use Supabase Auth
