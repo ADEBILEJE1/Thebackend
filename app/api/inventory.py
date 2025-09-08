@@ -172,6 +172,9 @@ async def create_product(
     if not template.data:
         raise HTTPException(status_code=404, detail="Product template not found")
     
+
+    template_data = template.data[0]
+
     # Verify category exists
     category = supabase.table("categories").select("id").eq("id", product.category_id).execute()
     if not category.data:
@@ -200,6 +203,7 @@ async def create_product(
     product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
     product_data = {
         **product_dict,
+        "name": template_data["name"],
         "status": status,
         "created_by": current_user["id"],
         "updated_by": current_user["id"]
