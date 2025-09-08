@@ -428,7 +428,7 @@ async def get_low_stock_items(
     if cached:
         return cached
     
-    result = supabase.table("products").select("*, categories(name)").in_("status", [StockStatus.LOW_STOCK, StockStatus.OUT_OF_STOCK]).order("units").execute()
+    result = supabase.table("products").select("*, categories(name)").in_("status", [StockStatus.LOW_STOCK.value, StockStatus.OUT_OF_STOCK.value]).order("units").execute()
     
     # Cache for 5 minutes
     redis_client.set(CacheKeys.LOW_STOCK_ALERTS, result.data, 300)

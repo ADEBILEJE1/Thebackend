@@ -43,7 +43,10 @@ async def get_products_for_website(
         query = query.lte("price", max_price)
     
     result = query.execute()
-    sorted_data = sorted(result.data, key=lambda x: (x["categories"]["name"], x["product_templates"]["name"]))
+    sorted_data = sorted(result.data, key=lambda x: (
+        x.get("categories", {}).get("name", ""), 
+        x.get("product_templates", {}).get("name", "")
+    ))
     
     products = []
     for product in sorted_data:  # Changed from result.data to sorted_data
