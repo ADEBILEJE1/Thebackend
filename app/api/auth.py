@@ -164,9 +164,6 @@ async def register(user_data: UserCreate):
 
 @router.post("/login", response_model=dict)
 async def login(credentials: UserLogin, request: Request):
-    # Rate limiting
-    # await auth_limiter.check_rate_limit(request, credentials.email)
-    
     try:
         # Use Supabase Auth
         response = supabase.auth.sign_in_with_password({
@@ -192,11 +189,16 @@ async def login(credentials: UserLogin, request: Request):
             )
         
         # Create Redis session
-        session_manager.create_session(
-            response.user.id,
-            profile.data,
-            response.session.access_token
-        )
+        try:
+            session_manager.create_session(
+                response.user.id,
+                profile.data,
+                response.session.access_token
+            )
+            print("DEBUG: Redis session created successfully")
+        except Exception as redis_error:
+            print(f"DEBUG: Redis session failed: {str(redis_error)}")
+            # Continue without Redis session for now
         
         # Update last login
         supabase.table("profiles").update({
@@ -212,10 +214,13 @@ async def login(credentials: UserLogin, request: Request):
                 "role": profile.data["role"]
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"DEBUG: Login error: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}"
         )
 
 
