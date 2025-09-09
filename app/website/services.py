@@ -104,6 +104,45 @@ class CustomerService:
         
         return session_token
 
+    @staticmethod
+    async def check_email_and_handle_auth(email: str, phone: str = None, full_name: str = None) -> Dict[str, Any]:
+        """Check if email exists and handle authentication accordingly"""
+        existing = supabase.table("website_customers").select("*").eq("email", email).execute()
+        
+        if existing.data:
+            # Email exists - require PIN verification
+            pin = CustomerService.generate_pin()
+            redis_client.set(f"login_pin:{email}", pin, 600)
+            print(f"PIN for {email}: {pin}")
+            
+            return {
+                "requires_pin": True,
+                "customer_id": existing.data[0]["id"],
+                "message": "Email found. PIN sent for verification."
+            }
+        else:
+            # New email - auto-register
+            if not full_name:
+                full_name = CustomerService.extract_name_from_email(email)
+            
+            customer_data = {
+                "email": email,
+                "full_name": full_name,
+                "phone": phone,
+                "last_seen": datetime.utcnow().isoformat()
+            }
+            
+            result = supabase.table("website_customers").insert(customer_data).execute()
+            session_token = await CustomerService.create_customer_session(result.data[0]["id"])
+            
+            return {
+                "requires_pin": False,
+                "customer": result.data[0],
+                "session_token": session_token,
+                "message": "Account created successfully."
+            }
+
+
 class DeliveryService:
     RESTAURANT_LAT = 7.3775  # Ibadan coordinates
     RESTAURANT_LNG = 3.9470

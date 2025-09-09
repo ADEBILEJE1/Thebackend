@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 import json
+from pydantic import BaseModel
+from datetime import datetime
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService
 # from ..database import supabase
@@ -155,38 +157,8 @@ async def get_categories_for_website():
     result = supabase_admin.table("categories").select("*").eq("is_active", True).order("name").execute()
     
     redis_client.set("website:categories", result.data, 600)
+    
     return result.data
-
-
-# Customer Authentication
-@router.post("/auth/request-pin")
-async def request_login_pin(login_data: CustomerLogin):
-    """Request login PIN for email"""
-    success = await CustomerService.send_login_pin(login_data.email)
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to send PIN")
-    
-    return {"message": "PIN sent to your email"}
-
-@router.post("/auth/verify-pin")
-async def verify_login_pin(verify_data: PinVerification):
-    """Verify PIN and create session"""
-    is_valid = await CustomerService.verify_pin(verify_data.email, verify_data.pin)
-    
-    if not is_valid:
-        raise HTTPException(status_code=400, detail="Invalid or expired PIN")
-    
-    # Get or create customer
-    customer = await CustomerService.get_or_create_customer(verify_data.email)
-    
-    # Create session
-    session_token = await CustomerService.create_customer_session(customer["id"])
-    
-    return {
-        "session_token": session_token,
-        "customer": customer
-    }
 
 @router.get("/auth/session")
 async def get_customer_session(session_token: str = Query(...)):
@@ -203,13 +175,48 @@ async def get_customer_session(session_token: str = Query(...)):
     
     return customer.data[0]
 
-# Address Management
+
+
+
+@router.post("/addresses/check-email")
+async def check_email_for_address(email_data: EmailCheck):
+    """Check email and handle authentication flow"""
+    return await CustomerService.check_email_and_handle_auth(
+        email_data.email, 
+        email_data.phone, 
+        email_data.full_name
+    )
+
+@router.post("/addresses/verify-and-save")
+async def verify_pin_and_save_address(verify_data: PinVerifyAndAddress):
+    """Verify PIN and save address"""
+    is_valid = await CustomerService.verify_pin(verify_data.email, verify_data.pin)
+    
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid or expired PIN")
+    
+    customer = supabase_admin.table("website_customers").select("*").eq("email", verify_data.email).execute()
+    session_token = await CustomerService.create_customer_session(customer.data[0]["id"])
+    
+    address = await AddressService.save_customer_address(
+        customer.data[0]["id"],
+        verify_data.address_data
+    )
+    
+    return {
+        "session_token": session_token,
+        "customer": customer.data[0],
+        "address": address
+    }
+
+
+
 @router.post("/addresses")
 async def save_address(
     address_data: AddressCreate,
     session_token: str = Query(...)
 ):
-    """Save customer address"""
+    """Save address with existing session"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
@@ -230,6 +237,7 @@ async def get_addresses(session_token: str = Query(...)):
     
     addresses = await AddressService.get_customer_addresses(session_data["customer_id"])
     return addresses
+
 
 # Cart and Checkout
 @router.post("/cart/validate")

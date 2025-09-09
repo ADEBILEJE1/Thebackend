@@ -77,3 +77,13 @@ class VirtualAccountResponse(BaseModel):
     amount: Decimal
     payment_reference: str
     expires_at: datetime
+
+class EmailCheck(BaseModel):
+    email: str
+    phone: Optional[str] = None
+    full_name: Optional[str] = None
+
+class PinVerifyAndAddress(BaseModel):
+    email: str
+    pin: str
+    address_data: Dict[str, Any]
