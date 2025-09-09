@@ -4,7 +4,8 @@ from decimal import Decimal
 import json
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService
-from ..database import supabase
+# from ..database import supabase
+from ..database import supabase_admin
 from ..services.redis import redis_client
 from .services import MonnifyService
 
@@ -84,7 +85,7 @@ async def get_products_for_website(
     if cached:
         return cached
     
-    query = supabase.table("products").select("""
+    query = supabase_admin.table("products").select("""
         id, sku, variant_name, price, description, image_url, units, status, is_available,
         product_templates(name),
         categories(id, name)
@@ -151,10 +152,11 @@ async def get_categories_for_website():
     if cached:
         return cached
     
-    result = supabase.table("categories").select("*").eq("is_active", True).order("name").execute()
+    result = supabase_admin.table("categories").select("*").eq("is_active", True).order("name").execute()
     
     redis_client.set("website:categories", result.data, 600)
     return result.data
+
 
 # Customer Authentication
 @router.post("/auth/request-pin")
@@ -194,7 +196,7 @@ async def get_customer_session(session_token: str = Query(...)):
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    customer = supabase.table("website_customers").select("*").eq("id", session_data["customer_id"]).execute()
+    customer = supabase_admin.table("website_customers").select("*").eq("id", session_data["customer_id"]).execute()
     
     if not customer.data:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -288,7 +290,7 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
         
         # Get delivery address
         if order.delivery_address_id:
-            address_result = supabase.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
+            address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
             if not address_result.data:
                 raise HTTPException(status_code=404, detail="Address not found")
             
@@ -365,7 +367,7 @@ async def complete_checkout(
             "website_customer_id": session_data["customer_id"]
         }
         
-        created_order = supabase.table("orders").insert(order_data).execute()
+        created_order = supabase_admin.table("orders").insert(order_data).execute()
         order_id = created_order.data[0]["id"]
         
         # Create order items
@@ -379,7 +381,7 @@ async def complete_checkout(
                 "total_price": float(item["total_price"]),
                 "notes": item.get("notes")
             }
-            supabase.table("order_items").insert(item_data).execute()
+            supabase_admin.table("order_items").insert(item_data).execute()
         
         created_orders.append(created_order.data[0])
     
@@ -459,7 +461,7 @@ async def verify_payment(payment_reference: str):
                    "confirmed_at": datetime.utcnow().isoformat()
                }
                
-               created_order = supabase.table("orders").insert(order_entry).execute()
+               created_order = supabase_admin.table("orders").insert(order_entry).execute()
                order_id = created_order.data[0]["id"]
                
                for item in processed_items:
@@ -471,7 +473,7 @@ async def verify_payment(payment_reference: str):
                        "unit_price": float(item["unit_price"]),
                        "total_price": float(item["total_price"])
                    }
-                   supabase.table("order_items").insert(item_data).execute()
+                   supabase_admin.table("order_items").insert(item_data).execute()
                
                created_orders.append(created_order.data[0])
            
@@ -533,7 +535,7 @@ async def get_order_history(
         raise HTTPException(status_code=401, detail="Invalid session")
     
     # Get orders with items
-    orders = supabase.table("orders").select("""
+    orders = supabase_admin.table("orders").select("""
         id, order_number, status, payment_status, total, created_at,
         order_items(product_name, quantity, unit_price, total_price)
     """).eq("website_customer_id", session_data["customer_id"]).order(
@@ -557,7 +559,7 @@ async def get_order_details(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    order = supabase.table("orders").select("""
+    order = supabase_admin.table("orders").select("""
         *, order_items(*), customer_addresses(*)
     """).eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
     
@@ -578,7 +580,7 @@ async def get_order_tracking(
         raise HTTPException(status_code=401, detail="Invalid session")
     
     # Get order
-    order = supabase.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
+    order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found")

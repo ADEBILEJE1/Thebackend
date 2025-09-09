@@ -46,6 +46,8 @@ class ProductCreate(BaseModel):
     image_url: Optional[str] = None
     units: int = Field(ge=0, default=0)
     low_stock_threshold: int = Field(gt=0, default=10)
+    product_type: str = Field(default="main", pattern="^(main|extra)$")
+    main_product_id: Optional[str] = None
 
 class ProductUpdate(BaseModel):
     category_id: Optional[str] = None
@@ -55,6 +57,8 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     low_stock_threshold: Optional[int] = Field(gt=0, default=None)
+    product_type: Optional[str] = Field(pattern="^(main|extra)$", default=None)
+    main_product_id: Optional[str] = None
 
 class StockUpdate(BaseModel):
     quantity: int = Field(gt=0)
@@ -63,6 +67,29 @@ class StockUpdate(BaseModel):
 
 class ProductAvailability(BaseModel):
     is_available: bool
+
+class SKUCodeCreate(BaseModel):
+   code: str = Field(max_length=50)
+   name: str = Field(max_length=200)
+   description: Optional[str] = None
+   category_id: Optional[str] = None
+   supplier_id: Optional[str] = None
+   barcode: Optional[str] = None
+   manufacturer_code: Optional[str] = None
+
+class SKUCodeUpdate(BaseModel):
+   name: Optional[str] = Field(max_length=200, default=None)
+   description: Optional[str] = None
+   category_id: Optional[str] = None
+   supplier_id: Optional[str] = None
+   barcode: Optional[str] = None
+   manufacturer_code: Optional[str] = None
+   is_active: Optional[bool] = None
+
+class SKUMapping(BaseModel):
+   sku_code_id: str
+   is_primary: bool = False
+
 
 class ProductResponse(BaseModel):
     id: str
@@ -75,6 +102,7 @@ class ProductResponse(BaseModel):
     status: str
     is_available: bool
     low_stock_threshold: int
+    sku_mappings: List[Dict[str, Any]] = []
 
 class SupplierCreate(BaseModel):
     name: str
@@ -162,67 +190,147 @@ async def update_category(
     return {"message": "Category updated"}
 
 # Products
+# @router.post("/products", response_model=dict)
+# async def create_product(
+#     product: ProductCreate,
+#     current_user: dict = Depends(require_inventory_staff)
+# ):
+#     # Verify product template exists
+#     template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
+#     if not template.data:
+#         raise HTTPException(status_code=404, detail="Product template not found")
+    
+
+#     template_data = template.data[0]
+
+#     # Verify category exists
+#     category = supabase.table("categories").select("id").eq("id", product.category_id).execute()
+#     if not category.data:
+#         raise HTTPException(status_code=404, detail="Category not found")
+    
+#     # Verify supplier exists if provided
+#     if product.supplier_id:
+#         supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
+#         if not supplier.data:
+#             raise HTTPException(status_code=404, detail="Supplier not found")
+    
+#     # Check SKU uniqueness if provided
+#     if product.sku and product.supplier_id:
+#         existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
+#         if existing_sku.data:
+#             raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
+    
+#     # Determine stock status
+#     status = StockStatus.OUT_OF_STOCK
+#     if product.units > product.low_stock_threshold:
+#         status = StockStatus.IN_STOCK
+#     elif product.units > 0:
+#         status = StockStatus.LOW_STOCK
+    
+#     product_dict = product.dict()
+#     product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
+#     product_data = {
+#         **product_dict,
+#         "name": template_data["name"],
+#         "status": status,
+#         "created_by": current_user["id"],
+#         "updated_by": current_user["id"]
+#     }
+    
+#     result = supabase.table("products").insert(product_data).execute()
+    
+#     # Log initial stock if units > 0
+#     if product.units > 0:
+#         stock_entry = {
+#             "product_id": result.data[0]["id"],
+#             "quantity": product.units,
+#             "entry_type": "add",
+#             "notes": "Initial stock",
+#             "entered_by": current_user["id"]
+#         }
+#         supabase_admin.table("stock_entries").insert(stock_entry).execute()
+    
+#     return {"message": "Product created", "data": result.data[0]}
+
+
+
 @router.post("/products", response_model=dict)
 async def create_product(
-    product: ProductCreate,
-    current_user: dict = Depends(require_inventory_staff)
+   product: ProductCreate,
+   current_user: dict = Depends(require_inventory_staff)
 ):
-    # Verify product template exists
-    template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
-    if not template.data:
-        raise HTTPException(status_code=404, detail="Product template not found")
-    
+   # Verify product template exists
+   template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
+   if not template.data:
+       raise HTTPException(status_code=404, detail="Product template not found")
+   
+   template_data = template.data[0]
 
-    template_data = template.data[0]
+   # Verify category exists
+   category = supabase.table("categories").select("id").eq("id", product.category_id).execute()
+   if not category.data:
+       raise HTTPException(status_code=404, detail="Category not found")
+   
+   # Verify supplier exists if provided
+   if product.supplier_id:
+       supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
+       if not supplier.data:
+           raise HTTPException(status_code=404, detail="Supplier not found")
+   
+   # Validate product type and main product relationship
+   if product.product_type == "extra":
+       if not product.main_product_id:
+           raise HTTPException(status_code=400, detail="Extra products must have a main product")
+       
+       main_product = supabase.table("products").select("id, product_type").eq("id", product.main_product_id).execute()
+       if not main_product.data:
+           raise HTTPException(status_code=404, detail="Main product not found")
+       
+       if main_product.data[0]["product_type"] != "main":
+           raise HTTPException(status_code=400, detail="Can only link to main products")
+   
+   elif product.product_type == "main" and product.main_product_id:
+       raise HTTPException(status_code=400, detail="Main products cannot have a main product reference")
+   
+   # Check SKU uniqueness if provided
+   if product.sku and product.supplier_id:
+       existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
+       if existing_sku.data:
+           raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
+   
+   # Determine stock status
+   status = StockStatus.OUT_OF_STOCK
+   if product.units > product.low_stock_threshold:
+       status = StockStatus.IN_STOCK
+   elif product.units > 0:
+       status = StockStatus.LOW_STOCK
+   
+   product_dict = product.dict()
+   product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
+   product_data = {
+       **product_dict,
+       "name": template_data["name"],
+       "status": status,
+       "created_by": current_user["id"],
+       "updated_by": current_user["id"]
+   }
+   
+   result = supabase.table("products").insert(product_data).execute()
+   
+   # Log initial stock if units > 0
+   if product.units > 0:
+       stock_entry = {
+           "product_id": result.data[0]["id"],
+           "quantity": product.units,
+           "entry_type": "add",
+           "notes": "Initial stock",
+           "entered_by": current_user["id"]
+       }
+       supabase_admin.table("stock_entries").insert(stock_entry).execute()
+   
+   return {"message": "Product created", "data": result.data[0]}
 
-    # Verify category exists
-    category = supabase.table("categories").select("id").eq("id", product.category_id).execute()
-    if not category.data:
-        raise HTTPException(status_code=404, detail="Category not found")
-    
-    # Verify supplier exists if provided
-    if product.supplier_id:
-        supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
-        if not supplier.data:
-            raise HTTPException(status_code=404, detail="Supplier not found")
-    
-    # Check SKU uniqueness if provided
-    if product.sku and product.supplier_id:
-        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
-        if existing_sku.data:
-            raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
-    
-    # Determine stock status
-    status = StockStatus.OUT_OF_STOCK
-    if product.units > product.low_stock_threshold:
-        status = StockStatus.IN_STOCK
-    elif product.units > 0:
-        status = StockStatus.LOW_STOCK
-    
-    product_dict = product.dict()
-    product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
-    product_data = {
-        **product_dict,
-        "name": template_data["name"],
-        "status": status,
-        "created_by": current_user["id"],
-        "updated_by": current_user["id"]
-    }
-    
-    result = supabase.table("products").insert(product_data).execute()
-    
-    # Log initial stock if units > 0
-    if product.units > 0:
-        stock_entry = {
-            "product_id": result.data[0]["id"],
-            "quantity": product.units,
-            "entry_type": "add",
-            "notes": "Initial stock",
-            "entered_by": current_user["id"]
-        }
-        supabase_admin.table("stock_entries").insert(stock_entry).execute()
-    
-    return {"message": "Product created", "data": result.data[0]}
+
 
 @router.get("/products", response_model=List[dict])
 async def get_products(
@@ -433,6 +541,25 @@ async def get_low_stock_items(
     # Cache for 5 minutes
     redis_client.set(CacheKeys.LOW_STOCK_ALERTS, result.data, 300)
     
+    return result.data
+
+
+
+@router.get("/main-products-dropdown")
+async def get_main_products(
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Get main products dropdown   for linking extra products"""
+    result = supabase.table("products").select("id, name, price").eq("product_type", "main").eq("is_available", True).order("name").execute()
+    return result.data
+
+@router.get("/products/{product_id}/extras")
+async def get_product_extras(
+    product_id: str,
+    current_user: dict = Depends(require_staff)
+):
+    """Get extra products linked to a main product"""
+    result = supabase.table("products").select("*").eq("main_product_id", product_id).eq("is_available", True).execute()
     return result.data
 
 
@@ -879,3 +1006,148 @@ async def get_all_inventory_staff_analytics(
             "most_productive": max(all_staff_analytics, key=lambda x: x["stock_management"]["total_entries"])["staff_email"] if all_staff_analytics else None
         }
     }
+
+@router.post("/sku-codes", response_model=dict)
+async def create_sku_code(
+   sku: SKUCodeCreate,
+   current_user: dict = Depends(require_inventory_staff)
+):
+   # Check unique code
+   existing = supabase.table("sku_codes").select("id").eq("code", sku.code).execute()
+   if existing.data:
+       raise HTTPException(status_code=400, detail="SKU code already exists")
+   
+   # Verify category if provided
+   if sku.category_id:
+       category = supabase.table("categories").select("id").eq("id", sku.category_id).execute()
+       if not category.data:
+           raise HTTPException(status_code=404, detail="Category not found")
+   
+   # Verify supplier if provided
+   if sku.supplier_id:
+       supplier = supabase.table("suppliers").select("id").eq("id", sku.supplier_id).execute()
+       if not supplier.data:
+           raise HTTPException(status_code=404, detail="Supplier not found")
+   
+   sku_data = {**sku.dict(), "created_by": current_user["id"]}
+   result = supabase.table("sku_codes").insert(sku_data).execute()
+   return {"message": "SKU code created", "data": result.data[0]}
+
+@router.get("/sku-codes", response_model=List[dict])
+async def get_sku_codes(
+   active_only: bool = True,
+   category_id: Optional[str] = None,
+   supplier_id: Optional[str] = None,
+   search: Optional[str] = None,
+   current_user: dict = Depends(require_staff)
+):
+   query = supabase.table("sku_codes").select("*, categories(name), suppliers(name)")
+   
+   if active_only:
+       query = query.eq("is_active", True)
+   if category_id:
+       query = query.eq("category_id", category_id)
+   if supplier_id:
+       query = query.eq("supplier_id", supplier_id)
+   if search:
+       query = query.or_(f"code.ilike.%{search}%,name.ilike.%{search}%")
+   
+   result = query.order("code").execute()
+   return result.data
+
+@router.patch("/sku-codes/{sku_id}")
+async def update_sku_code(
+   sku_id: str,
+   update: SKUCodeUpdate,
+   current_user: dict = Depends(require_inventory_staff)
+):
+   updates = {k: v for k, v in update.dict().items() if v is not None}
+   
+   if updates:
+       updates["updated_at"] = datetime.utcnow().isoformat()
+       result = supabase.table("sku_codes").update(updates).eq("id", sku_id).execute()
+       if not result.data:
+           raise HTTPException(status_code=404, detail="SKU code not found")
+   
+   return {"message": "SKU code updated"}
+
+@router.delete("/sku-codes/{sku_id}")
+async def deactivate_sku_code(
+   sku_id: str,
+   current_user: dict = Depends(require_inventory_staff)
+):
+   result = supabase.table("sku_codes").update({"is_active": False}).eq("id", sku_id).execute()
+   if not result.data:
+       raise HTTPException(status_code=404, detail="SKU code not found")
+   
+   return {"message": "SKU code deactivated"}
+
+# Product-SKU Mapping
+@router.post("/products/{product_id}/map-sku")
+async def map_sku_to_product(
+   product_id: str,
+   mapping: SKUMapping,
+   current_user: dict = Depends(require_inventory_staff)
+):
+   # Verify product exists
+   product = supabase.table("products").select("id").eq("id", product_id).execute()
+   if not product.data:
+       raise HTTPException(status_code=404, detail="Product not found")
+   
+   # Verify SKU exists
+   sku = supabase.table("sku_codes").select("id").eq("id", mapping.sku_code_id).execute()
+   if not sku.data:
+       raise HTTPException(status_code=404, detail="SKU code not found")
+   
+   # Check if mapping already exists
+   existing = supabase.table("product_sku_mappings").select("id").eq("product_id", product_id).eq("sku_code_id", mapping.sku_code_id).execute()
+   if existing.data:
+       raise HTTPException(status_code=400, detail="SKU already mapped to this product")
+   
+   # If setting as primary, remove primary flag from other mappings
+   if mapping.is_primary:
+       supabase.table("product_sku_mappings").update({"is_primary": False}).eq("product_id", product_id).execute()
+   
+   mapping_data = {
+       "product_id": product_id,
+       "sku_code_id": mapping.sku_code_id,
+       "is_primary": mapping.is_primary,
+       "mapped_by": current_user["id"]
+   }
+   
+   result = supabase.table("product_sku_mappings").insert(mapping_data).execute()
+   return {"message": "SKU mapped to product", "data": result.data[0]}
+
+@router.delete("/products/{product_id}/unmap-sku/{sku_id}")
+async def unmap_sku_from_product(
+   product_id: str,
+   sku_id: str,
+   current_user: dict = Depends(require_inventory_staff)
+):
+   result = supabase.table("product_sku_mappings").delete().eq("product_id", product_id).eq("sku_code_id", sku_id).execute()
+   if not result.data:
+       raise HTTPException(status_code=404, detail="Mapping not found")
+   
+   return {"message": "SKU unmapped from product"}
+
+@router.get("/products/{product_id}/skus")
+async def get_product_skus(
+   product_id: str,
+   current_user: dict = Depends(require_staff)
+):
+   result = supabase.table("product_sku_mappings").select(
+       "*, sku_codes(code, name, description, barcode)"
+   ).eq("product_id", product_id).execute()
+   
+   return result.data
+
+@router.get("/sku-codes/{sku_id}/products")
+async def get_sku_products(
+   sku_id: str,
+   current_user: dict = Depends(require_staff)
+):
+   result = supabase.table("product_sku_mappings").select(
+       "*, products(id, name, price, units, status)"
+   ).eq("sku_code_id", sku_id).execute()
+   
+   return result.data
