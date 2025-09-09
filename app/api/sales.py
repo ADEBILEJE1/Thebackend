@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks
-from typing import List, Optional
+from typing import List, Optional,  Dict, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
+import random
 from .sales_service import SalesService
 from pydantic import BaseModel, Field, validator, EmailStr
 from ..models.user import UserRole
@@ -17,6 +18,8 @@ from ..core.rate_limiter import default_limiter
 from ..services.redis import redis_client
 from ..database import supabase
 from ..api.websocket import notify_order_update
+from ..website.services import CartService
+
 
 
 
@@ -30,9 +33,23 @@ class DateRangeFilter(BaseModel):
     date_to: Optional[date] = None
     days: Optional[int] = Field(None, ge=1, le=365)
 
+class OfflineOrderCreate(BaseModel):
+    items: List[Dict[str, Any]]
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    payment_method: str = Field(..., pattern="^(cash|card|transfer)$")
+    notes: Optional[str] = None
+
+class OrderConfirm(BaseModel):
+    payment_confirmed: bool
+
 
 
 router = APIRouter(prefix="/sales", tags=["Sales Dashboard"])
+
+
+
+
 
 # Main Sales Dashboard
 @router.get("/dashboard")
@@ -51,6 +68,97 @@ async def get_sales_dashboard(
     )
     
     return dashboard_data
+
+
+
+@router.get("/products")
+async def get_products_for_orders(
+    request: Request,
+    category_id: Optional[str] = None,
+    search: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    include_low_stock: bool = True,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Get products for sales order creation"""
+    await default_limiter.check_rate_limit(request, current_user["id"])
+    
+    cache_key = f"sales:products:{category_id}:{search}:{min_price}:{max_price}:{include_low_stock}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    query = supabase.table("products").select("""
+        id, sku, variant_name, price, description, image_url, units, status, is_available,
+        product_templates(name),
+        categories(id, name)
+    """).eq("is_available", True)
+    
+    if not include_low_stock:
+        query = query.neq("status", "low_stock").neq("status", "out_of_stock")
+    else:
+        query = query.neq("status", "out_of_stock")
+    
+    if category_id:
+        query = query.eq("category_id", category_id)
+    
+    if search:
+        query = query.or_(f"product_templates.name.ilike.%{search}%,categories.name.ilike.%{search}%")
+    
+    if min_price:
+        query = query.gte("price", min_price)
+    
+    if max_price:
+        query = query.lte("price", max_price)
+    
+    result = query.execute()
+    
+    products = []
+    for product in result.data:
+        template_name = ""
+        if product.get("product_templates") and product["product_templates"]:
+            template_name = product["product_templates"]["name"]
+        
+        display_name = template_name
+        if product.get("variant_name"):
+            display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
+        
+        if not display_name:
+            display_name = f"Product {product['id'][:8]}"
+        
+        category = {"id": None, "name": "Uncategorized"}
+        if product.get("categories") and product["categories"]:
+            category = product["categories"]
+        
+        products.append({
+            "id": product["id"],
+            "name": display_name,
+            "price": float(product["price"]),
+            "description": product["description"],
+            "image_url": product["image_url"],
+            "available_stock": product["units"],
+            "status": product["status"],
+            "category": category
+        })
+    
+    redis_client.set(cache_key, products, 60)
+    return products
+
+@router.get("/categories")
+async def get_categories_for_orders(
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Get categories for order creation"""
+    cached = redis_client.get("sales:categories")
+    if cached:
+        return cached
+    
+    result = supabase.table("categories").select("*").eq("is_active", True).order("name").execute()
+    
+    redis_client.set("sales:categories", result.data, 300)
+    return result.data
+
 
 # Revenue Analytics
 @router.get("/analytics/revenue")
@@ -559,3 +667,233 @@ async def get_all_staff_analytics(
             "top_performer": all_staff_analytics[0]["staff_email"] if all_staff_analytics else None
         }
     }
+
+
+
+@router.post("/orders/validate-cart")
+async def validate_sales_cart(
+    items: List[Dict[str, Any]],
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Validate cart items for sales order"""
+    try:
+        # Use website cart validation logic
+        processed_items = await CartService.validate_cart_items(items)
+        totals = CartService.calculate_order_total(processed_items)
+        
+        return {
+            "items": processed_items,
+            "totals": {
+                "subtotal": float(totals["subtotal"]),
+                "vat": float(totals["vat"]),
+                "total": float(totals["total"])
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/orders")
+async def create_offline_order(
+    order_data: OfflineOrderCreate,
+    request: Request,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Create offline order (pending payment)"""
+    # Validate items
+    processed_items = await CartService.validate_cart_items(order_data.items)
+    totals = CartService.calculate_order_total(processed_items)
+    
+    # Generate order number
+    order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
+    
+    # Create order (pending status)
+    order_entry = {
+        "order_number": order_number,
+        "order_type": "offline",
+        "status": "pending",
+        "payment_status": "pending",
+        "payment_method": order_data.payment_method,
+        "customer_name": order_data.customer_name,
+        "customer_phone": order_data.customer_phone,
+        "subtotal": float(totals["subtotal"]),
+        "tax": float(totals["vat"]),
+        "total": float(totals["total"]),
+        "notes": order_data.notes,
+        "created_by": current_user["id"]
+    }
+    
+    created_order = supabase.table("orders").insert(order_entry).execute()
+    order_id = created_order.data[0]["id"]
+    
+    # Create order items
+    for item in processed_items:
+        item_data = {
+            "order_id": order_id,
+            "product_id": item["product_id"],
+            "product_name": item["product_name"],
+            "quantity": item["quantity"],
+            "unit_price": float(item["unit_price"]),
+            "total_price": float(item["total_price"]),
+            "notes": item.get("notes")
+        }
+        supabase.table("order_items").insert(item_data).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "create", "offline_order", order_id, 
+        {"order_number": order_number, "total": float(totals["total"])}, 
+        request
+    )
+    
+    return created_order.data[0]
+
+@router.post("/orders/{order_id}/confirm")
+async def confirm_order_payment(
+    order_id: str,
+    confirm_data: OrderConfirm,
+    request: Request,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Confirm payment and send to kitchen"""
+    if not confirm_data.payment_confirmed:
+        raise HTTPException(status_code=400, detail="Payment must be confirmed")
+    
+    # Get order
+    order = supabase.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "pending").execute()
+    
+    if not order.data:
+        raise HTTPException(status_code=404, detail="Pending order not found")
+    
+    # Update order status
+    supabase.table("orders").update({
+        "status": "preparing",
+        "payment_status": "paid",
+        "preparing_at": datetime.utcnow().isoformat()
+    }).eq("id", order_id).execute()
+    
+    # Deduct stock immediately with real-time updates
+    await SalesService.deduct_stock_immediately(order.data[0]["order_items"], current_user["id"])
+    
+    # Notify kitchen
+    from ..api.websocket import notify_order_update
+    await notify_order_update(order_id, "new_order", order.data[0])
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "confirm_payment", "order", order_id, 
+        {"order_number": order.data[0]["order_number"]}, 
+        request
+    )
+    
+    return {"message": "Order confirmed and sent to kitchen"}
+
+@router.get("/orders/pending")
+async def get_pending_orders(
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Get all pending orders"""
+    result = supabase.table("orders").select("*, order_items(*)").eq("status", "pending").order("created_at", desc=True).execute()
+    return result.data
+
+@router.patch("/orders/{order_id}")
+async def modify_pending_order(
+    order_id: str,
+    items: List[Dict[str, Any]],
+    request: Request,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Modify pending order items"""
+    # Check order is pending
+    order = supabase.table("orders").select("*").eq("id", order_id).eq("status", "pending").execute()
+    
+    if not order.data:
+        raise HTTPException(status_code=404, detail="Pending order not found")
+    
+    # Validate new items
+    processed_items = await CartService.validate_cart_items(items)
+    totals = CartService.calculate_order_total(processed_items)
+    
+    # Delete existing items
+    supabase.table("order_items").delete().eq("order_id", order_id).execute()
+    
+    # Create new items
+    for item in processed_items:
+        item_data = {
+            "order_id": order_id,
+            "product_id": item["product_id"],
+            "product_name": item["product_name"],
+            "quantity": item["quantity"],
+            "unit_price": float(item["unit_price"]),
+            "total_price": float(item["total_price"])
+        }
+        supabase.table("order_items").insert(item_data).execute()
+    
+    # Update order totals
+    supabase.table("orders").update({
+        "subtotal": float(totals["subtotal"]),
+        "tax": float(totals["vat"]),
+        "total": float(totals["total"])
+    }).eq("id", order_id).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "modify", "pending_order", order_id, None, request
+    )
+    
+    return {"message": "Order modified successfully"}
+
+@router.delete("/orders/{order_id}")
+async def delete_pending_order(
+    order_id: str,
+    request: Request,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Delete pending order"""
+    order = supabase.table("orders").select("*").eq("id", order_id).eq("status", "pending").execute()
+    
+    if not order.data:
+        raise HTTPException(status_code=404, detail="Pending order not found")
+    
+    supabase.table("order_items").delete().eq("order_id", order_id).execute()
+    supabase.table("orders").delete().eq("id", order_id).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "delete", "pending_order", order_id, None, request
+    )
+    
+    return {"message": "Order deleted successfully"}
+
+@router.post("/orders/{order_id}/recall")
+async def recall_confirmed_order(
+    order_id: str,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Recall order from kitchen and restore stock"""
+    order = supabase.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "preparing").execute()
+    
+    if not order.data:
+        raise HTTPException(status_code=404, detail="Preparing order not found")
+    
+    # Restore stock using service
+    await SalesService.restore_stock_immediately(order.data[0]["order_items"], current_user["id"])
+    
+    # Cancel order
+    supabase.table("orders").update({
+        "status": "cancelled",
+        "notes": f"Recalled by {current_user['email']}"
+    }).eq("id", order_id).execute()
+    
+    # Notify kitchen
+    from ..api.websocket import notify_order_update
+    await notify_order_update(order_id, "order_cancelled", order.data[0])
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "recall", "order", order_id, 
+        {"order_number": order.data[0]["order_number"]}, 
+        request
+    )
+    
+    return {"message": "Order recalled and stock restored"}

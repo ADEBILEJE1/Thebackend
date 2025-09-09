@@ -663,3 +663,97 @@ class SalesService:
                 reverse=True
             )[:10]
         }
+    
+
+    # Add to sales_service.py
+
+    @staticmethod
+    async def deduct_stock_immediately(items: List[Dict[str, Any]], user_id: str):
+        """Deduct stock immediately for offline orders with real-time updates"""
+        
+        for item in items:
+            # Get current product
+            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            
+            if not product.data:
+                continue
+                
+            product_data = product.data[0]
+            current_units = product_data["units"]
+            low_threshold = product_data["low_stock_threshold"]
+            
+            # Calculate new stock
+            new_units = current_units - item["quantity"]
+            
+            # Determine new status
+            if new_units == 0:
+                new_status = "out_of_stock"
+            elif new_units <= low_threshold:
+                new_status = "low_stock"
+            else:
+                new_status = "in_stock"
+            
+            # Update product
+            supabase.table("products").update({
+                "units": new_units,
+                "status": new_status,
+                "updated_by": user_id,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", item["product_id"]).execute()
+            
+            # Log stock entry
+            supabase.table("stock_entries").insert({
+                "product_id": item["product_id"],
+                "quantity": item["quantity"],
+                "entry_type": "remove",
+                "notes": f"Offline order sale",
+                "entered_by": user_id
+            }).execute()
+        
+        # Invalidate inventory caches for real-time updates
+        redis_client.delete_pattern("products:list:*")
+        redis_client.delete_pattern("inventory:dashboard:*")
+        redis_client.delete_pattern("sales:products:*")
+        redis_client.delete("inventory:alerts:low_stock")
+
+    @staticmethod
+    async def restore_stock_immediately(items: List[Dict[str, Any]], user_id: str):
+        """Restore stock immediately when order is recalled"""
+        
+        for item in items:
+            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            
+            if product.data:
+                current_units = product.data[0]["units"]
+                low_threshold = product.data[0]["low_stock_threshold"]
+                new_units = current_units + item["quantity"]
+                
+                # Update status based on new stock
+                if new_units > low_threshold:
+                    new_status = "in_stock"
+                elif new_units > 0:
+                    new_status = "low_stock"
+                else:
+                    new_status = "out_of_stock"
+                
+                supabase.table("products").update({
+                    "units": new_units,
+                    "status": new_status,
+                    "updated_by": user_id,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", item["product_id"]).execute()
+                
+                # Log stock restoration
+                supabase.table("stock_entries").insert({
+                    "product_id": item["product_id"],
+                    "quantity": item["quantity"],
+                    "entry_type": "add",
+                    "notes": f"Order recall restoration",
+                    "entered_by": user_id
+                }).execute()
+        
+        # Clear caches for real-time updates
+        redis_client.delete_pattern("products:list:*")
+        redis_client.delete_pattern("inventory:dashboard:*")
+        redis_client.delete_pattern("sales:products:*")
+        redis_client.delete("inventory:alerts:low_stock")

@@ -211,6 +211,24 @@ async def verify_pin_and_save_address(verify_data: PinVerifyAndAddress):
 
 
 
+# @router.post("/addresses")
+# async def save_address(
+#     address_data: AddressCreate,
+#     session_token: str = Query(...)
+# ):
+#     """Save address with existing session"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     address = await AddressService.save_customer_address(
+#         session_data["customer_id"],
+#         address_data.dict()
+#     )
+    
+#     return address
+
+
 @router.post("/addresses")
 async def save_address(
     address_data: AddressCreate,
@@ -221,12 +239,24 @@ async def save_address(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
+    # Get customer details including phone
+    customer = supabase_admin.table("website_customers").select("*").eq("id", session_data["customer_id"]).execute()
+    
+    if not customer.data:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
     address = await AddressService.save_customer_address(
         session_data["customer_id"],
         address_data.dict()
     )
     
-    return address
+    return {
+        "address": address,
+        "customer_phone": customer.data[0].get("phone"),
+        "customer_email": customer.data[0]["email"],
+        "customer_name": customer.data[0]["full_name"]
+    }
+
 
 @router.get("/addresses")
 async def get_addresses(session_token: str = Query(...)):
