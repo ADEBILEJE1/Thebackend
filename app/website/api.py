@@ -13,7 +13,11 @@ from .services import MonnifyService
 
 router = APIRouter(prefix="/website", tags=["Website"])
 
-# Product Browsing
+
+
+
+
+
 # @router.get("/products")
 # async def get_products_for_website(
 #     category_id: Optional[str] = None,
@@ -27,7 +31,7 @@ router = APIRouter(prefix="/website", tags=["Website"])
 #     if cached:
 #         return cached
     
-#     query = supabase.table("products").select("""
+#     query = supabase_admin.table("products").select("""
 #         id, sku, variant_name, price, description, image_url, units, status, is_available,
 #         product_templates(name),
 #         categories(id, name)
@@ -47,15 +51,29 @@ router = APIRouter(prefix="/website", tags=["Website"])
     
 #     result = query.execute()
 #     sorted_data = sorted(result.data, key=lambda x: (
-#         x.get("categories", {}).get("name", ""), 
-#         x.get("product_templates", {}).get("name", "")
+#         x.get("categories", {}).get("name", "") if x.get("categories") else "", 
+#         x.get("product_templates", {}).get("name", "") if x.get("product_templates") else ""
 #     ))
     
 #     products = []
-#     for product in sorted_data:  # Changed from result.data to sorted_data
-#         display_name = product.get("product_templates", {}).get("name") if product.get("product_templates") else product.get("name", "Unknown")
-#         if product["variant_name"]:
-#             display_name += f" - {product['variant_name']}"
+#     for product in sorted_data:
+#         # Handle missing product_templates
+#         template_name = ""
+#         if product.get("product_templates") and product["product_templates"]:
+#             template_name = product["product_templates"]["name"]
+        
+#         display_name = template_name
+#         if product.get("variant_name"):
+#             display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
+        
+#         # Fallback if no template name and no variant
+#         if not display_name:
+#             display_name = f"Product {product['id'][:8]}"
+        
+#         # Handle missing categories
+#         category = {"id": None, "name": "Uncategorized"}
+#         if product.get("categories") and product["categories"]:
+#             category = product["categories"]
         
 #         products.append({
 #             "id": product["id"],
@@ -64,15 +82,11 @@ router = APIRouter(prefix="/website", tags=["Website"])
 #             "description": product["description"],
 #             "image_url": product["image_url"],
 #             "available_stock": product["units"],
-#             "category": product["categories"]
+#             "category": category
 #         })
     
 #     redis_client.set(cache_key, products, 300)
 #     return products
-
-
-
-
 
 @router.get("/products")
 async def get_products_for_website(
@@ -87,33 +101,50 @@ async def get_products_for_website(
     if cached:
         return cached
     
-    query = supabase_admin.table("products").select("""
-        id, sku, variant_name, price, description, image_url, units, status, is_available,
-        product_templates(name),
-        categories(id, name)
-    """).eq("is_available", True).neq("status", "out_of_stock")
+    # Get products first
+    query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock")
     
     if category_id:
         query = query.eq("category_id", category_id)
-    
-    if search:
-        query = query.or_(f"product_templates.name.ilike.%{search}%,categories.name.ilike.%{search}%")
-    
     if min_price:
         query = query.gte("price", min_price)
-    
     if max_price:
         query = query.lte("price", max_price)
     
-    result = query.execute()
-    sorted_data = sorted(result.data, key=lambda x: (
+    products_result = query.execute()
+    
+    # Manually fetch categories and templates for each product
+    for product in products_result.data:
+        # Fetch category
+        if product["category_id"]:
+            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+            product["categories"] = category.data[0] if category.data else None
+        else:
+            product["categories"] = None
+            
+        # Fetch product template
+        if product["product_template_id"]:
+            template = supabase_admin.table("product_templates").select("*").eq("id", product["product_template_id"]).execute()
+            product["product_templates"] = template.data[0] if template.data else None
+        else:
+            product["product_templates"] = None
+    
+    # Apply search filter after fetching related data
+    if search:
+        products_result.data = [
+            p for p in products_result.data 
+            if (p.get("product_templates") and search.lower() in p["product_templates"]["name"].lower()) or
+               (p.get("categories") and search.lower() in p["categories"]["name"].lower())
+        ]
+    
+    # Rest of your existing processing code...
+    sorted_data = sorted(products_result.data, key=lambda x: (
         x.get("categories", {}).get("name", "") if x.get("categories") else "", 
         x.get("product_templates", {}).get("name", "") if x.get("product_templates") else ""
     ))
     
     products = []
     for product in sorted_data:
-        # Handle missing product_templates
         template_name = ""
         if product.get("product_templates") and product["product_templates"]:
             template_name = product["product_templates"]["name"]
@@ -122,11 +153,9 @@ async def get_products_for_website(
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
         
-        # Fallback if no template name and no variant
         if not display_name:
             display_name = f"Product {product['id'][:8]}"
         
-        # Handle missing categories
         category = {"id": None, "name": "Uncategorized"}
         if product.get("categories") and product["categories"]:
             category = product["categories"]
@@ -143,6 +172,9 @@ async def get_products_for_website(
     
     redis_client.set(cache_key, products, 300)
     return products
+
+
+
 
 
 
@@ -309,70 +341,6 @@ async def calculate_delivery(
         "fee": float(fee),
         "estimated_time": time
     }
-
-# @router.post("/checkout/summary")
-# async def get_checkout_summary(checkout_data: CheckoutRequest):
-#     """Get checkout summary with all calculations"""
-#     order_summaries = []
-#     total_subtotal = Decimal('0')
-#     total_vat = Decimal('0')
-#     delivery_fees_by_address = {}
-    
-#     for idx, order in enumerate(checkout_data.orders):
-#         # Validate items
-#         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
-#         totals = CartService.calculate_order_total(processed_items)
-        
-#         total_subtotal += totals["subtotal"]
-#         total_vat += totals["vat"]
-        
-#         # Get delivery address
-#         if order.delivery_address_id:
-#             address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
-#             if not address_result.data:
-#                 raise HTTPException(status_code=404, detail="Address not found")
-            
-#             address_data = address_result.data[0]
-#             address_key = f"{address_data['latitude']}:{address_data['longitude']}"
-            
-#             if address_key not in delivery_fees_by_address:
-#                 distance = DeliveryService.calculate_distance(
-#                     DeliveryService.RESTAURANT_LAT,
-#                     DeliveryService.RESTAURANT_LNG,
-#                     address_data["latitude"],
-#                     address_data["longitude"]
-#                 )
-#                 delivery_fees_by_address[address_key] = {
-#                     "fee": DeliveryService.calculate_delivery_fee(distance),
-#                     "address": address_data["full_address"]
-#                 }
-        
-#         order_summaries.append({
-#             "order_index": idx,
-#             "items": [
-#                 {
-#                     "product_name": item["product_name"],
-#                     "quantity": item["quantity"],
-#                     "unit_price": float(item["unit_price"]),
-#                     "total_price": float(item["total_price"])
-#                 }
-#                 for item in processed_items
-#             ],
-#             "subtotal": float(totals["subtotal"]),
-#             "delivery_address": delivery_fees_by_address.get(address_key, {}).get("address", ""),
-#             "delivery_fee": float(delivery_fees_by_address.get(address_key, {}).get("fee", 0))
-#         })
-    
-#     total_delivery = sum(data["fee"] for data in delivery_fees_by_address.values())
-#     grand_total = total_subtotal + total_vat + total_delivery
-    
-#     return {
-#         "orders": order_summaries,
-#         "total_subtotal": float(total_subtotal),
-#         "total_vat": float(total_vat),
-#         "total_delivery": float(total_delivery),
-#         "grand_total": float(grand_total)
-#     }
 
 
 
@@ -725,3 +693,49 @@ async def get_order_tracking(
         "tracking_stages": tracking_stages,
         "estimated_delivery": "30-45 minutes" if order_status == "completed" else None
     }
+
+
+
+@router.get("/search/suggestions")
+async def get_search_suggestions(q: str = Query(min_length=2)):
+    cache_key = f"search:suggestions:{q}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    # Product name suggestions
+    products = supabase_admin.table("products").select(
+        "product_templates(name), price"
+    ).ilike("product_templates.name", f"{q}%").limit(3).execute()
+    
+    # If query is numeric, also search by price
+    if q.isdigit():
+        price = int(q)
+        price_products = supabase_admin.table("products").select(
+            "product_templates(name), price"
+        ).eq("price", price).limit(3).execute()
+        
+        # Combine results
+        all_products = products.data + price_products.data
+    else:
+        all_products = products.data
+    
+    # Categories
+    categories = supabase_admin.table("categories").select("name").ilike("name", f"{q}%").limit(3).execute()
+    
+    # Filter out products with null templates
+    product_list = []
+    for p in all_products:
+        if p.get("product_templates") and p["product_templates"]:
+            product_list.append({
+                "name": p["product_templates"]["name"], 
+                "price": float(p["price"])
+            })
+    
+    result = {
+        "products": product_list,
+        "categories": [c["name"] for c in categories.data]
+    }
+    
+    redis_client.set(cache_key, result, 300)
+    return result
