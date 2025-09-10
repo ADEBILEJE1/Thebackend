@@ -378,77 +378,88 @@ async def calculate_delivery(
 
 @router.post("/checkout/summary")
 async def get_checkout_summary(checkout_data: CheckoutRequest):
-   """Get checkout summary with all calculations"""
-   order_summaries = []
-   total_subtotal = Decimal('0')
-   total_vat = Decimal('0')
-   delivery_fees_by_address = {}
-   
-   for idx, order in enumerate(checkout_data.orders):
-       # Validate delivery address is required
-       if not order.delivery_address_id:
-           raise HTTPException(
-               status_code=400, 
-               detail=f"Delivery address is required for order {idx + 1}"
-           )
-       
-       # Validate items
-       processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
-       totals = CartService.calculate_order_total(processed_items)
-       
-       total_subtotal += totals["subtotal"]
-       total_vat += totals["vat"]
-       
-       # Get delivery address
-       address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
-       
-       if not address_result.data:
-           raise HTTPException(
-               status_code=404, 
-               detail=f"Delivery address not found for order {idx + 1}"
-           )
-       
-       address_data = address_result.data[0]
-       address_key = f"{address_data['latitude']}:{address_data['longitude']}"
-       
-       if address_key not in delivery_fees_by_address:
-           distance = DeliveryService.calculate_distance(
-               DeliveryService.RESTAURANT_LAT,
-               DeliveryService.RESTAURANT_LNG,
-               address_data["latitude"],
-               address_data["longitude"]
-           )
-           delivery_fees_by_address[address_key] = {
-               "fee": DeliveryService.calculate_delivery_fee(distance),
-               "address": address_data["full_address"]
-           }
-       
-       order_summaries.append({
-           "order_index": idx,
-           "items": [
-               {
-                   "product_name": item["product_name"],
-                   "quantity": item["quantity"],
-                   "unit_price": float(item["unit_price"]),
-                   "total_price": float(item["total_price"])
-               }
-               for item in processed_items
-           ],
-           "subtotal": float(totals["subtotal"]),
-           "delivery_address": delivery_fees_by_address[address_key]["address"],
-           "delivery_fee": float(delivery_fees_by_address[address_key]["fee"])
-       })
-   
-   total_delivery = sum(data["fee"] for data in delivery_fees_by_address.values())
-   grand_total = total_subtotal + total_vat + total_delivery
-   
-   return {
-       "orders": order_summaries,
-       "total_subtotal": float(total_subtotal),
-       "total_vat": float(total_vat),
-       "total_delivery": float(total_delivery),
-       "grand_total": float(grand_total)
-   }
+    """Get checkout summary with all calculations"""
+    import uuid
+    
+    order_summaries = []
+    total_subtotal = Decimal('0')
+    total_vat = Decimal('0')
+    delivery_fees_by_address = {}
+    
+    for idx, order in enumerate(checkout_data.orders):
+        # Validate delivery address is required
+        if not order.delivery_address_id:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Delivery address is required for order {idx + 1}"
+            )
+        
+        # Validate UUID format
+        try:
+            uuid.UUID(order.delivery_address_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid delivery address ID format for order {idx + 1}"
+            )
+        
+        # Validate items
+        processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
+        totals = CartService.calculate_order_total(processed_items)
+        
+        total_subtotal += totals["subtotal"]
+        total_vat += totals["vat"]
+        
+        # Get delivery address
+        address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
+        
+        if not address_result.data:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Delivery address not found for order {idx + 1}"
+            )
+        
+        address_data = address_result.data[0]
+        address_key = f"{address_data['latitude']}:{address_data['longitude']}"
+        
+        if address_key not in delivery_fees_by_address:
+            distance = DeliveryService.calculate_distance(
+                DeliveryService.RESTAURANT_LAT,
+                DeliveryService.RESTAURANT_LNG,
+                address_data["latitude"],
+                address_data["longitude"]
+            )
+            delivery_fees_by_address[address_key] = {
+                "fee": DeliveryService.calculate_delivery_fee(distance),
+                "address": address_data["full_address"]
+            }
+        
+        order_summaries.append({
+            "order_index": idx,
+            "items": [
+                {
+                    "product_name": item["product_name"],
+                    "quantity": item["quantity"],
+                    "unit_price": float(item["unit_price"]),
+                    "total_price": float(item["total_price"])
+                }
+                for item in processed_items
+            ],
+            "subtotal": float(totals["subtotal"]),
+            "delivery_address": delivery_fees_by_address[address_key]["address"],
+            "delivery_fee": float(delivery_fees_by_address[address_key]["fee"])
+        })
+    
+    total_delivery = sum(data["fee"] for data in delivery_fees_by_address.values())
+    grand_total = total_subtotal + total_vat + total_delivery
+    
+    return {
+        "orders": order_summaries,
+        "total_subtotal": float(total_subtotal),
+        "total_vat": float(total_vat),
+        "total_delivery": float(total_delivery),
+        "grand_total": float(grand_total)
+    }
 
 
 @router.post("/checkout/complete")
