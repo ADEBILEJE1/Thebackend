@@ -814,19 +814,3 @@ async def get_individual_chef_analytics(chef_id: str, days: int = 30) -> Dict[st
         }
     }
 
-# @router.get("/analytics/chef/{chef_id}")
-# async def get_chef_analytics(
-#     chef_id: str,
-#     request: Request,
-#     days: int = 30,
-#     current_user: dict = Depends(require_manager_up)
-# ):
-#     """Get individual chef analytics"""
-#     analytics_data = await get_individual_chef_analytics(chef_id, days)
-    
-#     await log_activity(
-#         current_user["id"], current_user["email"], current_user["role"],
-#         "view", "chef_analytics", chef_id, {"days": days}, request
-#     )
-    
-#     return analytics_data
