@@ -18,76 +18,6 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
-# @router.get("/products")
-# async def get_products_for_website(
-#     category_id: Optional[str] = None,
-#     search: Optional[str] = None,
-#     min_price: Optional[float] = None,
-#     max_price: Optional[float] = None
-# ):
-#     """Get products for website display"""
-#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-    
-#     query = supabase_admin.table("products").select("""
-#         id, sku, variant_name, price, description, image_url, units, status, is_available,
-#         product_templates(name),
-#         categories(id, name)
-#     """).eq("is_available", True).neq("status", "out_of_stock")
-    
-#     if category_id:
-#         query = query.eq("category_id", category_id)
-    
-#     if search:
-#         query = query.or_(f"product_templates.name.ilike.%{search}%,categories.name.ilike.%{search}%")
-    
-#     if min_price:
-#         query = query.gte("price", min_price)
-    
-#     if max_price:
-#         query = query.lte("price", max_price)
-    
-#     result = query.execute()
-#     sorted_data = sorted(result.data, key=lambda x: (
-#         x.get("categories", {}).get("name", "") if x.get("categories") else "", 
-#         x.get("product_templates", {}).get("name", "") if x.get("product_templates") else ""
-#     ))
-    
-#     products = []
-#     for product in sorted_data:
-#         # Handle missing product_templates
-#         template_name = ""
-#         if product.get("product_templates") and product["product_templates"]:
-#             template_name = product["product_templates"]["name"]
-        
-#         display_name = template_name
-#         if product.get("variant_name"):
-#             display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
-        
-#         # Fallback if no template name and no variant
-#         if not display_name:
-#             display_name = f"Product {product['id'][:8]}"
-        
-#         # Handle missing categories
-#         category = {"id": None, "name": "Uncategorized"}
-#         if product.get("categories") and product["categories"]:
-#             category = product["categories"]
-        
-#         products.append({
-#             "id": product["id"],
-#             "name": display_name,
-#             "price": float(product["price"]),
-#             "description": product["description"],
-#             "image_url": product["image_url"],
-#             "available_stock": product["units"],
-#             "category": category
-#         })
-    
-#     redis_client.set(cache_key, products, 300)
-#     return products
-
 @router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
@@ -523,76 +453,139 @@ async def create_payment_account(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/payment/verify/{payment_reference}")
-async def verify_payment(payment_reference: str):
-   """Verify payment status"""
-   try:
-       payment_session = redis_client.get(f"payment:{payment_reference}")
-       if not payment_session:
-           raise HTTPException(status_code=404, detail="Payment session not found")
+# @router.get("/payment/verify/{payment_reference}")
+# async def verify_payment(payment_reference: str):
+#    """Verify payment status"""
+#    try:
+#        payment_session = redis_client.get(f"payment:{payment_reference}")
+#        if not payment_session:
+#            raise HTTPException(status_code=404, detail="Payment session not found")
        
-       payment_data = await MonnifyService.verify_payment(payment_reference)
+#        payment_data = await MonnifyService.verify_payment(payment_reference)
        
-       if payment_data["paymentStatus"] == "PAID":
-           created_orders = []
+#        if payment_data["paymentStatus"] == "PAID":
+#            created_orders = []
            
-           for order_data in payment_session["orders"]:
-               processed_items = await CartService.validate_cart_items(order_data["items"])
-               totals = CartService.calculate_order_total(processed_items)
+#            for order_data in payment_session["orders"]:
+#                processed_items = await CartService.validate_cart_items(order_data["items"])
+#                totals = CartService.calculate_order_total(processed_items)
                
-               order_entry = {
-                   "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
-                   "order_type": "online",
-                   "status": "confirmed",
-                   "payment_status": "paid",
-                   "payment_reference": payment_reference,
-                   "subtotal": float(totals["subtotal"]),
-                   "tax": float(totals["vat"]),
-                   "total": float(totals["total"]),
-                   "website_customer_id": payment_session["customer_id"],
-                   "confirmed_at": datetime.utcnow().isoformat()
-               }
+#                order_entry = {
+#                    "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+#                    "order_type": "online",
+#                    "status": "confirmed",
+#                    "payment_status": "paid",
+#                    "payment_reference": payment_reference,
+#                    "subtotal": float(totals["subtotal"]),
+#                    "tax": float(totals["vat"]),
+#                    "total": float(totals["total"]),
+#                    "website_customer_id": payment_session["customer_id"],
+#                    "confirmed_at": datetime.utcnow().isoformat()
+#                }
                
-               created_order = supabase_admin.table("orders").insert(order_entry).execute()
-               order_id = created_order.data[0]["id"]
+#                created_order = supabase_admin.table("orders").insert(order_entry).execute()
+#                order_id = created_order.data[0]["id"]
                
-               for item in processed_items:
-                   item_data = {
-                       "order_id": order_id,
-                       "product_id": item["product_id"],
-                       "product_name": item["product_name"],
-                       "quantity": item["quantity"],
-                       "unit_price": float(item["unit_price"]),
-                       "total_price": float(item["total_price"])
-                   }
-                   supabase_admin.table("order_items").insert(item_data).execute()
+#                for item in processed_items:
+#                    item_data = {
+#                        "order_id": order_id,
+#                        "product_id": item["product_id"],
+#                        "product_name": item["product_name"],
+#                        "quantity": item["quantity"],
+#                        "unit_price": float(item["unit_price"]),
+#                        "total_price": float(item["total_price"])
+#                    }
+#                    supabase_admin.table("order_items").insert(item_data).execute()
                
-               created_orders.append(created_order.data[0])
+#                created_orders.append(created_order.data[0])
            
-           payment_session["status"] = "completed"
-           payment_session["orders_created"] = [o["id"] for o in created_orders]
-           redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
+#            payment_session["status"] = "completed"
+#            payment_session["orders_created"] = [o["id"] for o in created_orders]
+#            redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
            
-           return {
-               "payment_status": "success",
-               "orders": created_orders,
-               "payment_details": payment_data
-           }
+#            return {
+#                "payment_status": "success",
+#                "orders": created_orders,
+#                "payment_details": payment_data
+#            }
        
-       elif payment_data["paymentStatus"] == "PENDING":
-           return {
-               "payment_status": "pending",
-               "message": "Payment is still pending"
-           }
+#        elif payment_data["paymentStatus"] == "PENDING":
+#            return {
+#                "payment_status": "pending",
+#                "message": "Payment is still pending"
+#            }
        
-       else:
-           return {
-               "payment_status": "failed",
-               "message": "Payment failed or expired"
-           }
+#        else:
+#            return {
+#                "payment_status": "failed",
+#                "message": "Payment failed or expired"
+#            }
            
-   except Exception as e:
-       raise HTTPException(status_code=500, detail=str(e))
+#    except Exception as e:
+#        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@router.post("/payment/bypass-create")
+async def bypass_payment_create(
+    payment_data: PaymentRequest,
+    session_token: str = Query(...)
+):
+    """Bypass payment for testing - auto-complete orders"""
+    session_data = redis_client.get(f"customer_session:{session_token}")
+    if not session_data:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    # Generate fake payment reference
+    payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
+    
+    # Create orders directly as paid
+    created_orders = []
+    
+    for order_data in payment_data.orders:
+        processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
+        totals = CartService.calculate_order_total(processed_items)
+        
+        order_entry = {
+            "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+            "order_type": "online",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "payment_reference": payment_reference,
+            "subtotal": float(totals["subtotal"]),
+            "tax": float(totals["vat"]),
+            "total": float(totals["total"]),
+            "website_customer_id": session_data["customer_id"],
+            "confirmed_at": datetime.utcnow().isoformat()
+        }
+        
+        created_order = supabase_admin.table("orders").insert(order_entry).execute()
+        order_id = created_order.data[0]["id"]
+        
+        for item in processed_items:
+            item_data = {
+                "order_id": order_id,
+                "product_id": item["product_id"],
+                "product_name": item["product_name"],
+                "quantity": item["quantity"],
+                "unit_price": float(item["unit_price"]),
+                "total_price": float(item["total_price"])
+            }
+            supabase_admin.table("order_items").insert(item_data).execute()
+        
+        created_orders.append(created_order.data[0])
+    
+    return {
+        "payment_status": "success",
+        "payment_reference": payment_reference,
+        "orders": created_orders,
+        "message": "Payment bypassed - orders created successfully"
+    }
+
+
+
 
 @router.post("/payment/webhook")
 async def payment_webhook(request: Request):
