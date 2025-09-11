@@ -271,7 +271,6 @@ async def save_address(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get customer details including phone
     customer = supabase_admin.table("website_customers").select("*").eq("id", session_data["customer_id"]).execute()
     
     if not customer.data:
@@ -285,8 +284,7 @@ async def save_address(
     return {
         "address": address,
         "customer_phone": customer.data[0].get("phone"),
-        "customer_email": customer.data[0]["email"],
-        "customer_name": customer.data[0]["full_name"]
+        "customer_email": customer.data[0]["email"]
     }
 
 
@@ -753,3 +751,56 @@ async def get_website_banners():
     # Cache for 2 minutes
     redis_client.set(cache_key, result.data, 120)
     return result.data
+
+@router.patch("/addresses/{address_id}")
+async def update_address(
+    address_id: str,
+    update_data: AddressUpdate,
+    session_token: str = Query(...)
+):
+    """Update existing address"""
+    session_data = redis_client.get(f"customer_session:{session_token}")
+    if not session_data:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    try:
+        updated_address = await AddressService.update_customer_address(
+            address_id, 
+            session_data["customer_id"], 
+            update_data.dict(exclude_unset=True)
+        )
+        return updated_address
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.delete("/addresses/{address_id}")
+async def delete_address(
+    address_id: str,
+    session_token: str = Query(...)
+):
+    """Delete address"""
+    session_data = redis_client.get(f"customer_session:{session_token}")
+    if not session_data:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    success = await AddressService.delete_customer_address(address_id, session_data["customer_id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="Address not found")
+    
+    return {"message": "Address deleted successfully"}
+
+@router.patch("/addresses/{address_id}/set-default")
+async def set_default_address(
+    address_id: str,
+    session_token: str = Query(...)
+):
+    """Set address as default"""
+    session_data = redis_client.get(f"customer_session:{session_token}")
+    if not session_data:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    try:
+        updated_address = await AddressService.set_default_address(address_id, session_data["customer_id"])
+        return updated_address
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

@@ -87,3 +87,10 @@ class PinVerifyAndAddress(BaseModel):
     email: str
     pin: str
     address_data: Dict[str, Any]
+
+class AddressUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    full_address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    is_default: Optional[bool] = None

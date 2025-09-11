@@ -262,6 +262,43 @@ class AddressService:
         result = supabase.table("customer_addresses").select("*").eq("customer_id", customer_id).order("is_default", desc=True).execute()
         return result.data
     
+    @staticmethod
+    async def update_customer_address(address_id: str, customer_id: str, update_data: Dict) -> Dict:
+        """Update customer address"""
+        # Verify ownership
+        existing = supabase.table("customer_addresses").select("*").eq("id", address_id).eq("customer_id", customer_id).execute()
+        if not existing.data:
+            raise ValueError("Address not found")
+        
+        # Handle default setting
+        if update_data.get("is_default"):
+            supabase.table("customer_addresses").update({"is_default": False}).eq("customer_id", customer_id).execute()
+        
+        updates = {k: v for k, v in update_data.items() if v is not None}
+        result = supabase.table("customer_addresses").update(updates).eq("id", address_id).execute()
+        return result.data[0]
+
+    @staticmethod
+    async def delete_customer_address(address_id: str, customer_id: str) -> bool:
+        """Delete customer address"""
+        result = supabase.table("customer_addresses").delete().eq("id", address_id).eq("customer_id", customer_id).execute()
+        return len(result.data) > 0
+
+    @staticmethod
+    async def set_default_address(address_id: str, customer_id: str) -> Dict:
+        """Set address as default"""
+        # Verify ownership
+        existing = supabase.table("customer_addresses").select("*").eq("id", address_id).eq("customer_id", customer_id).execute()
+        if not existing.data:
+            raise ValueError("Address not found")
+        
+        # Unset all defaults
+        supabase.table("customer_addresses").update({"is_default": False}).eq("customer_id", customer_id).execute()
+        
+        # Set new default
+        result = supabase.table("customer_addresses").update({"is_default": True}).eq("id", address_id).execute()
+        return result.data[0]
+    
 class MonnifyService:
     BASE_URL = "https://sandbox-api.monnify.com"  # Use production URL for live
     
