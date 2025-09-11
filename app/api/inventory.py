@@ -131,6 +131,33 @@ class ProductTemplateUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class CategoryCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class BannerCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    image_url: str
+    link_url: Optional[str] = None
+    is_active: bool = True
+    display_order: int = Field(default=0, ge=0)
+
+class BannerUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    link_url: Optional[str] = None
+    is_active: Optional[bool] = None
+    display_order: Optional[int] = Field(default=None, ge=0)
+
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
@@ -177,80 +204,19 @@ async def update_category(
     updates = {}
     for k, v in update.dict().items():
         if v is not None:
-            if k == "price":
-                updates[k] = float(v)
-            else:
-                updates[k] = v
+            updates[k] = v
     
     if updates:
         result = supabase.table("categories").update(updates).eq("id", category_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Category not found")
+        
+        # Clear website cache when category is updated
+        redis_client.delete("website:categories")
     
     return {"message": "Category updated"}
 
-# Products
-# @router.post("/products", response_model=dict)
-# async def create_product(
-#     product: ProductCreate,
-#     current_user: dict = Depends(require_inventory_staff)
-# ):
-#     # Verify product template exists
-#     template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
-#     if not template.data:
-#         raise HTTPException(status_code=404, detail="Product template not found")
-    
 
-#     template_data = template.data[0]
-
-#     # Verify category exists
-#     category = supabase.table("categories").select("id").eq("id", product.category_id).execute()
-#     if not category.data:
-#         raise HTTPException(status_code=404, detail="Category not found")
-    
-#     # Verify supplier exists if provided
-#     if product.supplier_id:
-#         supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
-#         if not supplier.data:
-#             raise HTTPException(status_code=404, detail="Supplier not found")
-    
-#     # Check SKU uniqueness if provided
-#     if product.sku and product.supplier_id:
-#         existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
-#         if existing_sku.data:
-#             raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
-    
-#     # Determine stock status
-#     status = StockStatus.OUT_OF_STOCK
-#     if product.units > product.low_stock_threshold:
-#         status = StockStatus.IN_STOCK
-#     elif product.units > 0:
-#         status = StockStatus.LOW_STOCK
-    
-#     product_dict = product.dict()
-#     product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
-#     product_data = {
-#         **product_dict,
-#         "name": template_data["name"],
-#         "status": status,
-#         "created_by": current_user["id"],
-#         "updated_by": current_user["id"]
-#     }
-    
-#     result = supabase.table("products").insert(product_data).execute()
-    
-#     # Log initial stock if units > 0
-#     if product.units > 0:
-#         stock_entry = {
-#             "product_id": result.data[0]["id"],
-#             "quantity": product.units,
-#             "entry_type": "add",
-#             "notes": "Initial stock",
-#             "entered_by": current_user["id"]
-#         }
-#         supabase_admin.table("stock_entries").insert(stock_entry).execute()
-    
-#     return {"message": "Product created", "data": result.data[0]}
 
 
 
@@ -1151,3 +1117,60 @@ async def get_sku_products(
    ).eq("sku_code_id", sku_id).execute()
    
    return result.data
+
+
+# Banner Management
+@router.post("/banners", response_model=dict)
+async def create_banner(
+    banner: BannerCreate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    banner_data = {
+        **banner.dict(),
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("banners").insert(banner_data).execute()
+    return {"message": "Banner created", "data": result.data[0]}
+
+@router.get("/banners", response_model=List[dict])
+async def get_banners(
+    active_only: bool = False,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    query = supabase.table("banners").select("*")
+    if active_only:
+        query = query.eq("is_active", True)
+    
+    result = query.order("display_order", desc=False).order("created_at", desc=True).execute()
+    return result.data
+
+@router.patch("/banners/{banner_id}")
+async def update_banner(
+    banner_id: str,
+    update: BannerUpdate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    updates = {k: v for k, v in update.dict().items() if v is not None}
+    
+    if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        result = supabase.table("banners").update(updates).eq("id", banner_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Banner not found")
+    
+    # Clear website cache when banner is updated
+    redis_client.delete("website:banners")
+    
+    return {"message": "Banner updated"}
+
+@router.delete("/banners/{banner_id}")
+async def delete_banner(
+    banner_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    result = supabase.table("banners").delete().eq("id", banner_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    return {"message": "Banner deleted"}

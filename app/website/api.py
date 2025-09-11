@@ -186,7 +186,7 @@ async def get_categories_for_website():
     if cached:
         return cached
     
-    result = supabase_admin.table("categories").select("*").eq("is_active", True).order("name").execute()
+    result = supabase_admin.table("categories").select("id, name, description, image_url").eq("is_active", True).order("name").execute()
     
     redis_client.set("website:categories", result.data, 600)
     
@@ -739,3 +739,17 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     
     redis_client.set(cache_key, result, 300)
     return result
+
+@router.get("/banners")
+async def get_website_banners():
+    """Get active banners for website display"""
+    cache_key = "website:banners"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    result = supabase_admin.table("banners").select("*").eq("is_active", True).order("display_order").order("created_at", desc=True).execute()
+    
+    # Cache for 2 minutes
+    redis_client.set(cache_key, result.data, 120)
+    return result.data
