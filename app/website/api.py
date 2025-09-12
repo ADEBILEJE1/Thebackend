@@ -692,23 +692,50 @@ async def payment_webhook(request: Request):
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
+# @router.get("/orders/history")
+# async def get_order_history(
+#     session_token: str = Query(...),
+#     limit: int = Query(20, le=100),
+#     offset: int = Query(0, ge=0)
+# ):
+#     """Get customer order history"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     # Get orders with items
+#     orders = supabase_admin.table("orders").select("""
+#         id, order_number, status, payment_status, total, created_at,
+#         order_items(product_name, quantity, unit_price, total_price)
+#     """).eq("website_customer_id", session_data["customer_id"]).order(
+#         "created_at", desc=True
+#     ).range(offset, offset + limit - 1).execute()
+    
+#     return {
+#         "orders": orders.data,
+#         "total_count": len(orders.data),
+#         "limit": limit,
+#         "offset": offset
+#     }
+
+
 @router.get("/orders/history")
 async def get_order_history(
     session_token: str = Query(...),
     limit: int = Query(20, le=100),
     offset: int = Query(0, ge=0)
 ):
-    """Get customer order history"""
+    """Get customer order history - only completed orders"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get orders with items
+    # Only get completed orders
     orders = supabase_admin.table("orders").select("""
-        id, order_number, status, payment_status, total, created_at,
-        order_items(product_name, quantity, unit_price, total_price)
-    """).eq("website_customer_id", session_data["customer_id"]).order(
-        "created_at", desc=True
+        id, order_number, status, payment_status, total, subtotal, tax, created_at, completed_at,
+        order_items(product_name, quantity, unit_price, total_price, notes)
+    """).eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order(
+        "completed_at", desc=True
     ).range(offset, offset + limit - 1).execute()
     
     return {
@@ -717,6 +744,7 @@ async def get_order_history(
         "limit": limit,
         "offset": offset
     }
+
 
 @router.get("/orders/{order_id}")
 async def get_order_details(
@@ -738,24 +766,61 @@ async def get_order_details(
     return order.data[0]
 
 
+# @router.get("/orders/{order_id}/tracking")
+# async def get_order_tracking(
+#     order_id: str,
+#     session_token: str = Query(...)
+# ):
+#     """Get order tracking status"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     # Get order
+#     order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
+    
+#     if not order.data:
+#         raise HTTPException(status_code=404, detail="Order not found")
+    
+#     order_status = order.data[0]["status"]
+    
+#     tracking_stages = {
+#         "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
+#         "processed": order_status == "completed",
+#         "out_for_delivery": order_status == "completed"
+#     }
+    
+#     return {
+#         "order_number": order.data[0]["order_number"],
+#         "current_status": order_status,
+#         "tracking_stages": tracking_stages,
+#         "estimated_delivery": "30-45 minutes" if order_status == "completed" else None
+#     }
+
+
+
 @router.get("/orders/{order_id}/tracking")
 async def get_order_tracking(
     order_id: str,
     session_token: str = Query(...)
 ):
-    """Get order tracking status"""
+    """Get order tracking status with full order details"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get order
-    order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
+    # Get full order with items
+    order = supabase_admin.table("orders").select("""
+        *, order_items(product_name, quantity, unit_price, total_price, notes)
+    """).eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    order_status = order.data[0]["status"]
+    order_data = order.data[0]
+    order_status = order_data["status"]
     
+    # Tracking stages based on existing logic
     tracking_stages = {
         "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
         "processed": order_status == "completed",
@@ -763,12 +828,73 @@ async def get_order_tracking(
     }
     
     return {
-        "order_number": order.data[0]["order_number"],
-        "current_status": order_status,
+        "order": {
+            "id": order_data["id"],
+            "order_number": order_data["order_number"],
+            "status": order_status,
+            "payment_status": order_data["payment_status"],
+            "total": float(order_data["total"]),
+            "subtotal": float(order_data["subtotal"]),
+            "tax": float(order_data["tax"]),
+            "created_at": order_data["created_at"],
+            "items": order_data["order_items"]
+        },
         "tracking_stages": tracking_stages,
-        "estimated_delivery": "30-45 minutes" if order_status == "completed" else None
+        "estimated_delivery": "30-45 minutes" if order_status == "completed" else None,
+        "current_stage": (
+            "out_for_delivery" if order_status == "completed" else
+            "payment_confirmation" if order_status in ["confirmed", "preparing"] else
+            "pending"
+        )
     }
 
+
+
+
+
+# @router.get("/search/suggestions")
+# async def get_search_suggestions(q: str = Query(min_length=2)):
+#     cache_key = f"search:suggestions:{q}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     # Product name suggestions
+#     products = supabase_admin.table("products").select(
+#         "product_templates(name), price"
+#     ).ilike("product_templates.name", f"{q}%").limit(3).execute()
+    
+#     # If query is numeric, also search by price
+#     if q.isdigit():
+#         price = int(q)
+#         price_products = supabase_admin.table("products").select(
+#             "product_templates(name), price"
+#         ).eq("price", price).limit(3).execute()
+        
+#         # Combine results
+#         all_products = products.data + price_products.data
+#     else:
+#         all_products = products.data
+    
+#     # Categories
+#     categories = supabase_admin.table("categories").select("name").ilike("name", f"{q}%").limit(3).execute()
+    
+#     # Filter out products with null templates
+#     product_list = []
+#     for p in all_products:
+#         if p.get("product_templates") and p["product_templates"]:
+#             product_list.append({
+#                 "name": p["product_templates"]["name"], 
+#                 "price": float(p["price"])
+#             })
+    
+#     result = {
+#         "products": product_list,
+#         "categories": [c["name"] for c in categories.data]
+#     }
+    
+#     redis_client.set(cache_key, result, 300)
+#     return result
 
 
 @router.get("/search/suggestions")
@@ -778,42 +904,72 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     if cached:
         return cached
     
-    # Product name suggestions
-    products = supabase_admin.table("products").select(
-        "product_templates(name), price"
-    ).ilike("product_templates.name", f"{q}%").limit(3).execute()
+    # Get full product data
+    query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock")
     
-    # If query is numeric, also search by price
+    # Search by product name or price
     if q.isdigit():
-        price = int(q)
-        price_products = supabase_admin.table("products").select(
-            "product_templates(name), price"
-        ).eq("price", price).limit(3).execute()
-        
-        # Combine results
-        all_products = products.data + price_products.data
+        price = float(q)
+        products = supabase_admin.table("products").select("*").or_(f"price.eq.{price}").limit(10).execute()
     else:
-        all_products = products.data
+        products = query.limit(10).execute()
     
-    # Categories
-    categories = supabase_admin.table("categories").select("name").ilike("name", f"{q}%").limit(3).execute()
+    # Manually fetch categories and templates for each product
+    for product in products.data:
+        # Fetch category
+        if product["category_id"]:
+            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+            product["categories"] = category.data[0] if category.data else None
+        else:
+            product["categories"] = None
+            
+        # Fetch product template
+        if product["product_template_id"]:
+            template = supabase_admin.table("product_templates").select("*").eq("id", product["product_template_id"]).execute()
+            product["product_templates"] = template.data[0] if template.data else None
+        else:
+            product["product_templates"] = None
     
-    # Filter out products with null templates
-    product_list = []
-    for p in all_products:
-        if p.get("product_templates") and p["product_templates"]:
-            product_list.append({
-                "name": p["product_templates"]["name"], 
-                "price": float(p["price"])
-            })
+    # Filter by search term after fetching related data
+    if not q.isdigit():
+        products.data = [
+            p for p in products.data 
+            if (p.get("product_templates") and q.lower() in p["product_templates"]["name"].lower()) or
+               (p.get("categories") and q.lower() in p["categories"]["name"].lower())
+        ]
     
-    result = {
-        "products": product_list,
-        "categories": [c["name"] for c in categories.data]
-    }
+    # Format like existing products endpoint
+    result_products = []
+    for product in products.data:
+        template_name = ""
+        if product.get("product_templates") and product["product_templates"]:
+            template_name = product["product_templates"]["name"]
+        
+        display_name = template_name
+        if product.get("variant_name"):
+            display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
+        
+        if not display_name:
+            display_name = f"Product {product['id'][:8]}"
+        
+        category = {"id": None, "name": "Uncategorized"}
+        if product.get("categories") and product["categories"]:
+            category = product["categories"]
+        
+        result_products.append({
+            "id": product["id"],
+            "name": display_name,
+            "price": float(product["price"]),
+            "description": product["description"],
+            "image_url": product["image_url"],
+            "available_stock": product["units"],
+            "category": category,
+            "status": product["status"]
+        })
     
-    redis_client.set(cache_key, result, 300)
-    return result
+    redis_client.set(cache_key, result_products, 300)
+    return result_products
+
 
 @router.get("/banners")
 async def get_website_banners():
