@@ -109,7 +109,7 @@ class CustomerService:
         """Check if email exists and handle authentication accordingly"""
         existing = supabase.table("website_customers").select("*").eq("email", email).execute()
         
-        if existing.data:
+        if existing.data and len(existing.data) > 0:
             # Email exists - require PIN verification
             pin = CustomerService.generate_pin()
             redis_client.set(f"login_pin:{email}", pin, 600)
