@@ -528,61 +528,7 @@ async def create_payment_account(
 
 
 
-# @router.post("/payment/bypass-create")
-# async def bypass_payment_create(
-#     payment_data: PaymentRequest,
-#     session_token: str = Query(...)
-# ):
-#     """Bypass payment for testing - auto-complete orders"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     # Generate fake payment reference
-#     payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
-    
-#     # Create orders directly as paid
-#     created_orders = []
-    
-#     for order_data in payment_data.orders:
-#         processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
-#         totals = CartService.calculate_order_total(processed_items)
-        
-#         order_entry = {
-#             "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
-#             "order_type": "online",
-#             "status": "confirmed",
-#             "payment_status": "paid",
-#             "payment_reference": payment_reference,
-#             "subtotal": float(totals["subtotal"]),
-#             "tax": float(totals["vat"]),
-#             "total": float(totals["total"]),
-#             "website_customer_id": session_data["customer_id"],
-#             "confirmed_at": datetime.utcnow().isoformat()
-#         }
-        
-#         created_order = supabase_admin.table("orders").insert(order_entry).execute()
-#         order_id = created_order.data[0]["id"]
-        
-#         for item in processed_items:
-#             item_data = {
-#                 "order_id": order_id,
-#                 "product_id": item["product_id"],
-#                 "product_name": item["product_name"],
-#                 "quantity": item["quantity"],
-#                 "unit_price": float(item["unit_price"]),
-#                 "total_price": float(item["total_price"])
-#             }
-#             supabase_admin.table("order_items").insert(item_data).execute()
-        
-#         created_orders.append(created_order.data[0])
-    
-#     return {
-#         "payment_status": "success",
-#         "payment_reference": payment_reference,
-#         "orders": created_orders,
-#         "message": "Payment bypassed - orders created successfully"
-#     }
+
 
 
 
@@ -692,31 +638,6 @@ async def payment_webhook(request: Request):
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
-# @router.get("/orders/history")
-# async def get_order_history(
-#     session_token: str = Query(...),
-#     limit: int = Query(20, le=100),
-#     offset: int = Query(0, ge=0)
-# ):
-#     """Get customer order history"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     # Get orders with items
-#     orders = supabase_admin.table("orders").select("""
-#         id, order_number, status, payment_status, total, created_at,
-#         order_items(product_name, quantity, unit_price, total_price)
-#     """).eq("website_customer_id", session_data["customer_id"]).order(
-#         "created_at", desc=True
-#     ).range(offset, offset + limit - 1).execute()
-    
-#     return {
-#         "orders": orders.data,
-#         "total_count": len(orders.data),
-#         "limit": limit,
-#         "offset": offset
-#     }
 
 
 @router.get("/orders/history")
@@ -766,88 +687,50 @@ async def get_order_details(
     return order.data[0]
 
 
-# @router.get("/orders/{order_id}/tracking")
-# async def get_order_tracking(
-#     order_id: str,
-#     session_token: str = Query(...)
-# ):
-#     """Get order tracking status"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     # Get order
-#     order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
-    
-#     if not order.data:
-#         raise HTTPException(status_code=404, detail="Order not found")
-    
-#     order_status = order.data[0]["status"]
-    
-#     tracking_stages = {
-#         "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
-#         "processed": order_status == "completed",
-#         "out_for_delivery": order_status == "completed"
-#     }
-    
-#     return {
-#         "order_number": order.data[0]["order_number"],
-#         "current_status": order_status,
-#         "tracking_stages": tracking_stages,
-#         "estimated_delivery": "30-45 minutes" if order_status == "completed" else None
-#     }
 
 
 
-@router.get("/orders/{order_id}/tracking")
-async def get_order_tracking(
-    order_id: str,
-    session_token: str = Query(...)
-):
-    """Get order tracking status with full order details"""
+@router.get("/orders/tracking")
+async def get_all_orders_tracking(session_token: str = Query(...)):
+    """Get tracking status for all customer orders"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get order first
-    order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
+    # Get all customer orders
+    orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
     
-    if not order.data:
-        raise HTTPException(status_code=404, detail="Order not found")
+    tracking_orders = []
+    for order_data in orders.data:
+        # Get items for each order
+        order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+        
+        # Calculate tracking stages
+        order_status = order_data["status"]
+        tracking_stages = {
+            "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
+            "processed": order_status == "completed",
+            "out_for_delivery": order_status == "completed"
+        }
+        
+        tracking_orders.append({
+            "order": {
+                "id": order_data["id"],
+                "order_number": order_data["order_number"],
+                "status": order_status,
+                "total": float(order_data["total"]),
+                "created_at": order_data["created_at"],
+                "items": order_items.data
+            },
+            "tracking_stages": tracking_stages,
+            "current_stage": (
+                "out_for_delivery" if order_status == "completed" else
+                "payment_confirmation" if order_status in ["confirmed", "preparing"] else
+                "pending"
+            )
+        })
     
-    # Get order items separately
-    order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_id).execute()
-    
-    order_data = order.data[0]
-    order_status = order_data["status"]
-    
-    # Tracking stages based on existing logic
-    tracking_stages = {
-        "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
-        "processed": order_status == "completed",
-        "out_for_delivery": order_status == "completed"
-    }
-    
-    return {
-        "order": {
-            "id": order_data["id"],
-            "order_number": order_data["order_number"],
-            "status": order_status,
-            "payment_status": order_data["payment_status"],
-            "total": float(order_data["total"]),
-            "subtotal": float(order_data["subtotal"]),
-            "tax": float(order_data["tax"]),
-            "created_at": order_data["created_at"],
-            "items": order_items.data
-        },
-        "tracking_stages": tracking_stages,
-        "estimated_delivery": "30-45 minutes" if order_status == "completed" else None,
-        "current_stage": (
-            "out_for_delivery" if order_status == "completed" else
-            "payment_confirmation" if order_status in ["confirmed", "preparing"] else
-            "pending"
-        )
-    }
+    return {"orders": tracking_orders}
 
 
 
