@@ -528,28 +528,98 @@ async def create_payment_account(
 
 
 
+# @router.post("/payment/bypass-create")
+# async def bypass_payment_create(
+#     payment_data: PaymentRequest,
+#     session_token: str = Query(...)
+# ):
+#     """Bypass payment for testing - auto-complete orders"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     # Generate fake payment reference
+#     payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
+    
+#     # Create orders directly as paid
+#     created_orders = []
+    
+#     for order_data in payment_data.orders:
+#         processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
+#         totals = CartService.calculate_order_total(processed_items)
+        
+#         order_entry = {
+#             "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+#             "order_type": "online",
+#             "status": "confirmed",
+#             "payment_status": "paid",
+#             "payment_reference": payment_reference,
+#             "subtotal": float(totals["subtotal"]),
+#             "tax": float(totals["vat"]),
+#             "total": float(totals["total"]),
+#             "website_customer_id": session_data["customer_id"],
+#             "confirmed_at": datetime.utcnow().isoformat()
+#         }
+        
+#         created_order = supabase_admin.table("orders").insert(order_entry).execute()
+#         order_id = created_order.data[0]["id"]
+        
+#         for item in processed_items:
+#             item_data = {
+#                 "order_id": order_id,
+#                 "product_id": item["product_id"],
+#                 "product_name": item["product_name"],
+#                 "quantity": item["quantity"],
+#                 "unit_price": float(item["unit_price"]),
+#                 "total_price": float(item["total_price"])
+#             }
+#             supabase_admin.table("order_items").insert(item_data).execute()
+        
+#         created_orders.append(created_order.data[0])
+    
+#     return {
+#         "payment_status": "success",
+#         "payment_reference": payment_reference,
+#         "orders": created_orders,
+#         "message": "Payment bypassed - orders created successfully"
+#     }
+
+
+
 @router.post("/payment/bypass-create")
 async def bypass_payment_create(
     payment_data: PaymentRequest,
     session_token: str = Query(...)
 ):
     """Bypass payment for testing - auto-complete orders"""
+
+    # 🔹 Step 1: validate session
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
-    
-    # Generate fake payment reference
-    payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
-    
-    # Create orders directly as paid
+
+    # If Redis stores bytes, decode to dict
+    if isinstance(session_data, bytes):
+        import json
+        session_data = json.loads(session_data.decode("utf-8"))
+
+    # 🔹 Step 2: generate fake payment reference
+    payment_reference = (
+        f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-"
+        f"{session_data['customer_id'][:8]}"
+    )
+
+    # 🔹 Step 3: process orders
     created_orders = []
-    
+
     for order_data in payment_data.orders:
-        processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
+        processed_items = await CartService.validate_cart_items(
+            [item.dict() for item in order_data.items]
+        )
         totals = CartService.calculate_order_total(processed_items)
-        
+
+        # Insert order without order_number
         order_entry = {
-            "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
             "order_type": "online",
             "status": "confirmed",
             "payment_status": "paid",
@@ -560,10 +630,23 @@ async def bypass_payment_create(
             "website_customer_id": session_data["customer_id"],
             "confirmed_at": datetime.utcnow().isoformat()
         }
-        
+
         created_order = supabase_admin.table("orders").insert(order_entry).execute()
         order_id = created_order.data[0]["id"]
-        
+
+        # Generate unique order_number from DB id
+        today = datetime.utcnow().strftime("%Y%m%d")
+        order_number = f"WEB-{today}-{str(order_id).zfill(3)}"
+
+        # Update order with order_number
+        updated_order = (
+            supabase_admin.table("orders")
+            .update({"order_number": order_number})
+            .eq("id", order_id)
+            .execute()
+        )
+
+        # Insert items
         for item in processed_items:
             item_data = {
                 "order_id": order_id,
@@ -571,18 +654,19 @@ async def bypass_payment_create(
                 "product_name": item["product_name"],
                 "quantity": item["quantity"],
                 "unit_price": float(item["unit_price"]),
-                "total_price": float(item["total_price"])
+                "total_price": float(item["total_price"]),
             }
             supabase_admin.table("order_items").insert(item_data).execute()
-        
-        created_orders.append(created_order.data[0])
-    
+
+        created_orders.append(updated_order.data[0])
+
     return {
         "payment_status": "success",
         "payment_reference": payment_reference,
         "orders": created_orders,
-        "message": "Payment bypassed - orders created successfully"
+        "message": "Payment bypassed - orders created successfully",
     }
+
 
 
 
