@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Query
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from pydantic import BaseModel, Field, EmailStr
+from enum  import Enum
 from decimal import Decimal
 
 from ..models.inventory import StockStatus
@@ -157,6 +158,55 @@ class BannerUpdate(BaseModel):
     link_url: Optional[str] = None
     is_active: Optional[bool] = None
     display_order: Optional[int] = Field(default=None, ge=0)
+
+
+
+class MeasurementUnit(str, Enum):
+    KG = "kg"
+    LITERS = "liters" 
+    PACKS = "packs"
+    DOZENS = "dozens"
+    UNITS = "units"
+    GRAMS = "grams"
+    ML = "ml"
+
+class TransactionType(str, Enum):
+    PURCHASE = "purchase"
+    USAGE = "usage"
+
+class RawMaterialCreate(BaseModel):
+    name: str = Field(..., max_length=200)
+    sku: Optional[str] = Field(None, max_length=50)
+    measurement_unit: MeasurementUnit
+    units_per_pack: Optional[int] = Field(None, gt=0)  # Only for packs
+    supplier_id: Optional[str] = None
+    initial_quantity: Decimal = Field(default=0, ge=0)
+    purchase_price: Optional[Decimal] = Field(None, ge=0)
+    notes: Optional[str] = None
+
+    def validate_units_per_pack(self):
+        if self.measurement_unit == MeasurementUnit.PACKS and not self.units_per_pack:
+            raise ValueError("units_per_pack required for pack measurement")
+        if self.measurement_unit != MeasurementUnit.PACKS and self.units_per_pack:
+            raise ValueError("units_per_pack only allowed for pack measurement")
+
+class RawMaterialUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    sku: Optional[str] = Field(None, max_length=50)
+    supplier_id: Optional[str] = None
+    units_per_pack: Optional[int] = Field(None, gt=0)
+    notes: Optional[str] = None
+
+class MaterialTransaction(BaseModel):
+    material_id: str
+    transaction_type: TransactionType
+    quantity: Decimal = Field(..., gt=0)
+    cost: Optional[Decimal] = Field(None, ge=0)
+    notes: Optional[str] = None
+
+class DateRangeFilter(BaseModel):
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
 
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
@@ -1174,3 +1224,443 @@ async def delete_banner(
         raise HTTPException(status_code=404, detail="Banner not found")
     
     return {"message": "Banner deleted"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+@router.post("/create_raw-materials", response_model=dict)
+async def create_raw_material(
+    material: RawMaterialCreate,
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Create new raw material"""
+    material.validate_units_per_pack()
+    
+    # Check unique name
+    existing = supabase.table("raw_materials").select("id").eq("name", material.name).execute()
+    if existing.data:
+        raise HTTPException(status_code=400, detail="Material name already exists")
+    
+    # Check SKU uniqueness if provided
+    if material.sku:
+        existing_sku = supabase.table("raw_materials").select("id").eq("sku", material.sku).execute()
+        if existing_sku.data:
+            raise HTTPException(status_code=400, detail="SKU already exists")
+    
+    # Verify supplier if provided
+    if material.supplier_id:
+        supplier = supabase.table("suppliers").select("id").eq("name", material.supplier_id).execute()
+        if not supplier.data:
+            raise HTTPException(status_code=404, detail="Supplier not found")
+    
+    material_data = {
+        **material.dict(exclude={"initial_quantity"}),
+        "current_quantity": float(material.initial_quantity),
+        "purchase_price": float(material.purchase_price) if material.purchase_price else None,
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("raw_materials").insert(material_data).execute()
+    material_id = result.data[0]["id"]
+    
+    # Log initial quantity if > 0
+    if material.initial_quantity > 0:
+        transaction_data = {
+            "material_id": material_id,
+            "transaction_type": TransactionType.PURCHASE,
+            "quantity": float(material.initial_quantity),
+            "remaining_after": float(material.initial_quantity),
+            "cost": float(material.purchase_price) if material.purchase_price else None,
+            "notes": "Initial stock",
+            "created_by": current_user["id"]
+        }
+        supabase.table("raw_material_transactions").insert(transaction_data).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "create", "raw_material", material_id, 
+        {"name": material.name, "unit": material.measurement_unit}, 
+        request
+    )
+    
+    return {"message": "Raw material created", "data": result.data[0]}
+
+@router.get("/get_raw_materials", response_model=List[dict])
+async def get_raw_materials(
+    request: Request,
+    search: Optional[str] = None,
+    measurement_unit: Optional[MeasurementUnit] = None,
+    supplier_id: Optional[str] = None,
+    low_stock_only: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get raw materials with filtering"""
+    cache_key = f"raw_materials:list:{search}:{measurement_unit}:{supplier_id}:{low_stock_only}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    query = supabase.table("raw_materials").select("*, suppliers(name)")
+    
+    if search:
+        query = query.or_(f"name.ilike.%{search}%,sku.ilike.%{search}%")
+    
+    if measurement_unit:
+        query = query.eq("measurement_unit", measurement_unit)
+    
+    if supplier_id:
+        query = query.eq("supplier_id", supplier_id)
+    
+    if low_stock_only:
+        query = query.lte("current_quantity", 10)  # Configurable threshold
+    
+    result = query.order("name").execute()
+    
+    # Add stock status
+    for material in result.data:
+        qty = material["current_quantity"]
+        if qty <= 0:
+            material["stock_status"] = "out_of_stock"
+        elif qty <= 10:  # Configurable
+            material["stock_status"] = "low_stock"
+        else:
+            material["stock_status"] = "in_stock"
+    
+    redis_client.set(cache_key, result.data, 120)
+    return result.data
+
+
+
+
+@router.post("/transactions", response_model=dict)
+async def create_transaction(
+    transaction: MaterialTransaction,
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Record purchase or usage transaction"""
+    # Get current material
+    material = supabase.table("raw_materials").select("*").eq("id", transaction.material_id).execute()
+    if not material.data:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    current_qty = Decimal(str(material.data[0]["current_quantity"]))
+    
+    # Calculate new quantity
+    if transaction.transaction_type == TransactionType.PURCHASE:
+        new_qty = current_qty + transaction.quantity
+    else:  # USAGE
+        if transaction.quantity > current_qty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot use {transaction.quantity} {material.data[0]['measurement_unit']}. Only {current_qty} available"
+            )
+        new_qty = current_qty - transaction.quantity
+    
+    # Update material quantity
+    supabase.table("raw_materials").update({
+        "current_quantity": float(new_qty),
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("id", transaction.material_id).execute()
+    
+    # Record transaction
+    transaction_data = {
+        **transaction.dict(),
+        "quantity": float(transaction.quantity),
+        "remaining_after": float(new_qty),
+        "cost": float(transaction.cost) if transaction.cost else None,
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("raw_material_transactions").insert(transaction_data).execute()
+    
+    # Clear cache
+    redis_client.delete_pattern("raw_materials:*")
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        f"material_{transaction.transaction_type}", "raw_material", transaction.material_id,
+        {
+            "quantity": float(transaction.quantity),
+            "remaining": float(new_qty),
+            "material_name": material.data[0]["name"]
+        },
+        request
+    )
+    
+    return {
+        "message": f"Transaction recorded successfully",
+        "remaining_quantity": float(new_qty),
+        "transaction": result.data[0]
+    }
+
+@router.get("/{material_id}/transactions")
+async def get_material_transactions(
+    material_id: str,
+    request: Request,
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    transaction_type: Optional[TransactionType] = Query(None),
+    limit: int = Query(50, le=500),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get transaction history for specific material"""
+    query = supabase.table("raw_material_transactions").select(
+        "*, profiles(email)"
+    ).eq("material_id", material_id)
+    
+    if date_from:
+        query = query.gte("created_at", date_from.isoformat())
+    
+    if date_to:
+        query = query.lte("created_at", f"{date_to.isoformat()}T23:59:59")
+    
+    if transaction_type:
+        query = query.eq("transaction_type", transaction_type)
+    
+    result = query.order("created_at", desc=True).limit(limit).execute()
+    return result.data
+
+@router.get("/analytics/usage-summary")
+async def get_usage_summary(
+    request: Request,
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    material_id: Optional[str] = Query(None),
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Get usage analytics with filtering"""
+    if not date_from:
+        date_from = date.today() - timedelta(days=30)
+    if not date_to:
+        date_to = date.today()
+    
+    # Build query
+    query = supabase.table("raw_material_transactions").select(
+        "*, raw_materials!inner(name, measurement_unit)"
+    ).gte("created_at", date_from.isoformat()).lte("created_at", f"{date_to.isoformat()}T23:59:59")
+    
+    if material_id:
+        query = query.eq("material_id", material_id)
+    
+    transactions = query.execute().data
+    
+    # Aggregate data
+    usage_summary = {}
+    purchase_summary = {}
+    daily_usage = {}
+    
+    for txn in transactions:
+        material_name = txn["raw_materials"]["name"]
+        unit = txn["raw_materials"]["measurement_unit"]
+        quantity = txn["quantity"]
+        txn_date = txn["created_at"][:10]
+        
+        if txn["transaction_type"] == "usage":
+            if material_name not in usage_summary:
+                usage_summary[material_name] = {"total": 0, "unit": unit, "transactions": 0}
+            usage_summary[material_name]["total"] += quantity
+            usage_summary[material_name]["transactions"] += 1
+            
+            # Daily breakdown
+            if txn_date not in daily_usage:
+                daily_usage[txn_date] = {}
+            if material_name not in daily_usage[txn_date]:
+                daily_usage[txn_date][material_name] = 0
+            daily_usage[txn_date][material_name] += quantity
+        
+        elif txn["transaction_type"] == "purchase":
+            if material_name not in purchase_summary:
+                purchase_summary[material_name] = {"total": 0, "unit": unit, "cost": 0}
+            purchase_summary[material_name]["total"] += quantity
+            if txn.get("cost"):
+                purchase_summary[material_name]["cost"] += txn["cost"]
+    
+    return {
+        "period": {"from": date_from, "to": date_to},
+        "usage_summary": [
+            {"material": k, **v} for k, v in usage_summary.items()
+        ],
+        "purchase_summary": [
+            {"material": k, **v} for k, v in purchase_summary.items()
+        ],
+        "daily_usage": [
+            {"date": k, "materials": v} for k, v in sorted(daily_usage.items())
+        ]
+    }
+
+@router.get("/analytics/cost-analysis")
+async def get_cost_analysis(
+    request: Request,
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get cost analysis for raw materials"""
+    if not date_from:
+        date_from = date.today() - timedelta(days=30)
+    if not date_to:
+        date_to = date.today()
+    
+    # Get purchase transactions with costs
+    purchases = supabase.table("raw_material_transactions").select(
+        "*, raw_materials!inner(name, measurement_unit)"
+    ).eq("transaction_type", "purchase").gte("created_at", date_from.isoformat()).lte("created_at", f"{date_to.isoformat()}T23:59:59").execute()
+    
+    cost_analysis = {}
+    total_spent = 0
+    
+    for purchase in purchases.data:
+        material_name = purchase["raw_materials"]["name"]
+        cost = purchase.get("cost", 0) or 0
+        quantity = purchase["quantity"]
+        
+        if material_name not in cost_analysis:
+            cost_analysis[material_name] = {
+                "total_cost": 0,
+                "total_quantity": 0,
+                "transactions": 0,
+                "unit": purchase["raw_materials"]["measurement_unit"]
+            }
+        
+        cost_analysis[material_name]["total_cost"] += cost
+        cost_analysis[material_name]["total_quantity"] += quantity
+        cost_analysis[material_name]["transactions"] += 1
+        total_spent += cost
+    
+    # Calculate average costs
+    for material, data in cost_analysis.items():
+        if data["total_quantity"] > 0:
+            data["cost_per_unit"] = round(data["total_cost"] / data["total_quantity"], 2)
+        else:
+            data["cost_per_unit"] = 0
+    
+    return {
+        "period": {"from": date_from, "to": date_to},
+        "total_spent": round(total_spent, 2),
+        "cost_breakdown": [
+            {"material": k, **v, "total_cost": round(v["total_cost"], 2)}
+            for k, v in cost_analysis.items()
+        ],
+        "top_expenses": sorted(
+            [{"material": k, **v} for k, v in cost_analysis.items()],
+            key=lambda x: x["total_cost"],
+            reverse=True
+        )[:10]
+    }
+
+@router.get("/reports/low-stock")
+async def get_low_stock_report(
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Get low stock alert report"""
+    materials = supabase.table("raw_materials").select("*, suppliers(name)").lte("current_quantity", 10).execute()
+    
+    alerts = []
+    for material in materials.data:
+        qty = material["current_quantity"]
+        status = "out_of_stock" if qty <= 0 else "low_stock"
+        
+        alerts.append({
+            "material_id": material["id"],
+            "name": material["name"],
+            "current_quantity": qty,
+            "measurement_unit": material["measurement_unit"],
+            "status": status,
+            "supplier": material["suppliers"]["name"] if material["suppliers"] else None,
+            "sku": material["sku"]
+        })
+    
+    return {
+        "alerts": alerts,
+        "summary": {
+            "total_alerts": len(alerts),
+            "out_of_stock": len([a for a in alerts if a["status"] == "out_of_stock"]),
+            "low_stock": len([a for a in alerts if a["status"] == "low_stock"])
+        }
+    }
+
+@router.get("/materials_dashboard")
+async def get_raw_materials_dashboard(
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Get raw materials dashboard overview"""
+    cache_key = "raw_materials:dashboard"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    # Get all materials
+    materials = supabase.table("raw_materials").select("*").execute()
+    
+    # Calculate metrics
+    total_materials = len(materials.data)
+    in_stock = len([m for m in materials.data if m["current_quantity"] > 10])
+    low_stock = len([m for m in materials.data if 0 < m["current_quantity"] <= 10])
+    out_of_stock = len([m for m in materials.data if m["current_quantity"] <= 0])
+    
+    # Recent transactions
+    recent = supabase.table("raw_material_transactions").select(
+        "*, raw_materials(name), profiles(email)"
+    ).order("created_at", desc=True).limit(10).execute()
+    
+    dashboard_data = {
+        "summary": {
+            "total_materials": total_materials,
+            "in_stock": in_stock,
+            "low_stock": low_stock,
+            "out_of_stock": out_of_stock
+        },
+        "recent_transactions": recent.data,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    redis_client.set(cache_key, dashboard_data, 300)
+    return dashboard_data
+
+
+@router.get("/{material_id}", response_model=dict)
+async def get_raw_material(
+    material_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get specific raw material details"""
+    result = supabase.table("raw_materials").select("*, suppliers(*)").eq("id", material_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    return result.data[0]
+
+@router.patch("/{material_id}")
+async def update_raw_material(
+    material_id: str,
+    update: RawMaterialUpdate,
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Update raw material details"""
+    updates = {k: v for k, v in update.dict().items() if v is not None}
+    
+    if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        result = supabase.table("raw_materials").update(updates).eq("id", material_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "update", "raw_material", material_id, updates, request
+    )
+    
+    return {"message": "Raw material updated"}

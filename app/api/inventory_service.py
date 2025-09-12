@@ -27,7 +27,7 @@ class InventoryService:
         
         # Calculate key metrics
         total_products = len(products)
-        total_categories = len(set(p["categories"]["name"] for p in products))
+        total_categories = len(set(p["categories"]["name"] for p in products if p["categories"]))
         
         # Stock status breakdown
         in_stock_count = len([p for p in products if p["status"] == StockStatus.IN_STOCK])
@@ -44,7 +44,7 @@ class InventoryService:
                 "name": p["name"],
                 "current_stock": p["units"],
                 "threshold": p["low_stock_threshold"],
-                "category": p["categories"]["name"],
+                "category": p["categories"]["name"] if p["categories"] else "Uncategorized",
                 "status": p["status"]
             }
             for p in products if p["status"] in [StockStatus.LOW_STOCK, StockStatus.OUT_OF_STOCK]

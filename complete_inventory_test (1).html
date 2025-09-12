@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete Inventory Management Test</title>
+    <style>
+        body {
+            font-family: Calibri, Arial, sans-serif;
+            margin: 20px;
+            background: white;
+            font-size: 11pt;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #f8f8f8;
+        }
+        .section {
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+        .section-header {
+            background: #e6e6e6;
+            padding: 8px;
+            font-weight: bold;
+            border-bottom: 1px solid #ccc;
+        }
+        .section-content {
+            padding: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10pt;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        th {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        input, select, button {
+            font-family: inherit;
+            font-size: 10pt;
+            padding: 3px 6px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background: white;
+            cursor: pointer;
+            margin: 2px;
+        }
+        button:hover {
+            background: #f0f0f0;
+        }
+        .form-row {
+            margin: 5px 0;
+        }
+        .form-row label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        .form-row input, .form-row select {
+            width: 200px;
+        }
+        .logs {
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 5px;
+            background: #fcfcfc;
+            font-family: Consolas, monospace;
+            font-size: 9pt;
+        }
+        .status {
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-size: 9pt;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+        .tabs {
+            display: flex;
+            background: #f0f0f0;
+            border-bottom: 1px solid #ccc;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-right: 1px solid #ccc;
+            background: #f0f0f0;
+        }
+        .tab.active {
+            background: white;
+            border-bottom: 1px solid white;
+            margin-bottom: -1px;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Complete Inventory Management System - Test Interface</h2>
+            <div class="form-row">
+                <label>Base URL:</label>
+                <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+            </div>
+            <div class="form-row">
+                <label>Staff Email:</label>
+                <input type="text" id="staffEmail" placeholder="inventory@example.com">
+            </div>
+            <div class="form-row">
+                <label>Password:</label>
+                <input type="password" id="staffPassword" placeholder="password">
+            </div>
+            <button onclick="testConnection()">Test Connection</button>
+            <button onclick="login()">Login</button>
+            <span id="authStatus" class="status"></span>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('finished-products')">Finished Products</div>
+            <div class="tab" onclick="showTab('raw-materials')">Raw Materials</div>
+            <div class="tab" onclick="showTab('analytics')">Analytics</div>
+            <div class="tab" onclick="showTab('advanced')">Advanced</div>
+        </div>
+
+        <!-- Finished Products Tab -->
+        <div id="finished-products" class="tab-content active">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Dashboard Overview</div>
+                        <div class="section-content">
+                            <button onclick="getDashboard()">Get Dashboard</button>
+                            <button onclick="getLowStockAlerts()">Low Stock Alerts</button>
+                            <div id="dashboardData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Categories</div>
+                        <div class="section-content">
+                            <button onclick="getCategories()">Load Categories</button>
+                            <button onclick="createCategory()">Create Category</button>
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="categoryName" placeholder="Category Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="categoryDesc" placeholder="Description">
+                            </div>
+                            <div id="categoriesData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Suppliers</div>
+                        <div class="section-content">
+                            <button onclick="getSuppliers()">Load Suppliers</button>
+                            <button onclick="createSupplier()">Create Supplier</button>
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="supplierName" placeholder="Supplier Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Contact:</label>
+                                <input type="text" id="supplierContact" placeholder="Contact Person">
+                            </div>
+                            <div class="form-row">
+                                <label>Email:</label>
+                                <input type="email" id="supplierEmail" placeholder="supplier@example.com">
+                            </div>
+                            <div id="suppliersData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Product Templates</div>
+                        <div class="section-content">
+                            <button onclick="getTemplates()">Load Templates</button>
+                            <button onclick="createTemplate()">Create Template</button>
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="templateName" placeholder="Template Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="templateDesc" placeholder="Description">
+                            </div>
+                            <div id="templatesData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Products</div>
+                        <div class="section-content">
+                            <button onclick="getProducts()">Load Products</button>
+                            <button onclick="createProduct()">Create Product</button>
+                            <div class="form-row">
+                                <label>Template ID:</label>
+                                <input type="text" id="productTemplate" placeholder="template-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Category ID:</label>
+                                <input type="text" id="productCategory" placeholder="category-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Price:</label>
+                                <input type="number" id="productPrice" placeholder="10.00" step="0.01">
+                            </div>
+                            <div class="form-row">
+                                <label>Units:</label>
+                                <input type="number" id="productUnits" placeholder="100">
+                            </div>
+                            <div id="productsData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Stock Management</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Product ID:</label>
+                                <input type="text" id="stockProductId" placeholder="product-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Quantity:</label>
+                                <input type="number" id="stockQuantity" placeholder="10">
+                            </div>
+                            <div class="form-row">
+                                <label>Operation:</label>
+                                <select id="stockOperation">
+                                    <option value="add">Add</option>
+                                    <option value="remove">Remove</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Notes:</label>
+                                <input type="text" id="stockNotes" placeholder="Stock update notes">
+                            </div>
+                            <button onclick="updateStock()">Update Stock</button>
+                            <button onclick="getStockHistory()">Get Stock History</button>
+                            <div id="stockData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Banners Management</div>
+                        <div class="section-content">
+                            <button onclick="getBanners()">Load Banners</button>
+                            <button onclick="createBanner()">Create Banner</button>
+                            <div class="form-row">
+                                <label>Title:</label>
+                                <input type="text" id="bannerTitle" placeholder="Banner Title">
+                            </div>
+                            <div class="form-row">
+                                <label>Image URL:</label>
+                                <input type="text" id="bannerImage" placeholder="https://example.com/image.jpg">
+                            </div>
+                            <div class="form-row">
+                                <label>Link URL:</label>
+                                <input type="text" id="bannerLink" placeholder="https://example.com">
+                            </div>
+                            <div class="form-row">
+                                <label>Order:</label>
+                                <input type="number" id="bannerOrder" placeholder="0">
+                            </div>
+                            <div id="bannersData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Product Actions</div>
+                        <div class="section-content">
+                            <button onclick="getMainProducts()">Main Products</button>
+                            <button onclick="getProductExtras()">Product Extras</button>
+                            <button onclick="toggleAvailability()">Toggle Availability</button>
+                            <div class="form-row">
+                                <label>Product ID:</label>
+                                <input type="text" id="actionProductId" placeholder="product-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Available:</label>
+                                <select id="productAvailable">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div id="actionsData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw Materials Tab -->
+        <div id="raw-materials" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Raw Materials Dashboard</div>
+                        <div class="section-content">
+                            <button onclick="getRawMaterialsDashboard()">Get Dashboard</button>
+                            <button onclick="getRawMaterialsLowStock()">Low Stock Report</button>
+                            <div id="rawDashboardData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Create Raw Material</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="rawMaterialName" placeholder="Rice, Palm Oil, etc.">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU:</label>
+                                <input type="text" id="rawMaterialSku" placeholder="SKU-001">
+                            </div>
+                            <div class="form-row">
+                                <label>Unit:</label>
+                                <select id="rawMaterialUnit">
+                                    <option value="kg">Kilograms (kg)</option>
+                                    <option value="liters">Liters</option>
+                                    <option value="packs">Packs</option>
+                                    <option value="dozens">Dozens</option>
+                                    <option value="units">Units</option>
+                                    <option value="grams">Grams</option>
+                                    <option value="ml">Milliliters</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Units per Pack:</label>
+                                <input type="number" id="rawMaterialUnitsPerPack" placeholder="12 (only for packs)">
+                            </div>
+                            <div class="form-row">
+                                <label>Supplier ID:</label>
+                                <input type="text" id="rawMaterialSupplier" placeholder="supplier-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Initial Qty:</label>
+                                <input type="number" id="rawMaterialInitialQty" placeholder="50" step="0.001">
+                            </div>
+                            <div class="form-row">
+                                <label>Price:</label>
+                                <input type="number" id="rawMaterialPrice" placeholder="100.00" step="0.01">
+                            </div>
+                            <button onclick="createRawMaterial()">Create Raw Material</button>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Raw Materials List</div>
+                        <div class="section-content">
+                            <button onclick="getRawMaterials()">Load All</button>
+                            <button onclick="searchRawMaterials()">Search</button>
+                            <div class="form-row">
+                                <label>Search:</label>
+                                <input type="text" id="rawMaterialSearch" placeholder="Search name or SKU">
+                            </div>
+                            <div class="form-row">
+                                <label>Filter Unit:</label>
+                                <select id="rawMaterialFilterUnit">
+                                    <option value="">All Units</option>
+                                    <option value="kg">Kilograms</option>
+                                    <option value="liters">Liters</option>
+                                    <option value="packs">Packs</option>
+                                    <option value="dozens">Dozens</option>
+                                    <option value="units">Units</option>
+                                    <option value="grams">Grams</option>
+                                    <option value="ml">Milliliters</option>
+                                </select>
+                            </div>
+                            <div id="rawMaterialsData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Transactions</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Material ID:</label>
+                                <input type="text" id="transactionMaterialId" placeholder="material-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Type:</label>
+                                <select id="transactionType">
+                                    <option value="purchase">Purchase (Add Stock)</option>
+                                    <option value="usage">Usage (Remove Stock)</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Quantity:</label>
+                                <input type="number" id="transactionQuantity" placeholder="10" step="0.001">
+                            </div>
+                            <div class="form-row">
+                                <label>Cost:</label>
+                                <input type="number" id="transactionCost" placeholder="50.00" step="0.01">
+                            </div>
+                            <div class="form-row">
+                                <label>Notes:</label>
+                                <input type="text" id="transactionNotes" placeholder="Purchase from supplier">
+                            </div>
+                            <button onclick="createTransaction()">Record Transaction</button>
+                            <button onclick="getTransactionHistory()">Get History</button>
+                            <div id="transactionData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Material Details</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Material ID:</label>
+                                <input type="text" id="materialDetailId" placeholder="material-id">
+                            </div>
+                            <button onclick="getMaterialDetails()">Get Details</button>
+                            <button onclick="updateMaterial()">Update Material</button>
+                            <div class="form-row">
+                                <label>New Name:</label>
+                                <input type="text" id="updateMaterialName" placeholder="New name">
+                            </div>
+                            <div class="form-row">
+                                <label>New SKU:</label>
+                                <input type="text" id="updateMaterialSku" placeholder="New SKU">
+                            </div>
+                            <div id="materialDetailsData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Raw Materials Analytics</div>
+                        <div class="section-content">
+                            <button onclick="getRawMaterialsUsageSummary()">Usage Summary</button>
+                            <button onclick="getRawMaterialsCostAnalysis()">Cost Analysis</button>
+                            <div class="form-row">
+                                <label>Date From:</label>
+                                <input type="date" id="analyticsDateFrom">
+                            </div>
+                            <div class="form-row">
+                                <label>Date To:</label>
+                                <input type="date" id="analyticsDateTo">
+                            </div>
+                            <div class="form-row">
+                                <label>Material ID:</label>
+                                <input type="text" id="analyticsMaterialId" placeholder="specific material">
+                            </div>
+                            <div id="rawAnalyticsData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Tab -->
+        <div id="analytics" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Inventory Analytics</div>
+                        <div class="section-content">
+                            <button onclick="getValuation()">Inventory Valuation</button>
+                            <button onclick="getMovementTrends()">Movement Trends</button>
+                            <button onclick="getReorderSuggestions()">Reorder Suggestions</button>
+                            <button onclick="getPerformance()">Product Performance</button>
+                            <div class="form-row">
+                                <label>Days:</label>
+                                <input type="number" id="analyticsDays" placeholder="30" value="30">
+                            </div>
+                            <div id="analyticsData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Enhanced Alerts</div>
+                        <div class="section-content">
+                            <button onclick="getEnhancedAlerts()">Enhanced Alerts</button>
+                            <button onclick="getCategoryComparison()">Category Comparison</button>
+                            <div class="form-row">
+                                <label>Include Predictions:</label>
+                                <select id="includePredictions">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div id="alertsData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Staff Analytics</div>
+                        <div class="section-content">
+                            <button onclick="getInventoryStaffAnalytics()">Individual Staff</button>
+                            <button onclick="getAllInventoryStaffAnalytics()">All Staff</button>
+                            <div class="form-row">
+                                <label>Staff ID:</label>
+                                <input type="text" id="staffAnalyticsId" placeholder="staff-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Days:</label>
+                                <input type="number" id="staffAnalyticsDays" placeholder="30" value="30">
+                            </div>
+                            <div id="staffAnalyticsData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Wastage Analysis</div>
+                        <div class="section-content">
+                            <button onclick="getWastageAnalysis()">Wastage Analysis</button>
+                            <div class="form-row">
+                                <label>Days:</label>
+                                <input type="number" id="wastageDays" placeholder="30" value="30">
+                            </div>
+                            <div id="wastageData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Optimization</div>
+                        <div class="section-content">
+                            <button onclick="getOptimization()">Stock Optimization</button>
+                            <div id="optimizationData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced Tab -->
+        <div id="advanced" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Bulk Operations</div>
+                        <div class="section-content">
+                            <button onclick="testBulkOperations()">Test Bulk Operations</button>
+                            <div id="bulkData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">SKU Management</div>
+                        <div class="section-content">
+                            <button onclick="getSKUCodes()">Load SKU Codes</button>
+                            <button onclick="createSKUCode()">Create SKU Code</button>
+                            <div class="form-row">
+                                <label>SKU Code:</label>
+                                <input type="text" id="skuCode" placeholder="SKU-001">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU Name:</label>
+                                <input type="text" id="skuName" placeholder="SKU Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Barcode:</label>
+                                <input type="text" id="skuBarcode" placeholder="123456789">
+                            </div>
+                            <div id="skuData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Product-SKU Mapping</div>
+                        <div class="section-content">
+                            <button onclick="mapSKUToProduct()">Map SKU to Product</button>
+                            <button onclick="getProductSKUs()">Get Product SKUs</button>
+                            <div class="form-row">
+                                <label>Product ID:</label>
+                                <input type="text" id="mapProductId" placeholder="product-id">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU Code ID:</label>
+                                <input type="text" id="mapSKUId" placeholder="sku-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Primary:</label>
+                                <select id="mapPrimary">
+                                    <option value="false">No</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                            </div>
+                            <div id="mappingData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">System Information</div>
+                        <div class="section-content">
+                            <button onclick="getSystemInfo()">Get System Info</button>
+                            <div id="systemData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">Activity Logs</div>
+            <div class="section-content">
+                <div class="logs" id="logs"></div>
+                <button onclick="clearLogs()">Clear Logs</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = '';
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('logs');
+            const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            logElement.textContent += logEntry;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+        }
+
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value.trim();
+        }
+
+        function updateStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        function showTab(tabName) {
+            // Hide all tab contents
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        function renderTable(data, containerId) {
+            if (!Array.isArray(data) || data.length === 0) {
+                document.getElementById(containerId).innerHTML = '<p>No data available</p>';
+                return;
+            }
+
+            const keys = Object.keys(data[0]);
+            let html = '<table><thead><tr>';
+            keys.forEach(key => html += `<th>${key}</th>`);
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    let value = row[key];
+                    if (typeof value === 'object' && value !== null) {
+                        value = JSON.stringify(value);
+                    }
+                    html += `<td>${value || ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            
+            document.getElementById(containerId).innerHTML = html;
+        }
+
+        function renderSummary(data, containerId) {
+            if (typeof data === 'object' && data !== null) {
+                let html = '<div>';
+                for (const [key, value] of Object.entries(data)) {
+                    if (typeof value === 'object' && value !== null) {
+                        html += `<h4>${key}:</h4>`;
+                        html += renderSummaryObject(value);
+                    } else {
+                        html += `<p><strong>${key}:</strong> ${value}</p>`;
+                    }
+                }
+                html += '</div>';
+                document.getElementById(containerId).innerHTML = html;
+            }
+        }
+
+        function renderSummaryObject(obj) {
+            let html = '<ul>';
+            for (const [key, value] of Object.entries(obj)) {
+                html += `<li><strong>${key}:</strong> ${value}</li>`;
+            }
+            html += '</ul>';
+            return html;
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const url = `${getBaseUrl()}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
+            const config = {
+                method,
+                headers
+            };
+
+            if (body) {
+                config.body = JSON.stringify(body);
+            }
+
+            try {
+                log(`${method} ${url}`);
+                const response = await fetch(url, config);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${data.detail || 'Request failed'}`);
+                }
+                
+                log(`Response: ${JSON.stringify(data).substring(0, 200)}...`, 'success');
+                return data;
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        async function testConnection() {
+            try {
+                const response = await fetch(`${getBaseUrl()}/docs`);
+                if (response.ok) {
+                    updateStatus('authStatus', 'Connection OK', 'success');
+                    log('Connection test successful', 'success');
+                } else {
+                    throw new Error('Connection failed');
+                }
+            } catch (error) {
+                updateStatus('authStatus', 'Connection Failed', 'error');
+                log(`Connection test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function login() {
+            const email = document.getElementById('staffEmail').value;
+            const password = document.getElementById('staffPassword').value;
+            
+            if (!email || !password) {
+                updateStatus('authStatus', 'Email and password required', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall('/auth/login', 'POST', { email, password });
+                authToken = data.access_token;
+                updateStatus('authStatus', `Logged in as ${data.user.role}`, 'success');
+                log(`Login successful: ${data.user.email} (${data.user.role})`, 'success');
+            } catch (error) {
+                updateStatus('authStatus', 'Login Failed', 'error');
+            }
+        }
+
+        // ========== FINISHED PRODUCTS FUNCTIONS ==========
+        
+        async function getDashboard() {
+            try {
+                const data = await apiCall('/inventory/dashboard');
+                renderSummary(data.summary, 'dashboardData');
+            } catch (error) {
+                document.getElementById('dashboardData').innerHTML = '<p class="status error">Failed to load dashboard</p>';
+            }
+        }
+
+        async function getLowStockAlerts() {
+            try {
+                const data = await apiCall('/inventory/alerts/low-stock');
+                renderTable(data, 'dashboardData');
+            } catch (error) {
+                document.getElementById('dashboardData').innerHTML = '<p class="status error">Failed to load alerts</p>';
+            }
+        }
+
+        async function getCategories() {
+            try {
+                const data = await apiCall('/inventory/categories');
+                renderTable(data, 'categoriesData');
+            } catch (error) {
+                document.getElementById('categoriesData').innerHTML = '<p class="status error">Failed to load categories</p>';
+            }
+        }
+
+        async function createCategory() {
+            const name = document.getElementById('categoryName').value;
+            const description = document.getElementById('categoryDesc').value;
+            if (!name) {
+                log('Category name is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/categories', 'POST', { name, description });
+                log(`Category created: ${data.data.name}`, 'success');
+                getCategories();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getSuppliers() {
+            try {
+                const data = await apiCall('/inventory/suppliers');
+                renderTable(data, 'suppliersData');
+            } catch (error) {
+                document.getElementById('suppliersData').innerHTML = '<p class="status error">Failed to load suppliers</p>';
+            }
+        }
+
+        async function createSupplier() {
+            const name = document.getElementById('supplierName').value;
+            const contact_person = document.getElementById('supplierContact').value;
+            const email = document.getElementById('supplierEmail').value;
+            
+            if (!name) {
+                log('Supplier name is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/suppliers', 'POST', { name, contact_person, email });
+                log(`Supplier created: ${data.data.name}`, 'success');
+                getSuppliers();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getTemplates() {
+            try {
+                const data = await apiCall('/inventory/product-templates');
+                renderTable(data, 'templatesData');
+            } catch (error) {
+                document.getElementById('templatesData').innerHTML = '<p class="status error">Failed to load templates</p>';
+            }
+        }
+
+        async function createTemplate() {
+            const name = document.getElementById('templateName').value;
+            const description = document.getElementById('templateDesc').value;
+            
+            if (!name) {
+                log('Template name is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/product-templates', 'POST', { name, description });
+                log(`Template created: ${data.data.name}`, 'success');
+                getTemplates();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getProducts() {
+            try {
+                const data = await apiCall('/inventory/products');
+                renderTable(data, 'productsData');
+            } catch (error) {
+                document.getElementById('productsData').innerHTML = '<p class="status error">Failed to load products</p>';
+            }
+        }
+
+        async function createProduct() {
+            const templateId = document.getElementById('productTemplate').value;
+            const categoryId = document.getElementById('productCategory').value;
+            const price = parseFloat(document.getElementById('productPrice').value);
+            const units = parseInt(document.getElementById('productUnits').value);
+            
+            if (!templateId || !categoryId || !price || isNaN(units)) {
+                log('All product fields are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/products', 'POST', {
+                    product_template_id: templateId,
+                    category_id: categoryId,
+                    price: price,
+                    units: units
+                });
+                log(`Product created: ${data.data.id}`, 'success');
+                getProducts();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function updateStock() {
+            const productId = document.getElementById('stockProductId').value;
+            const quantity = parseInt(document.getElementById('stockQuantity').value);
+            const operation = document.getElementById('stockOperation').value;
+            const notes = document.getElementById('stockNotes').value;
+            
+            if (!productId || isNaN(quantity) || quantity <= 0) {
+                log('Product ID and valid quantity are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/stock`, 'POST', {
+                    quantity: quantity,
+                    operation: operation,
+                    notes: notes
+                });
+                log(`Stock updated: ${data.message}`, 'success');
+                renderSummary(data, 'stockData');
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getStockHistory() {
+            const productId = document.getElementById('stockProductId').value;
+            if (!productId) {
+                log('Product ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/history`);
+                renderTable(data, 'stockData');
+            } catch (error) {
+                document.getElementById('stockData').innerHTML = '<p class="status error">Failed to load stock history</p>';
+            }
+        }
+
+        async function getBanners() {
+            try {
+                const data = await apiCall('/inventory/banners');
+                renderTable(data, 'bannersData');
+            } catch (error) {
+                document.getElementById('bannersData').innerHTML = '<p class="status error">Failed to load banners</p>';
+            }
+        }
+
+        async function createBanner() {
+            const title = document.getElementById('bannerTitle').value;
+            const image_url = document.getElementById('bannerImage').value;
+            const link_url = document.getElementById('bannerLink').value;
+            const display_order = parseInt(document.getElementById('bannerOrder').value) || 0;
+            
+            if (!title || !image_url) {
+                log('Banner title and image URL are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/banners', 'POST', {
+                    title, image_url, link_url, display_order
+                });
+                log(`Banner created: ${data.data.title}`, 'success');
+                getBanners();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getMainProducts() {
+            try {
+                const data = await apiCall('/inventory/main-products-dropdown');
+                renderTable(data, 'actionsData');
+            } catch (error) {
+                document.getElementById('actionsData').innerHTML = '<p class="status error">Failed to load main products</p>';
+            }
+        }
+
+        async function getProductExtras() {
+            const productId = document.getElementById('actionProductId').value;
+            if (!productId) {
+                log('Product ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/extras`);
+                renderTable(data, 'actionsData');
+            } catch (error) {
+                document.getElementById('actionsData').innerHTML = '<p class="status error">Failed to load product extras</p>';
+            }
+        }
+
+        async function toggleAvailability() {
+            const productId = document.getElementById('actionProductId').value;
+            const isAvailable = document.getElementById('productAvailable').value === 'true';
+            
+            if (!productId) {
+                log('Product ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/availability`, 'PATCH', {
+                    is_available: isAvailable
+                });
+                log(`Availability updated: ${data.message}`, 'success');
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        // ========== RAW MATERIALS FUNCTIONS ==========
+
+        async function getRawMaterialsDashboard() {
+            try {
+                const data = await apiCall('/inventory/materials_dashboard');
+                renderSummary(data.summary, 'rawDashboardData');
+            } catch (error) {
+                document.getElementById('rawDashboardData').innerHTML = '<p class="status error">Failed to load raw materials dashboard</p>';
+            }
+        }
+
+        async function getRawMaterialsLowStock() {
+            try {
+                const data = await apiCall('/inventory/reports/low-stock');
+                renderTable(data.alerts, 'rawDashboardData');
+            } catch (error) {
+                document.getElementById('rawDashboardData').innerHTML = '<p class="status error">Failed to load low stock report</p>';
+            }
+        }
+
+        async function createRawMaterial() {
+            const name = document.getElementById('rawMaterialName').value;
+            const sku = document.getElementById('rawMaterialSku').value;
+            const measurement_unit = document.getElementById('rawMaterialUnit').value;
+            const units_per_pack = parseInt(document.getElementById('rawMaterialUnitsPerPack').value) || null;
+            const supplier_id = document.getElementById('rawMaterialSupplier').value || null;
+            const initial_quantity = parseFloat(document.getElementById('rawMaterialInitialQty').value) || 0;
+            const purchase_price = parseFloat(document.getElementById('rawMaterialPrice').value) || null;
+            
+            if (!name || !measurement_unit) {
+                log('Name and measurement unit are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/create_raw-materials', 'POST', {
+                    name, sku, measurement_unit, units_per_pack, supplier_id, initial_quantity, purchase_price
+                });
+                log(`Raw material created: ${data.data.name}`, 'success');
+                getRawMaterials();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getRawMaterials() {
+            try {
+                const data = await apiCall('/inventory/get_raw_materials');
+                renderTable(data, 'rawMaterialsData');
+            } catch (error) {
+                document.getElementById('rawMaterialsData').innerHTML = '<p class="status error">Failed to load raw materials</p>';
+            }
+        }
+
+        async function searchRawMaterials() {
+            const search = document.getElementById('rawMaterialSearch').value;
+            const measurement_unit = document.getElementById('rawMaterialFilterUnit').value;
+            
+            let url = '/inventory/get_raw_materials?';
+            if (search) url += `search=${encodeURIComponent(search)}&`;
+            if (measurement_unit) url += `measurement_unit=${measurement_unit}&`;
+            
+            try {
+                const data = await apiCall(url);
+                renderTable(data, 'rawMaterialsData');
+            } catch (error) {
+                document.getElementById('rawMaterialsData').innerHTML = '<p class="status error">Failed to search raw materials</p>';
+            }
+        }
+
+        async function createTransaction() {
+            const material_id = document.getElementById('transactionMaterialId').value;
+            const transaction_type = document.getElementById('transactionType').value;
+            const quantity = parseFloat(document.getElementById('transactionQuantity').value);
+            const cost = parseFloat(document.getElementById('transactionCost').value) || null;
+            const notes = document.getElementById('transactionNotes').value;
+            
+            if (!material_id || isNaN(quantity) || quantity <= 0) {
+                log('Material ID and valid quantity are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/transactions', 'POST', {
+                    material_id, transaction_type, quantity, cost, notes
+                });
+                log(`Transaction recorded: ${data.message}`, 'success');
+                renderSummary(data, 'transactionData');
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getTransactionHistory() {
+            const materialId = document.getElementById('transactionMaterialId').value;
+            if (!materialId) {
+                log('Material ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/${materialId}/transactions`);
+                renderTable(data, 'transactionData');
+            } catch (error) {
+                document.getElementById('transactionData').innerHTML = '<p class="status error">Failed to load transaction history</p>';
+            }
+        }
+
+        async function getMaterialDetails() {
+            const materialId = document.getElementById('materialDetailId').value;
+            if (!materialId) {
+                log('Material ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/${materialId}`);
+                renderSummary(data, 'materialDetailsData');
+            } catch (error) {
+                document.getElementById('materialDetailsData').innerHTML = '<p class="status error">Failed to load material details</p>';
+            }
+        }
+
+        async function updateMaterial() {
+            const materialId = document.getElementById('materialDetailId').value;
+            const name = document.getElementById('updateMaterialName').value;
+            const sku = document.getElementById('updateMaterialSku').value;
+            
+            if (!materialId) {
+                log('Material ID is required', 'error');
+                return;
+            }
+            
+            const updates = {};
+            if (name) updates.name = name;
+            if (sku) updates.sku = sku;
+            
+            if (Object.keys(updates).length === 0) {
+                log('At least one field to update is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/${materialId}`, 'PATCH', updates);
+                log(`Material updated: ${data.message}`, 'success');
+                getMaterialDetails();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getRawMaterialsUsageSummary() {
+            const dateFrom = document.getElementById('analyticsDateFrom').value;
+            const dateTo = document.getElementById('analyticsDateTo').value;
+            const materialId = document.getElementById('analyticsMaterialId').value;
+            
+            let url = '/inventory/analytics/usage-summary?';
+            if (dateFrom) url += `date_from=${dateFrom}&`;
+            if (dateTo) url += `date_to=${dateTo}&`;
+            if (materialId) url += `material_id=${materialId}&`;
+            
+            try {
+                const data = await apiCall(url);
+                renderSummary(data, 'rawAnalyticsData');
+            } catch (error) {
+                document.getElementById('rawAnalyticsData').innerHTML = '<p class="status error">Failed to load usage summary</p>';
+            }
+        }
+
+        async function getRawMaterialsCostAnalysis() {
+            const dateFrom = document.getElementById('analyticsDateFrom').value;
+            const dateTo = document.getElementById('analyticsDateTo').value;
+            
+            let url = '/inventory/analytics/cost-analysis?';
+            if (dateFrom) url += `date_from=${dateFrom}&`;
+            if (dateTo) url += `date_to=${dateTo}&`;
+            
+            try {
+                const data = await apiCall(url);
+                renderSummary(data, 'rawAnalyticsData');
+            } catch (error) {
+                document.getElementById('rawAnalyticsData').innerHTML = '<p class="status error">Failed to load cost analysis</p>';
+            }
+        }
+
+        // ========== ANALYTICS FUNCTIONS ==========
+
+        async function getValuation() {
+            try {
+                const data = await apiCall('/inventory/analytics/valuation');
+                renderSummary(data, 'analyticsData');
+            } catch (error) {
+                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load valuation</p>';
+            }
+        }
+
+        async function getMovementTrends() {
+            const days = parseInt(document.getElementById('analyticsDays').value) || 30;
+            try {
+                const data = await apiCall(`/inventory/analytics/movement?days=${days}`);
+                renderTable(data.daily_movements, 'analyticsData');
+            } catch (error) {
+                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load movement trends</p>';
+            }
+        }
+
+        async function getReorderSuggestions() {
+            try {
+                const data = await apiCall('/inventory/reorder-suggestions');
+                renderTable(data.suggestions, 'analyticsData');
+            } catch (error) {
+                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load reorder suggestions</p>';
+            }
+        }
+
+        async function getPerformance() {
+            const days = parseInt(document.getElementById('analyticsDays').value) || 30;
+            try {
+                const data = await apiCall(`/inventory/performance?days=${days}`);
+                renderTable(data.top_performers.by_revenue, 'analyticsData');
+            } catch (error) {
+                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load performance data</p>';
+            }
+        }
+
+        async function getEnhancedAlerts() {
+            const includePredictions = document.getElementById('includePredictions').value === 'true';
+            try {
+                const data = await apiCall(`/inventory/alerts/enhanced?include_predictions=${includePredictions}`);
+                renderTable(data.predictions, 'alertsData');
+            } catch (error) {
+                document.getElementById('alertsData').innerHTML = '<p class="status error">Failed to load enhanced alerts</p>';
+            }
+        }
+
+        async function getCategoryComparison() {
+            const days = parseInt(document.getElementById('analyticsDays').value) || 30;
+            try {
+                const data = await apiCall(`/inventory/analytics/category-comparison?days=${days}`);
+                renderTable(data.category_comparison, 'alertsData');
+            } catch (error) {
+                document.getElementById('alertsData').innerHTML = '<p class="status error">Failed to load category comparison</p>';
+            }
+        }
+
+        async function getInventoryStaffAnalytics() {
+            const staffId = document.getElementById('staffAnalyticsId').value;
+            const days = parseInt(document.getElementById('staffAnalyticsDays').value) || 30;
+            
+            if (!staffId) {
+                log('Staff ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/analytics/staff/${staffId}?days=${days}`);
+                renderSummary(data, 'staffAnalyticsData');
+            } catch (error) {
+                document.getElementById('staffAnalyticsData').innerHTML = '<p class="status error">Failed to load staff analytics</p>';
+            }
+        }
+
+        async function getAllInventoryStaffAnalytics() {
+            const days = parseInt(document.getElementById('staffAnalyticsDays').value) || 30;
+            try {
+                const data = await apiCall(`/inventory/analytics/all-inventory-staff?days=${days}`);
+                renderTable(data.staff_analytics, 'staffAnalyticsData');
+            } catch (error) {
+                document.getElementById('staffAnalyticsData').innerHTML = '<p class="status error">Failed to load all staff analytics</p>';
+            }
+        }
+
+        async function getWastageAnalysis() {
+            const days = parseInt(document.getElementById('wastageDays').value) || 30;
+            try {
+                const data = await apiCall(`/inventory/analytics/wastage?days=${days}`);
+                renderSummary(data, 'wastageData');
+            } catch (error) {
+                document.getElementById('wastageData').innerHTML = '<p class="status error">Failed to load wastage analysis</p>';
+            }
+        }
+
+        async function getOptimization() {
+            try {
+                const data = await apiCall('/inventory/optimization');
+                renderSummary(data.summary, 'optimizationData');
+            } catch (error) {
+                document.getElementById('optimizationData').innerHTML = '<p class="status error">Failed to load optimization data</p>';
+            }
+        }
+
+        // ========== ADVANCED FUNCTIONS ==========
+
+        async function testBulkOperations() {
+            const testData = [
+                { product_id: "sample-id-1", quantity: 10, operation: "add", notes: "Test bulk add" },
+                { product_id: "sample-id-2", quantity: 5, operation: "remove", notes: "Test bulk remove" }
+            ];
+            
+            try {
+                const data = await apiCall('/inventory/bulk-operations', 'POST', testData);
+                renderSummary(data, 'bulkData');
+            } catch (error) {
+                document.getElementById('bulkData').innerHTML = '<p class="status error">Failed to test bulk operations</p>';
+            }
+        }
+
+        async function getSKUCodes() {
+            try {
+                const data = await apiCall('/inventory/sku-codes');
+                renderTable(data, 'skuData');
+            } catch (error) {
+                document.getElementById('skuData').innerHTML = '<p class="status error">Failed to load SKU codes</p>';
+            }
+        }
+
+        async function createSKUCode() {
+            const code = document.getElementById('skuCode').value;
+            const name = document.getElementById('skuName').value;
+            const barcode = document.getElementById('skuBarcode').value;
+            
+            if (!code || !name) {
+                log('SKU code and name are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/sku-codes', 'POST', {
+                    code, name, barcode
+                });
+                log(`SKU code created: ${data.data.code}`, 'success');
+                getSKUCodes();
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function mapSKUToProduct() {
+            const productId = document.getElementById('mapProductId').value;
+            const skuCodeId = document.getElementById('mapSKUId').value;
+            const isPrimary = document.getElementById('mapPrimary').value === 'true';
+            
+            if (!productId || !skuCodeId) {
+                log('Product ID and SKU Code ID are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/map-sku`, 'POST', {
+                    sku_code_id: skuCodeId,
+                    is_primary: isPrimary
+                });
+                log(`SKU mapped to product: ${data.message}`, 'success');
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function getProductSKUs() {
+            const productId = document.getElementById('mapProductId').value;
+            if (!productId) {
+                log('Product ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/skus`);
+                renderTable(data, 'mappingData');
+            } catch (error) {
+                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to load product SKUs</p>';
+            }
+        }
+
+        async function getSystemInfo() {
+            try {
+                const data = await apiCall('/auth/debug/auth-test');
+                renderSummary(data, 'systemData');
+            } catch (error) {
+                document.getElementById('systemData').innerHTML = '<p class="status error">Failed to load system info</p>';
+            }
+        }
+
+        // Initialize
+        log('Complete Inventory Test Interface loaded', 'success');
+        
+        // Set default dates
+        const today = new Date().toISOString().split('T')[0];
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        document.getElementById('analyticsDateFrom').value = thirtyDaysAgo;
+        document.getElementById('analyticsDateTo').value = today;
+    </script>
+</body>
+</html>
