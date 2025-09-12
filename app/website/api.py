@@ -667,24 +667,24 @@ async def get_order_history(
     }
 
 
-@router.get("/orders/{order_id}")
-async def get_order_details(
-    order_id: str,
-    session_token: str = Query(...)
-):
-    """Get specific order details"""
-    session_data = redis_client.get(f"customer_session:{session_token}")
-    if not session_data:
-        raise HTTPException(status_code=401, detail="Invalid session")
+# @router.get("/orders/{order_id}")
+# async def get_order_details(
+#     order_id: str,
+#     session_token: str = Query(...)
+# ):
+#     """Get specific order details"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
     
-    order = supabase_admin.table("orders").select("""
-        *, order_items(*), customer_addresses(*)
-    """).eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
+#     order = supabase_admin.table("orders").select("""
+#         *, order_items(*), customer_addresses(*)
+#     """).eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
     
-    if not order.data:
-        raise HTTPException(status_code=404, detail="Order not found")
+#     if not order.data:
+#         raise HTTPException(status_code=404, detail="Order not found")
     
-    return order.data[0]
+#     return order.data[0]
 
 
 
