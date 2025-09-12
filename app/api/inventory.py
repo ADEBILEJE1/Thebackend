@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Query, UploadFile, File
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
 from pydantic import BaseModel, Field, EmailStr
 from enum  import Enum
 from decimal import Decimal
+import uuid
 
 from ..models.inventory import StockStatus
 from ..core.permissions import (
@@ -209,6 +210,11 @@ class DateRangeFilter(BaseModel):
     date_to: Optional[date] = None
 
 
+class ImageType(str, Enum):
+    PRODUCT = "product"
+    CATEGORY = "category" 
+    BANNER = "banner"
+
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 # Categories
@@ -238,7 +244,7 @@ async def get_categories(
     active_only: bool = True,
     current_user: dict = Depends(get_current_user)
 ):
-    query = supabase.table("categories").select("*")
+    query = supabase_admin.table("categories").select("*")
     if active_only:
         query = query.eq("is_active", True)
     
@@ -257,7 +263,7 @@ async def update_category(
             updates[k] = v
     
     if updates:
-        result = supabase.table("categories").update(updates).eq("id", category_id).execute()
+        result = supabase_admin.table("categories").update(updates).eq("id", category_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Category not found")
         
@@ -268,6 +274,83 @@ async def update_category(
 
 
 
+
+
+# @router.post("/products", response_model=dict)
+# async def create_product(
+#    product: ProductCreate,
+#    current_user: dict = Depends(require_inventory_staff)
+# ):
+#    # Verify product template exists
+#    template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
+#    if not template.data:
+#        raise HTTPException(status_code=404, detail="Product template not found")
+   
+#    template_data = template.data[0]
+
+#    # Verify category exists
+#    category = supabase_admin.table("categories").select("id").eq("id", product.category_id).execute()
+#    if not category.data:
+#        raise HTTPException(status_code=404, detail="Category not found")
+   
+#    # Verify supplier exists if provided
+#    if product.supplier_id:
+#        supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
+#        if not supplier.data:
+#            raise HTTPException(status_code=404, detail="Supplier not found")
+   
+#    # Validate product type and main product relationship
+#    if product.product_type == "extra":
+#        if not product.main_product_id:
+#            raise HTTPException(status_code=400, detail="Extra products must have a main product")
+       
+#        main_product = supabase.table("products").select("id, product_type").eq("id", product.main_product_id).execute()
+#        if not main_product.data:
+#            raise HTTPException(status_code=404, detail="Main product not found")
+       
+#        if main_product.data[0]["product_type"] != "main":
+#            raise HTTPException(status_code=400, detail="Can only link to main products")
+   
+#    elif product.product_type == "main" and product.main_product_id:
+#        raise HTTPException(status_code=400, detail="Main products cannot have a main product reference")
+   
+#    # Check SKU uniqueness if provided
+#    if product.sku and product.supplier_id:
+#        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
+#        if existing_sku.data:
+#            raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
+   
+#    # Determine stock status
+#    status = StockStatus.OUT_OF_STOCK
+#    if product.units > product.low_stock_threshold:
+#        status = StockStatus.IN_STOCK
+#    elif product.units > 0:
+#        status = StockStatus.LOW_STOCK
+   
+#    product_dict = product.dict()
+#    product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
+#    product_data = {
+#        **product_dict,
+#        "name": template_data["name"],
+#        "status": status,
+#        "created_by": current_user["id"],
+#        "updated_by": current_user["id"]
+#    }
+   
+#    result = supabase.table("products").insert(product_data).execute()
+   
+#    # Log initial stock if units > 0
+#    if product.units > 0:
+#        stock_entry = {
+#            "product_id": result.data[0]["id"],
+#            "quantity": product.units,
+#            "entry_type": "add",
+#            "notes": "Initial stock",
+#            "entered_by": current_user["id"]
+#        }
+#        supabase_admin.table("stock_entries").insert(stock_entry).execute()
+   
+#    return {"message": "Product created", "data": result.data[0]}
 
 
 @router.post("/products", response_model=dict)
@@ -283,7 +366,7 @@ async def create_product(
    template_data = template.data[0]
 
    # Verify category exists
-   category = supabase.table("categories").select("id").eq("id", product.category_id).execute()
+   category = supabase_admin.table("categories").select("id").eq("id", product.category_id).execute()
    if not category.data:
        raise HTTPException(status_code=404, detail="Category not found")
    
@@ -322,10 +405,15 @@ async def create_product(
        status = StockStatus.LOW_STOCK
    
    product_dict = product.dict()
-   product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
+   product_dict["price"] = float(product_dict["price"])
+   
+   # Use template description if no description provided
+   final_description = product.description or template_data.get("description")
+   
    product_data = {
        **product_dict,
        "name": template_data["name"],
+       "description": final_description,
        "status": status,
        "created_by": current_user["id"],
        "updated_by": current_user["id"]
@@ -345,6 +433,7 @@ async def create_product(
        supabase_admin.table("stock_entries").insert(stock_entry).execute()
    
    return {"message": "Product created", "data": result.data[0]}
+
 
 
 
@@ -525,7 +614,7 @@ async def toggle_availability(
         "updated_at": datetime.utcnow().isoformat()
     }
     
-    result = supabase.table("products").update(update).eq("id", product_id).execute()
+    result = supabase_admin.table("products").update(update).eq("id", product_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -1167,6 +1256,63 @@ async def get_sku_products(
    ).eq("sku_code_id", sku_id).execute()
    
    return result.data
+
+
+
+@router.post("/upload-image")
+async def upload_image(
+    file: UploadFile = File(...),
+    image_type: ImageType = ImageType.PRODUCT,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    # Type-specific validation
+    size_limits = {
+        ImageType.PRODUCT: 5 * 1024 * 1024,   # 5MB
+        ImageType.CATEGORY: 3 * 1024 * 1024,  # 3MB  
+        ImageType.BANNER: 10 * 1024 * 1024    # 10MB
+    }
+    
+    # Validate file type
+    if file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    
+    # Validate file size
+    if file.size > size_limits[image_type]:
+        max_mb = size_limits[image_type] / (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"File too large. Max {max_mb}MB for {image_type}")
+    
+    # Generate unique filename
+    file_extension = file.filename.split('.')[-1].lower()
+    filename = f"{uuid.uuid4()}.{file_extension}"
+    
+    # Upload to Supabase Storage
+    try:
+        bucket_name = f"{image_type.value}-images"
+        
+        supabase_admin.storage.from_(bucket_name).upload(
+            filename, 
+            file.file.read(),
+            {"content-type": file.content_type}
+        )
+        
+        # Get public URL
+        image_url = supabase_admin.storage.from_(bucket_name).get_public_url(filename)
+        
+        await log_activity(
+            current_user["id"], current_user["email"], current_user["role"],
+            "upload", f"{image_type.value}_image", None, 
+            {"filename": filename, "size": file.size}, 
+            None
+        )
+        
+        return {
+            "image_url": image_url,
+            "filename": filename,
+            "type": image_type.value
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 # Banner Management
