@@ -730,13 +730,13 @@ async def get_order_history(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Only get completed orders
-    orders = supabase_admin.table("orders").select("""
-        id, order_number, status, payment_status, total, subtotal, tax, created_at, completed_at,
-        order_items(product_name, quantity, unit_price, total_price, notes)
-    """).eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order(
-        "completed_at", desc=True
-    ).range(offset, offset + limit - 1).execute()
+    # Get completed orders
+    orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
+    
+    # Get items for each order
+    for order in orders.data:
+        items = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
+        order["order_items"] = items.data
     
     return {
         "orders": orders.data,
@@ -809,13 +809,14 @@ async def get_order_tracking(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get full order with items
-    order = supabase_admin.table("orders").select("""
-        *, order_items(product_name, quantity, unit_price, total_price, notes)
-    """).eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
+    # Get order first
+    order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Get order items separately
+    order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_id).execute()
     
     order_data = order.data[0]
     order_status = order_data["status"]
@@ -837,7 +838,7 @@ async def get_order_tracking(
             "subtotal": float(order_data["subtotal"]),
             "tax": float(order_data["tax"]),
             "created_at": order_data["created_at"],
-            "items": order_data["order_items"]
+            "items": order_items.data
         },
         "tracking_stages": tracking_stages,
         "estimated_delivery": "30-45 minutes" if order_status == "completed" else None,
