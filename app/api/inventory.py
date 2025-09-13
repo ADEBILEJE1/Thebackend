@@ -600,11 +600,11 @@ async def delete_product(
     current_user: dict = Depends(require_inventory_staff)
 ):
     # Check if product has order history
-    orders = supabase.table("order_items").select("id").eq("product_id", product_id).execute()
+    orders = supabase_admin.table("order_items").select("id").eq("product_id", product_id).execute()
     if orders.data:
         raise HTTPException(status_code=400, detail="Cannot delete product with order history")
     
-    result = supabase.table("products").delete().eq("id", product_id).execute()
+    result = supabase_admin.table("products").delete().eq("id", product_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -620,11 +620,11 @@ async def delete_category(
     current_user: dict = Depends(require_inventory_staff)
 ):
     # Check if category has products
-    products = supabase.table("products").select("id").eq("category_id", category_id).execute()
+    products = supabase_admin.table("products").select("id").eq("category_id", category_id).execute()
     if products.data:
         raise HTTPException(status_code=400, detail="Cannot delete category with existing products")
     
-    result = supabase.table("categories").delete().eq("id", category_id).execute()
+    result = supabase_admin.table("categories").delete().eq("id", category_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Category not found")
     
