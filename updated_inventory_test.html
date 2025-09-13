@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Complete Inventory Management Test</title>
+    <title>Complete Inventory Management Test - Updated</title>
     <style>
         body {
             font-family: Calibri, Arial, sans-serif;
@@ -121,12 +121,22 @@
         .tab-content.active {
             display: block;
         }
+        .upload-section {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .upload-section:hover {
+            border-color: #999;
+            background: #f9f9f9;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h2>Complete Inventory Management System - Test Interface</h2>
+            <h2>Complete Inventory Management System - Test Interface (Updated)</h2>
             <div class="form-row">
                 <label>Base URL:</label>
                 <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
@@ -147,6 +157,7 @@
         <div class="tabs">
             <div class="tab active" onclick="showTab('finished-products')">Finished Products</div>
             <div class="tab" onclick="showTab('raw-materials')">Raw Materials</div>
+            <div class="tab" onclick="showTab('images-banners')">Images & Banners</div>
             <div class="tab" onclick="showTab('analytics')">Analytics</div>
             <div class="tab" onclick="showTab('advanced')">Advanced</div>
         </div>
@@ -177,6 +188,10 @@
                                 <label>Description:</label>
                                 <input type="text" id="categoryDesc" placeholder="Description">
                             </div>
+                            <div class="form-row">
+                                <label>Image URL:</label>
+                                <input type="text" id="categoryImageUrl" placeholder="Image URL">
+                            </div>
                             <div id="categoriesData"></div>
                         </div>
                     </div>
@@ -198,6 +213,14 @@
                                 <label>Email:</label>
                                 <input type="email" id="supplierEmail" placeholder="supplier@example.com">
                             </div>
+                            <div class="form-row">
+                                <label>Phone:</label>
+                                <input type="text" id="supplierPhone" placeholder="Phone Number">
+                            </div>
+                            <div class="form-row">
+                                <label>Address:</label>
+                                <input type="text" id="supplierAddress" placeholder="Address">
+                            </div>
                             <div id="suppliersData"></div>
                         </div>
                     </div>
@@ -217,6 +240,12 @@
                                 <label>Description:</label>
                                 <input type="text" id="templateDesc" placeholder="Description">
                             </div>
+                            <div class="form-row">
+                                <label>Default Category:</label>
+                                <select id="templateCategoryId">
+                                    <option value="">Select Category</option>
+                                </select>
+                            </div>
                             <div id="templatesData"></div>
                         </div>
                     </div>
@@ -235,12 +264,47 @@
                                 <input type="text" id="productCategory" placeholder="category-id">
                             </div>
                             <div class="form-row">
+                                <label>Supplier ID:</label>
+                                <input type="text" id="productSupplierId" placeholder="supplier-id">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU:</label>
+                                <input type="text" id="productSku" placeholder="SKU-001">
+                            </div>
+                            <div class="form-row">
+                                <label>Variant Name:</label>
+                                <input type="text" id="productVariant" placeholder="Size L, Red, etc.">
+                            </div>
+                            <div class="form-row">
                                 <label>Price:</label>
                                 <input type="number" id="productPrice" placeholder="10.00" step="0.01">
                             </div>
                             <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="productDescription" placeholder="Product description">
+                            </div>
+                            <div class="form-row">
+                                <label>Image URL:</label>
+                                <input type="text" id="productImageUrl" placeholder="Image URL">
+                            </div>
+                            <div class="form-row">
                                 <label>Units:</label>
                                 <input type="number" id="productUnits" placeholder="100">
+                            </div>
+                            <div class="form-row">
+                                <label>Low Stock Threshold:</label>
+                                <input type="number" id="productThreshold" placeholder="10">
+                            </div>
+                            <div class="form-row">
+                                <label>Product Type:</label>
+                                <select id="productType">
+                                    <option value="main">Main Product</option>
+                                    <option value="extra">Extra Product</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Main Product ID:</label>
+                                <input type="text" id="mainProductId" placeholder="For extra products only">
                             </div>
                             <div id="productsData"></div>
                         </div>
@@ -276,31 +340,6 @@
                 </div>
 
                 <div>
-                    <div class="section">
-                        <div class="section-header">Banners Management</div>
-                        <div class="section-content">
-                            <button onclick="getBanners()">Load Banners</button>
-                            <button onclick="createBanner()">Create Banner</button>
-                            <div class="form-row">
-                                <label>Title:</label>
-                                <input type="text" id="bannerTitle" placeholder="Banner Title">
-                            </div>
-                            <div class="form-row">
-                                <label>Image URL:</label>
-                                <input type="text" id="bannerImage" placeholder="https://example.com/image.jpg">
-                            </div>
-                            <div class="form-row">
-                                <label>Link URL:</label>
-                                <input type="text" id="bannerLink" placeholder="https://example.com">
-                            </div>
-                            <div class="form-row">
-                                <label>Order:</label>
-                                <input type="number" id="bannerOrder" placeholder="0">
-                            </div>
-                            <div id="bannersData"></div>
-                        </div>
-                    </div>
-
                     <div class="section">
                         <div class="section-header">Product Actions</div>
                         <div class="section-content">
@@ -366,8 +405,10 @@
                                 <input type="number" id="rawMaterialUnitsPerPack" placeholder="12 (only for packs)">
                             </div>
                             <div class="form-row">
-                                <label>Supplier ID:</label>
-                                <input type="text" id="rawMaterialSupplier" placeholder="supplier-id">
+                                <label>Supplier:</label>
+                                <select id="supplierSelect">
+                                    <option value="">Select Supplier (Optional)</option>
+                                </select>
                             </div>
                             <div class="form-row">
                                 <label>Initial Qty:</label>
@@ -376,6 +417,10 @@
                             <div class="form-row">
                                 <label>Price:</label>
                                 <input type="number" id="rawMaterialPrice" placeholder="100.00" step="0.01">
+                            </div>
+                            <div class="form-row">
+                                <label>Notes:</label>
+                                <input type="text" id="rawMaterialNotes" placeholder="Additional notes">
                             </div>
                             <button onclick="createRawMaterial()">Create Raw Material</button>
                         </div>
@@ -401,6 +446,13 @@
                                     <option value="units">Units</option>
                                     <option value="grams">Grams</option>
                                     <option value="ml">Milliliters</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Low Stock Only:</label>
+                                <select id="lowStockOnly">
+                                    <option value="false">All Materials</option>
+                                    <option value="true">Low Stock Only</option>
                                 </select>
                             </div>
                             <div id="rawMaterialsData"></div>
@@ -458,6 +510,10 @@
                                 <label>New SKU:</label>
                                 <input type="text" id="updateMaterialSku" placeholder="New SKU">
                             </div>
+                            <div class="form-row">
+                                <label>Notes:</label>
+                                <input type="text" id="updateMaterialNotes" placeholder="Updated notes">
+                            </div>
                             <div id="materialDetailsData"></div>
                         </div>
                     </div>
@@ -482,6 +538,105 @@
                                 <input type="text" id="analyticsMaterialId" placeholder="specific material">
                             </div>
                             <div id="rawAnalyticsData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Images & Banners Tab -->
+        <div id="images-banners" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Image Upload</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Image Type:</label>
+                                <select id="imageType">
+                                    <option value="product">Product Image</option>
+                                    <option value="category">Category Image</option>
+                                    <option value="banner">Banner Image</option>
+                                </select>
+                            </div>
+                            <div class="upload-section">
+                                <input type="file" id="imageFile" accept="image/jpeg,image/jpg,image/png,image/webp" style="display: none;">
+                                <button onclick="document.getElementById('imageFile').click()">Choose Image File</button>
+                                <p id="selectedFile">No file selected</p>
+                                <button onclick="uploadImage()">Upload Image</button>
+                            </div>
+                            <div id="uploadResult"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Banner Management</div>
+                        <div class="section-content">
+                            <button onclick="getBanners()">Load Banners</button>
+                            <button onclick="createBanner()">Create Banner</button>
+                            <div class="form-row">
+                                <label>Title:</label>
+                                <input type="text" id="bannerTitle" placeholder="Banner Title">
+                            </div>
+                            <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="bannerDescription" placeholder="Banner Description">
+                            </div>
+                            <div class="form-row">
+                                <label>Image URL:</label>
+                                <input type="text" id="bannerImageUrl" placeholder="Image URL">
+                            </div>
+                            <div class="form-row">
+                                <label>Link URL:</label>
+                                <input type="text" id="bannerLinkUrl" placeholder="Link URL (optional)">
+                            </div>
+                            <div class="form-row">
+                                <label>Active:</label>
+                                <select id="bannerActive">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Display Order:</label>
+                                <input type="number" id="bannerDisplayOrder" placeholder="0" min="0">
+                            </div>
+                            <div id="bannersData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Banner Actions</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Banner ID:</label>
+                                <input type="text" id="bannerActionId" placeholder="banner-id">
+                            </div>
+                            <button onclick="updateBanner()">Update Banner</button>
+                            <button onclick="deleteBanner()">Delete Banner</button>
+                            <div class="form-row">
+                                <label>New Title:</label>
+                                <input type="text" id="updateBannerTitle" placeholder="New title">
+                            </div>
+                            <div class="form-row">
+                                <label>New Description:</label>
+                                <input type="text" id="updateBannerDescription" placeholder="New description">
+                            </div>
+                            <div class="form-row">
+                                <label>New Image URL:</label>
+                                <input type="text" id="updateBannerImageUrl" placeholder="New image URL">
+                            </div>
+                            <div class="form-row">
+                                <label>Active:</label>
+                                <select id="updateBannerActive">
+                                    <option value="">No Change</option>
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div id="bannerActionsData"></div>
                         </div>
                     </div>
                 </div>
@@ -593,8 +748,28 @@
                                 <input type="text" id="skuName" placeholder="SKU Name">
                             </div>
                             <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="skuDescription" placeholder="SKU Description">
+                            </div>
+                            <div class="form-row">
+                                <label>Category:</label>
+                                <select id="skuCategoryId">
+                                    <option value="">Select Category</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Supplier:</label>
+                                <select id="skuSupplierId">
+                                    <option value="">Select Supplier</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
                                 <label>Barcode:</label>
                                 <input type="text" id="skuBarcode" placeholder="123456789">
+                            </div>
+                            <div class="form-row">
+                                <label>Manufacturer Code:</label>
+                                <input type="text" id="skuManufacturerCode" placeholder="MFG-001">
                             </div>
                             <div id="skuData"></div>
                         </div>
@@ -607,6 +782,8 @@
                         <div class="section-content">
                             <button onclick="mapSKUToProduct()">Map SKU to Product</button>
                             <button onclick="getProductSKUs()">Get Product SKUs</button>
+                            <button onclick="unmapSKUFromProduct()">Unmap SKU</button>
+                            <button onclick="getSKUProducts()">Get SKU Products</button>
                             <div class="form-row">
                                 <label>Product ID:</label>
                                 <input type="text" id="mapProductId" placeholder="product-id">
@@ -648,6 +825,8 @@
 
     <script>
         let authToken = '';
+        let suppliers = [];
+        let categories = [];
         
         function log(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
@@ -672,18 +851,13 @@
         }
 
         function showTab(tabName) {
-            // Hide all tab contents
             const tabContents = document.querySelectorAll('.tab-content');
             tabContents.forEach(content => content.classList.remove('active'));
             
-            // Remove active class from all tabs
             const tabs = document.querySelectorAll('.tab');
             tabs.forEach(tab => tab.classList.remove('active'));
             
-            // Show selected tab content
             document.getElementById(tabName).classList.add('active');
-            
-            // Add active class to clicked tab
             event.target.classList.add('active');
         }
 
@@ -739,6 +913,60 @@
             return html;
         }
 
+        function renderSupplierDropdown() {
+            const dropdown = document.getElementById('supplierSelect');
+            if (dropdown) {
+                dropdown.innerHTML = '<option value="">Select Supplier (Optional)</option>';
+                suppliers.forEach(supplier => {
+                    dropdown.innerHTML += `<option value="${supplier.id}">${supplier.name}</option>`;
+                });
+            }
+
+            // Update SKU supplier dropdown
+            const skuSupplierDropdown = document.getElementById('skuSupplierId');
+            if (skuSupplierDropdown) {
+                skuSupplierDropdown.innerHTML = '<option value="">Select Supplier</option>';
+                suppliers.forEach(supplier => {
+                    skuSupplierDropdown.innerHTML += `<option value="${supplier.id}">${supplier.name}</option>`;
+                });
+            }
+        }
+
+        function renderCategoryDropdown() {
+            const templateDropdown = document.getElementById('templateCategoryId');
+            if (templateDropdown) {
+                templateDropdown.innerHTML = '<option value="">Select Category</option>';
+                categories.forEach(category => {
+                    templateDropdown.innerHTML += `<option value="${category.id}">${category.name}</option>`;
+                });
+            }
+
+            // Update SKU category dropdown
+            const skuCategoryDropdown = document.getElementById('skuCategoryId');
+            if (skuCategoryDropdown) {
+                skuCategoryDropdown.innerHTML = '<option value="">Select Category</option>';
+                categories.forEach(category => {
+                    skuCategoryDropdown.innerHTML += `<option value="${category.id}">${category.name}</option>`;
+                });
+            }
+        }
+
+        // File selection handler
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('imageFile');
+            if (fileInput) {
+                fileInput.addEventListener('change', function() {
+                    const file = fileInput.files[0];
+                    const selectedFileElement = document.getElementById('selectedFile');
+                    if (file) {
+                        selectedFileElement.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                    } else {
+                        selectedFileElement.textContent = 'No file selected';
+                    }
+                });
+            }
+        });
+
         async function apiCall(endpoint, method = 'GET', body = null) {
             const url = `${getBaseUrl()}${endpoint}`;
             const headers = {
@@ -775,6 +1003,36 @@
             }
         }
 
+        async function uploadApiCall(endpoint, formData) {
+            const url = `${getBaseUrl()}${endpoint}`;
+            const headers = {};
+
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
+            try {
+                log(`POST ${url} (File Upload)`);
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${data.detail || 'Upload failed'}`);
+                }
+                
+                log(`Upload successful: ${JSON.stringify(data)}`, 'success');
+                return data;
+            } catch (error) {
+                log(`Upload error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
         async function testConnection() {
             try {
                 const response = await fetch(`${getBaseUrl()}/docs`);
@@ -804,6 +1062,10 @@
                 authToken = data.access_token;
                 updateStatus('authStatus', `Logged in as ${data.user.role}`, 'success');
                 log(`Login successful: ${data.user.email} (${data.user.role})`, 'success');
+                
+                // Load initial data
+                getSuppliers();
+                getCategories();
             } catch (error) {
                 updateStatus('authStatus', 'Login Failed', 'error');
             }
@@ -831,8 +1093,9 @@
 
         async function getCategories() {
             try {
-                const data = await apiCall('/inventory/categories');
-                renderTable(data, 'categoriesData');
+                categories = await apiCall('/inventory/categories');
+                renderTable(categories, 'categoriesData');
+                renderCategoryDropdown();
             } catch (error) {
                 document.getElementById('categoriesData').innerHTML = '<p class="status error">Failed to load categories</p>';
             }
@@ -841,15 +1104,22 @@
         async function createCategory() {
             const name = document.getElementById('categoryName').value;
             const description = document.getElementById('categoryDesc').value;
+            const image_url = document.getElementById('categoryImageUrl').value;
+            
             if (!name) {
                 log('Category name is required', 'error');
                 return;
             }
             
             try {
-                const data = await apiCall('/inventory/categories', 'POST', { name, description });
+                const data = await apiCall('/inventory/categories', 'POST', { name, description, image_url });
                 log(`Category created: ${data.data.name}`, 'success');
                 getCategories();
+                
+                // Clear form
+                document.getElementById('categoryName').value = '';
+                document.getElementById('categoryDesc').value = '';
+                document.getElementById('categoryImageUrl').value = '';
             } catch (error) {
                 // Error already logged in apiCall
             }
@@ -857,8 +1127,9 @@
 
         async function getSuppliers() {
             try {
-                const data = await apiCall('/inventory/suppliers');
-                renderTable(data, 'suppliersData');
+                suppliers = await apiCall('/inventory/suppliers');
+                renderTable(suppliers, 'suppliersData');
+                renderSupplierDropdown();
             } catch (error) {
                 document.getElementById('suppliersData').innerHTML = '<p class="status error">Failed to load suppliers</p>';
             }
@@ -868,6 +1139,8 @@
             const name = document.getElementById('supplierName').value;
             const contact_person = document.getElementById('supplierContact').value;
             const email = document.getElementById('supplierEmail').value;
+            const phone = document.getElementById('supplierPhone').value;
+            const address = document.getElementById('supplierAddress').value;
             
             if (!name) {
                 log('Supplier name is required', 'error');
@@ -875,9 +1148,18 @@
             }
             
             try {
-                const data = await apiCall('/inventory/suppliers', 'POST', { name, contact_person, email });
+                const data = await apiCall('/inventory/suppliers', 'POST', { 
+                    name, contact_person, email, phone, address 
+                });
                 log(`Supplier created: ${data.data.name}`, 'success');
                 getSuppliers();
+                
+                // Clear form
+                document.getElementById('supplierName').value = '';
+                document.getElementById('supplierContact').value = '';
+                document.getElementById('supplierEmail').value = '';
+                document.getElementById('supplierPhone').value = '';
+                document.getElementById('supplierAddress').value = '';
             } catch (error) {
                 // Error already logged in apiCall
             }
@@ -895,6 +1177,7 @@
         async function createTemplate() {
             const name = document.getElementById('templateName').value;
             const description = document.getElementById('templateDesc').value;
+            const default_category_id = document.getElementById('templateCategoryId').value || null;
             
             if (!name) {
                 log('Template name is required', 'error');
@@ -902,9 +1185,16 @@
             }
             
             try {
-                const data = await apiCall('/inventory/product-templates', 'POST', { name, description });
+                const data = await apiCall('/inventory/product-templates', 'POST', { 
+                    name, description, default_category_id 
+                });
                 log(`Template created: ${data.data.name}`, 'success');
                 getTemplates();
+                
+                // Clear form
+                document.getElementById('templateName').value = '';
+                document.getElementById('templateDesc').value = '';
+                document.getElementById('templateCategoryId').value = '';
             } catch (error) {
                 // Error already logged in apiCall
             }
@@ -920,25 +1210,46 @@
         }
 
         async function createProduct() {
-            const templateId = document.getElementById('productTemplate').value;
-            const categoryId = document.getElementById('productCategory').value;
+            const product_template_id = document.getElementById('productTemplate').value;
+            const category_id = document.getElementById('productCategory').value;
+            const supplier_id = document.getElementById('productSupplierId').value || null;
+            const sku = document.getElementById('productSku').value || null;
+            const variant_name = document.getElementById('productVariant').value || null;
             const price = parseFloat(document.getElementById('productPrice').value);
+            const description = document.getElementById('productDescription').value || null;
+            const image_url = document.getElementById('productImageUrl').value || null;
             const units = parseInt(document.getElementById('productUnits').value);
+            const low_stock_threshold = parseInt(document.getElementById('productThreshold').value) || 10;
+            const product_type = document.getElementById('productType').value;
+            const main_product_id = document.getElementById('mainProductId').value || null;
             
-            if (!templateId || !categoryId || !price || isNaN(units)) {
-                log('All product fields are required', 'error');
+            if (!product_template_id || !category_id || !price || isNaN(units)) {
+                log('Template ID, Category ID, Price, and Units are required', 'error');
                 return;
             }
             
             try {
                 const data = await apiCall('/inventory/products', 'POST', {
-                    product_template_id: templateId,
-                    category_id: categoryId,
-                    price: price,
-                    units: units
+                    product_template_id, category_id, supplier_id, sku, variant_name, 
+                    price, description, image_url, units, low_stock_threshold,
+                    product_type, main_product_id
                 });
                 log(`Product created: ${data.data.id}`, 'success');
                 getProducts();
+                
+                // Clear form
+                document.getElementById('productTemplate').value = '';
+                document.getElementById('productCategory').value = '';
+                document.getElementById('productSupplierId').value = '';
+                document.getElementById('productSku').value = '';
+                document.getElementById('productVariant').value = '';
+                document.getElementById('productPrice').value = '';
+                document.getElementById('productDescription').value = '';
+                document.getElementById('productImageUrl').value = '';
+                document.getElementById('productUnits').value = '';
+                document.getElementById('productThreshold').value = '';
+                document.getElementById('productType').value = 'main';
+                document.getElementById('mainProductId').value = '';
             } catch (error) {
                 // Error already logged in apiCall
             }
@@ -980,37 +1291,6 @@
                 renderTable(data, 'stockData');
             } catch (error) {
                 document.getElementById('stockData').innerHTML = '<p class="status error">Failed to load stock history</p>';
-            }
-        }
-
-        async function getBanners() {
-            try {
-                const data = await apiCall('/inventory/banners');
-                renderTable(data, 'bannersData');
-            } catch (error) {
-                document.getElementById('bannersData').innerHTML = '<p class="status error">Failed to load banners</p>';
-            }
-        }
-
-        async function createBanner() {
-            const title = document.getElementById('bannerTitle').value;
-            const image_url = document.getElementById('bannerImage').value;
-            const link_url = document.getElementById('bannerLink').value;
-            const display_order = parseInt(document.getElementById('bannerOrder').value) || 0;
-            
-            if (!title || !image_url) {
-                log('Banner title and image URL are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall('/inventory/banners', 'POST', {
-                    title, image_url, link_url, display_order
-                });
-                log(`Banner created: ${data.data.title}`, 'success');
-                getBanners();
-            } catch (error) {
-                // Error already logged in apiCall
             }
         }
 
@@ -1079,12 +1359,13 @@
 
         async function createRawMaterial() {
             const name = document.getElementById('rawMaterialName').value;
-            const sku = document.getElementById('rawMaterialSku').value;
+            const sku = document.getElementById('rawMaterialSku').value || null;
             const measurement_unit = document.getElementById('rawMaterialUnit').value;
             const units_per_pack = parseInt(document.getElementById('rawMaterialUnitsPerPack').value) || null;
-            const supplier_id = document.getElementById('rawMaterialSupplier').value || null;
+            const supplier_id = document.getElementById('supplierSelect').value || null;
             const initial_quantity = parseFloat(document.getElementById('rawMaterialInitialQty').value) || 0;
             const purchase_price = parseFloat(document.getElementById('rawMaterialPrice').value) || null;
+            const notes = document.getElementById('rawMaterialNotes').value || null;
             
             if (!name || !measurement_unit) {
                 log('Name and measurement unit are required', 'error');
@@ -1093,10 +1374,21 @@
             
             try {
                 const data = await apiCall('/inventory/create_raw-materials', 'POST', {
-                    name, sku, measurement_unit, units_per_pack, supplier_id, initial_quantity, purchase_price
+                    name, sku, measurement_unit, units_per_pack, supplier_id, 
+                    initial_quantity, purchase_price, notes
                 });
                 log(`Raw material created: ${data.data.name}`, 'success');
                 getRawMaterials();
+                
+                // Clear form
+                document.getElementById('rawMaterialName').value = '';
+                document.getElementById('rawMaterialSku').value = '';
+                document.getElementById('rawMaterialUnit').value = 'kg';
+                document.getElementById('rawMaterialUnitsPerPack').value = '';
+                document.getElementById('supplierSelect').value = '';
+                document.getElementById('rawMaterialInitialQty').value = '';
+                document.getElementById('rawMaterialPrice').value = '';
+                document.getElementById('rawMaterialNotes').value = '';
             } catch (error) {
                 // Error already logged in apiCall
             }
@@ -1114,10 +1406,12 @@
         async function searchRawMaterials() {
             const search = document.getElementById('rawMaterialSearch').value;
             const measurement_unit = document.getElementById('rawMaterialFilterUnit').value;
+            const low_stock_only = document.getElementById('lowStockOnly').value === 'true';
             
             let url = '/inventory/get_raw_materials?';
             if (search) url += `search=${encodeURIComponent(search)}&`;
             if (measurement_unit) url += `measurement_unit=${measurement_unit}&`;
+            if (low_stock_only) url += `low_stock_only=true&`;
             
             try {
                 const data = await apiCall(url);
@@ -1184,6 +1478,7 @@
             const materialId = document.getElementById('materialDetailId').value;
             const name = document.getElementById('updateMaterialName').value;
             const sku = document.getElementById('updateMaterialSku').value;
+            const notes = document.getElementById('updateMaterialNotes').value;
             
             if (!materialId) {
                 log('Material ID is required', 'error');
@@ -1193,6 +1488,7 @@
             const updates = {};
             if (name) updates.name = name;
             if (sku) updates.sku = sku;
+            if (notes) updates.notes = notes;
             
             if (Object.keys(updates).length === 0) {
                 log('At least one field to update is required', 'error');
@@ -1239,6 +1535,159 @@
                 renderSummary(data, 'rawAnalyticsData');
             } catch (error) {
                 document.getElementById('rawAnalyticsData').innerHTML = '<p class="status error">Failed to load cost analysis</p>';
+            }
+        }
+
+        // ========== IMAGES & BANNERS FUNCTIONS ==========
+
+        async function uploadImage() {
+            const fileInput = document.getElementById('imageFile');
+            const imageType = document.getElementById('imageType').value;
+            
+            if (!fileInput.files[0]) {
+                log('Please select a file to upload', 'error');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            
+            // Validate file type
+            const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+            if (!validTypes.includes(file.type)) {
+                log('Invalid file type. Please select a JPEG, PNG, or WebP image', 'error');
+                return;
+            }
+            
+            // Validate file size based on image type
+            const sizeLimit = {
+                'product': 5 * 1024 * 1024,   // 5MB
+                'category': 3 * 1024 * 1024,  // 3MB  
+                'banner': 10 * 1024 * 1024    // 10MB
+            };
+            
+            if (file.size > sizeLimit[imageType]) {
+                const maxMB = sizeLimit[imageType] / (1024 * 1024);
+                log(`File too large. Maximum ${maxMB}MB allowed for ${imageType} images`, 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('image_type', imageType);
+            
+            try {
+                const data = await uploadApiCall('/inventory/upload-image', formData);
+                log(`Image uploaded successfully: ${data.image_url}`, 'success');
+                document.getElementById('uploadResult').innerHTML = `
+                    <div class="status success">
+                        <p>Upload successful!</p>
+                        <p><strong>URL:</strong> ${data.image_url}</p>
+                        <p><strong>Filename:</strong> ${data.filename}</p>
+                        <p><strong>Type:</strong> ${data.type}</p>
+                    </div>
+                `;
+                
+                // Clear file input
+                fileInput.value = '';
+                document.getElementById('selectedFile').textContent = 'No file selected';
+            } catch (error) {
+                document.getElementById('uploadResult').innerHTML = `<p class="status error">Upload failed: ${error.message}</p>`;
+            }
+        }
+
+        async function getBanners() {
+            try {
+                const data = await apiCall('/inventory/banners?active_only=false');
+                renderTable(data, 'bannersData');
+            } catch (error) {
+                document.getElementById('bannersData').innerHTML = '<p class="status error">Failed to load banners</p>';
+            }
+        }
+
+        async function createBanner() {
+            const title = document.getElementById('bannerTitle').value;
+            const description = document.getElementById('bannerDescription').value;
+            const image_url = document.getElementById('bannerImageUrl').value;
+            const link_url = document.getElementById('bannerLinkUrl').value || null;
+            const is_active = document.getElementById('bannerActive').value === 'true';
+            const display_order = parseInt(document.getElementById('bannerDisplayOrder').value) || 0;
+            
+            if (!title || !image_url) {
+                log('Title and Image URL are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/inventory/banners', 'POST', {
+                    title, description, image_url, link_url, is_active, display_order
+                });
+                log(`Banner created: ${data.data.title}`, 'success');
+                getBanners();
+                
+                // Clear form
+                document.getElementById('bannerTitle').value = '';
+                document.getElementById('bannerDescription').value = '';
+                document.getElementById('bannerImageUrl').value = '';
+                document.getElementById('bannerLinkUrl').value = '';
+                document.getElementById('bannerActive').value = 'true';
+                document.getElementById('bannerDisplayOrder').value = '';
+            } catch (error) {
+                // Error already logged in apiCall
+            }
+        }
+
+        async function updateBanner() {
+            const bannerId = document.getElementById('bannerActionId').value;
+            const title = document.getElementById('updateBannerTitle').value;
+            const description = document.getElementById('updateBannerDescription').value;
+            const image_url = document.getElementById('updateBannerImageUrl').value;
+            const is_active = document.getElementById('updateBannerActive').value;
+            
+            if (!bannerId) {
+                log('Banner ID is required', 'error');
+                return;
+            }
+            
+            const updates = {};
+            if (title) updates.title = title;
+            if (description) updates.description = description;
+            if (image_url) updates.image_url = image_url;
+            if (is_active !== '') updates.is_active = is_active === 'true';
+            
+            if (Object.keys(updates).length === 0) {
+                log('At least one field to update is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/banners/${bannerId}`, 'PATCH', updates);
+                log(`Banner updated: ${data.message}`, 'success');
+                getBanners();
+                document.getElementById('bannerActionsData').innerHTML = `<p class="status success">${data.message}</p>`;
+            } catch (error) {
+                document.getElementById('bannerActionsData').innerHTML = `<p class="status error">Failed to update banner</p>`;
+            }
+        }
+
+        async function deleteBanner() {
+            const bannerId = document.getElementById('bannerActionId').value;
+            
+            if (!bannerId) {
+                log('Banner ID is required', 'error');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to delete this banner?')) {
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/banners/${bannerId}`, 'DELETE');
+                log(`Banner deleted: ${data.message}`, 'success');
+                getBanners();
+                document.getElementById('bannerActionsData').innerHTML = `<p class="status success">${data.message}</p>`;
+            } catch (error) {
+                document.getElementById('bannerActionsData').innerHTML = `<p class="status error">Failed to delete banner</p>`;
             }
         }
 
@@ -1366,7 +1815,7 @@
 
         async function getSKUCodes() {
             try {
-                const data = await apiCall('/inventory/sku-codes');
+                const data = await apiCall('/inventory/sku-codes?active_only=false');
                 renderTable(data, 'skuData');
             } catch (error) {
                 document.getElementById('skuData').innerHTML = '<p class="status error">Failed to load SKU codes</p>';
@@ -1376,7 +1825,11 @@
         async function createSKUCode() {
             const code = document.getElementById('skuCode').value;
             const name = document.getElementById('skuName').value;
-            const barcode = document.getElementById('skuBarcode').value;
+            const description = document.getElementById('skuDescription').value || null;
+            const category_id = document.getElementById('skuCategoryId').value || null;
+            const supplier_id = document.getElementById('skuSupplierId').value || null;
+            const barcode = document.getElementById('skuBarcode').value || null;
+            const manufacturer_code = document.getElementById('skuManufacturerCode').value || null;
             
             if (!code || !name) {
                 log('SKU code and name are required', 'error');
@@ -1385,10 +1838,20 @@
             
             try {
                 const data = await apiCall('/inventory/sku-codes', 'POST', {
-                    code, name, barcode
+                    code, name, description, category_id, supplier_id, 
+                    barcode, manufacturer_code
                 });
                 log(`SKU code created: ${data.data.code}`, 'success');
                 getSKUCodes();
+                
+                // Clear form
+                document.getElementById('skuCode').value = '';
+                document.getElementById('skuName').value = '';
+                document.getElementById('skuDescription').value = '';
+                document.getElementById('skuCategoryId').value = '';
+                document.getElementById('skuSupplierId').value = '';
+                document.getElementById('skuBarcode').value = '';
+                document.getElementById('skuManufacturerCode').value = '';
             } catch (error) {
                 // Error already logged in apiCall
             }
@@ -1410,8 +1873,9 @@
                     is_primary: isPrimary
                 });
                 log(`SKU mapped to product: ${data.message}`, 'success');
+                document.getElementById('mappingData').innerHTML = `<p class="status success">${data.message}</p>`;
             } catch (error) {
-                // Error already logged in apiCall
+                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to map SKU</p>';
             }
         }
 
@@ -1430,6 +1894,43 @@
             }
         }
 
+        async function unmapSKUFromProduct() {
+            const productId = document.getElementById('mapProductId').value;
+            const skuId = document.getElementById('mapSKUId').value;
+            
+            if (!productId || !skuId) {
+                log('Product ID and SKU ID are required', 'error');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to unmap this SKU?')) {
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/products/${productId}/unmap-sku/${skuId}`, 'DELETE');
+                log(`SKU unmapped: ${data.message}`, 'success');
+                document.getElementById('mappingData').innerHTML = `<p class="status success">${data.message}</p>`;
+            } catch (error) {
+                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to unmap SKU</p>';
+            }
+        }
+
+        async function getSKUProducts() {
+            const skuId = document.getElementById('mapSKUId').value;
+            if (!skuId) {
+                log('SKU ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/inventory/sku-codes/${skuId}/products`);
+                renderTable(data, 'mappingData');
+            } catch (error) {
+                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to load SKU products</p>';
+            }
+        }
+
         async function getSystemInfo() {
             try {
                 const data = await apiCall('/auth/debug/auth-test');
@@ -1440,7 +1941,7 @@
         }
 
         // Initialize
-        log('Complete Inventory Test Interface loaded', 'success');
+        log('Complete Inventory Test Interface loaded (Updated)', 'success');
         
         // Set default dates
         const today = new Date().toISOString().split('T')[0];
@@ -1450,3 +1951,4 @@
     </script>
 </body>
 </html>
+                

@@ -1296,7 +1296,10 @@ async def upload_image(
         )
         
         # Get public URL
-        image_url = supabase_admin.storage.from_(bucket_name).get_public_url(filename)
+        # image_url = supabase_admin.storage.from_(bucket_name).get_public_url(filename)
+        base_url = supabase_admin.supabase_url
+        image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
+
         
         await log_activity(
             current_user["id"], current_user["email"], current_user["role"],
