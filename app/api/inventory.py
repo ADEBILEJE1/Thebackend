@@ -276,81 +276,6 @@ async def update_category(
 
 
 
-# @router.post("/products", response_model=dict)
-# async def create_product(
-#    product: ProductCreate,
-#    current_user: dict = Depends(require_inventory_staff)
-# ):
-#    # Verify product template exists
-#    template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
-#    if not template.data:
-#        raise HTTPException(status_code=404, detail="Product template not found")
-   
-#    template_data = template.data[0]
-
-#    # Verify category exists
-#    category = supabase_admin.table("categories").select("id").eq("id", product.category_id).execute()
-#    if not category.data:
-#        raise HTTPException(status_code=404, detail="Category not found")
-   
-#    # Verify supplier exists if provided
-#    if product.supplier_id:
-#        supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
-#        if not supplier.data:
-#            raise HTTPException(status_code=404, detail="Supplier not found")
-   
-#    # Validate product type and main product relationship
-#    if product.product_type == "extra":
-#        if not product.main_product_id:
-#            raise HTTPException(status_code=400, detail="Extra products must have a main product")
-       
-#        main_product = supabase.table("products").select("id, product_type").eq("id", product.main_product_id).execute()
-#        if not main_product.data:
-#            raise HTTPException(status_code=404, detail="Main product not found")
-       
-#        if main_product.data[0]["product_type"] != "main":
-#            raise HTTPException(status_code=400, detail="Can only link to main products")
-   
-#    elif product.product_type == "main" and product.main_product_id:
-#        raise HTTPException(status_code=400, detail="Main products cannot have a main product reference")
-   
-#    # Check SKU uniqueness if provided
-#    if product.sku and product.supplier_id:
-#        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
-#        if existing_sku.data:
-#            raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
-   
-#    # Determine stock status
-#    status = StockStatus.OUT_OF_STOCK
-#    if product.units > product.low_stock_threshold:
-#        status = StockStatus.IN_STOCK
-#    elif product.units > 0:
-#        status = StockStatus.LOW_STOCK
-   
-#    product_dict = product.dict()
-#    product_dict["price"] = float(product_dict["price"])  # Convert Decimal to float
-#    product_data = {
-#        **product_dict,
-#        "name": template_data["name"],
-#        "status": status,
-#        "created_by": current_user["id"],
-#        "updated_by": current_user["id"]
-#    }
-   
-#    result = supabase.table("products").insert(product_data).execute()
-   
-#    # Log initial stock if units > 0
-#    if product.units > 0:
-#        stock_entry = {
-#            "product_id": result.data[0]["id"],
-#            "quantity": product.units,
-#            "entry_type": "add",
-#            "notes": "Initial stock",
-#            "entered_by": current_user["id"]
-#        }
-#        supabase_admin.table("stock_entries").insert(stock_entry).execute()
-   
-#    return {"message": "Product created", "data": result.data[0]}
 
 
 @router.post("/products", response_model=dict)
@@ -667,6 +592,43 @@ async def get_product_extras(
     result = supabase.table("products").select("*").eq("main_product_id", product_id).eq("is_available", True).execute()
     return result.data
 
+
+
+@router.delete("/products/{product_id}")
+async def delete_product(
+    product_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    # Check if product has order history
+    orders = supabase.table("order_items").select("id").eq("product_id", product_id).execute()
+    if orders.data:
+        raise HTTPException(status_code=400, detail="Cannot delete product with order history")
+    
+    result = supabase.table("products").delete().eq("id", product_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Clear cache
+    invalidate_product_cache(product_id)
+    
+    return {"message": "Product deleted"}
+
+
+@router.delete("/categories/{category_id}")
+async def delete_category(
+    category_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    # Check if category has products
+    products = supabase.table("products").select("id").eq("category_id", category_id).execute()
+    if products.data:
+        raise HTTPException(status_code=400, detail="Cannot delete category with existing products")
+    
+    result = supabase.table("categories").delete().eq("id", category_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    return {"message": "Category deleted"}
 
 
 @router.get("/dashboard")
@@ -1295,8 +1257,7 @@ async def upload_image(
             {"content-type": file.content_type}
         )
         
-        # Get public URL
-        # image_url = supabase_admin.storage.from_(bucket_name).get_public_url(filename)
+        
         base_url = supabase_admin.supabase_url
         image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
 

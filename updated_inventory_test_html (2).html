@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete Inventory Management Test</title>
+    <style>
+        body {
+            font-family: Calibri, Arial, sans-serif;
+            margin: 20px;
+            background: white;
+            font-size: 11pt;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #f8f8f8;
+        }
+        .section {
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+        .section-header {
+            background: #e6e6e6;
+            padding: 8px;
+            font-weight: bold;
+            border-bottom: 1px solid #ccc;
+        }
+        .section-content {
+            padding: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10pt;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        th {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        input, select, button {
+            font-family: inherit;
+            font-size: 10pt;
+            padding: 3px 6px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background: white;
+            cursor: pointer;
+            margin: 2px;
+        }
+        button:hover {
+            background: #f0f0f0;
+        }
+        button.delete {
+            background: #ff4444;
+            color: white;
+        }
+        button.delete:hover {
+            background: #cc0000;
+        }
+        .form-row {
+            margin: 5px 0;
+        }
+        .form-row label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        .form-row input, .form-row select {
+            width: 200px;
+        }
+        .logs {
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 5px;
+            background: #fcfcfc;
+            font-family: Consolas, monospace;
+            font-size: 9pt;
+        }
+        .status {
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-size: 9pt;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+        .tabs {
+            display: flex;
+            background: #f0f0f0;
+            border-bottom: 1px solid #ccc;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-right: 1px solid #ccc;
+            background: #f0f0f0;
+        }
+        .tab.active {
+            background: white;
+            border-bottom: 1px solid white;
+            margin-bottom: -1px;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Complete Inventory Management System - Test Interface</h2>
+            <div class="form-row">
+                <label>Base URL:</label>
+                <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+            </div>
+            <div class="form-row">
+                <label>Staff Email:</label>
+                <input type="text" id="staffEmail" placeholder="inventory@example.com">
+            </div>
+            <div class="form-row">
+                <label>Password:</label>
+                <input type="password" id="staffPassword" placeholder="password">
+            </div>
+            <button onclick="testConnection()">Test Connection</button>
+            <button onclick="login()">Login</button>
+            <span id="authStatus" class="status"></span>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('finished-products')">Finished Products</div>
+            <div class="tab" onclick="showTab('raw-materials')">Raw Materials</div>
+            <div class="tab" onclick="showTab('analytics')">Analytics</div>
+            <div class="tab" onclick="showTab('advanced')">Advanced</div>
+        </div>
+
+        <!-- Finished Products Tab -->
+        <div id="finished-products" class="tab-content active">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Dashboard Overview</div>
+                        <div class="section-content">
+                            <button onclick="getDashboard()">Get Dashboard</button>
+                            <button onclick="getLowStockAlerts()">Low Stock Alerts</button>
+                            <div id="dashboardData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Categories</div>
+                        <div class="section-content">
+                            <button onclick="getCategories()">Load Categories</button>
+                            <button onclick="createCategory()">Create Category</button>
+                            <button class="delete" onclick="deleteCategory()">Delete Category</button>
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="categoryName" placeholder="Category Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="categoryDesc" placeholder="Description">
+                            </div>
+                            <div class="form-row">
+                                <label>Delete ID:</label>
+                                <input type="text" id="deleteCategoryId" placeholder="category-id">
+                            </div>
+                            <div id="categoriesData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Suppliers</div>
+                        <div class="section-content">
+                            <button onclick="getSuppliers()">Load Suppliers</button>
+                            <button onclick="createSupplier()">Create Supplier</button>
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="supplierName" placeholder="Supplier Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Contact:</label>
+                                <input type="text" id="supplierContact" placeholder="Contact Person">
+                            </div>
+                            <div class="form-row">
+                                <label>Email:</label>
+                                <input type="email" id="supplierEmail" placeholder="supplier@example.com">
+                            </div>
+                            <div id="suppliersData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Product Templates</div>
+                        <div class="section-content">
+                            <button onclick="getTemplates()">Load Templates</button>
+                            <button onclick="createTemplate()">Create Template</button>
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="templateName" placeholder="Template Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Description:</label>
+                                <input type="text" id="templateDesc" placeholder="Description">
+                            </div>
+                            <div id="templatesData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Products</div>
+                        <div class="section-content">
+                            <button onclick="getProducts()">Load Products</button>
+                            <button onclick="createProduct()">Create Product</button>
+                            <button class="delete" onclick="deleteProduct()">Delete Product</button>
+                            <div class="form-row">
+                                <label>Template ID:</label>
+                                <input type="text" id="productTemplate" placeholder="template-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Category ID:</label>
+                                <input type="text" id="productCategory" placeholder="category-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Price:</label>
+                                <input type="number" id="productPrice" placeholder="10.00" step="0.01">
+                            </div>
+                            <div class="form-row">
+                                <label>Units:</label>
+                                <input type="number" id="productUnits" placeholder="100">
+                            </div>
+                            <div class="form-row">
+                                <label>Delete ID:</label>
+                                <input type="text" id="deleteProductId" placeholder="product-id">
+                            </div>
+                            <div id="productsData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Stock Management</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Product ID:</label>
+                                <input type="text" id="stockProductId" placeholder="product-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Quantity:</label>
+                                <input type="number" id="stockQuantity" placeholder="10">
+                            </div>
+                            <div class="form-row">
+                                <label>Operation:</label>
+                                <select id="stockOperation">
+                                    <option value="add">Add</option>
+                                    <option value="remove">Remove</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Notes:</label>
+                                <input type="text" id="stockNotes" placeholder="Stock update notes">
+                            </div>
+                            <button onclick="updateStock()">Update Stock</button>
+                            <button onclick="getStockHistory()">Get Stock History</button>
+                            <div id="stockData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Banners Management</div>
+                        <div class="section-content">
+                            <button onclick="getBanners()">Load Banners</button>
+                            <button onclick="createBanner()">Create Banner</button>
+                            <div class="form-row">
+                                <label>Title:</label>
+                                <input type="text" id="bannerTitle" placeholder="Banner Title">
+                            </div>
+                            <div class="form-row">
+                                <label>Image URL:</label>
+                                <input type="text" id="bannerImage" placeholder="https://example.com/image.jpg">
+                            </div>
+                            <div class="form-row">
+                                <label>Link URL:</label>
+                                <input type="text" id="bannerLink" placeholder="https://example.com">
+                            </div>
+                            <div class="form-row">
+                                <label>Order:</label>
+                                <input type="number" id="bannerOrder" placeholder="0">
+                            </div>
+                            <div id="bannersData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Product Actions</div>
+                        <div class="section-content">
+                            <button onclick="getMainProducts()">Main Products</button>
+                            <button onclick="getProductExtras()">Product Extras</button>
+                            <button onclick="toggleAvailability()">Toggle Availability</button>
+                            <div class="form-row">
+                                <label>Product ID:</label>
+                                <input type="text" id="actionProductId" placeholder="product-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Available:</label>
+                                <select id="productAvailable">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div id="actionsData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw Materials Tab -->
+        <div id="raw-materials" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Raw Materials Dashboard</div>
+                        <div class="section-content">
+                            <button onclick="getRawMaterialsDashboard()">Get Dashboard</button>
+                            <button onclick="getRawMaterialsLowStock()">Low Stock Report</button>
+                            <div id="rawDashboardData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Create Raw Material</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Name:</label>
+                                <input type="text" id="rawMaterialName" placeholder="Rice, Palm Oil, etc.">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU:</label>
+                                <input type="text" id="rawMaterialSku" placeholder="SKU-001">
+                            </div>
+                            <div class="form-row">
+                                <label>Unit:</label>
+                                <select id="rawMaterialUnit">
+                                    <option value="kg">Kilograms (kg)</option>
+                                    <option value="liters">Liters</option>
+                                    <option value="packs">Packs</option>
+                                    <option value="dozens">Dozens</option>
+                                    <option value="units">Units</option>
+                                    <option value="grams">Grams</option>
+                                    <option value="ml">Milliliters</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Units per Pack:</label>
+                                <input type="number" id="rawMaterialUnitsPerPack" placeholder="12 (only for packs)">
+                            </div>
+                            <div class="form-row">
+                                <label>Supplier:</label>
+                                <select id="supplierSelect">
+                                    <option value="">Select Supplier (Optional)</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Initial Qty:</label>
+                                <input type="number" id="rawMaterialInitialQty" placeholder="50" step="0.001">
+                            </div>
+                            <div class="form-row">
+                                <label>Price:</label>
+                                <input type="number" id="rawMaterialPrice" placeholder="100.00" step="0.01">
+                            </div>
+                            <button onclick="createRawMaterial()">Create Raw Material</button>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Raw Materials List</div>
+                        <div class="section-content">
+                            <button onclick="getRawMaterials()">Load All</button>
+                            <button onclick="searchRawMaterials()">Search</button>
+                            <div class="form-row">
+                                <label>Search:</label>
+                                <input type="text" id="rawMaterialSearch" placeholder="Search name or SKU">
+                            </div>
+                            <div class="form-row">
+                                <label>Filter Unit:</label>
+                                <select id="rawMaterialFilterUnit">
+                                    <option value="">All Units</option>
+                                    <option value="kg">Kilograms</option>
+                                    <option value="liters">Liters</option>
+                                    <option value="packs">Packs</option>
+                                    <option value="dozens">Dozens</option>
+                                    <option value="units">Units</option>
+                                    <option value="grams">Grams</option>
+                                    <option value="ml">Milliliters</option>
+                                </select>
+                            </div>
+                            <div id="rawMaterialsData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Transactions</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Material ID:</label>
+                                <input type="text" id="transactionMaterialId" placeholder="material-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Type:</label>
+                                <select id="transactionType">
+                                    <option value="purchase">Purchase (Add Stock)</option>
+                                    <option value="usage">Usage (Remove Stock)</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Quantity:</label>
+                                <input type="number" id="transactionQuantity" placeholder="10" step="0.001">
+                            </div>
+                            <div class="form-row">
+                                <label>Cost:</label>
+                                <input type="number" id="transactionCost" placeholder="50.00" step="0.01">
+                            </div>
+                            <div class="form-row">
+                                <label>Notes:</label>
+                                <input type="text" id="transactionNotes" placeholder="Purchase from supplier">
+                            </div>
+                            <button onclick="createTransaction()">Record Transaction</button>
+                            <button onclick="getTransactionHistory()">Get History</button>
+                            <div id="transactionData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Material Details</div>
+                        <div class="section-content">
+                            <div class="form-row">
+                                <label>Material ID:</label>
+                                <input type="text" id="materialDetailId" placeholder="material-id">
+                            </div>
+                            <button onclick="getMaterialDetails()">Get Details</button>
+                            <button onclick="updateMaterial()">Update Material</button>
+                            <div class="form-row">
+                                <label>New Name:</label>
+                                <input type="text" id="updateMaterialName" placeholder="New name">
+                            </div>
+                            <div class="form-row">
+                                <label>New SKU:</label>
+                                <input type="text" id="updateMaterialSku" placeholder="New SKU">
+                            </div>
+                            <div id="materialDetailsData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Raw Materials Analytics</div>
+                        <div class="section-content">
+                            <button onclick="getRawMaterialsUsageSummary()">Usage Summary</button>
+                            <button onclick="getRawMaterialsCostAnalysis()">Cost Analysis</button>
+                            <div class="form-row">
+                                <label>Date From:</label>
+                                <input type="date" id="analyticsDateFrom">
+                            </div>
+                            <div class="form-row">
+                                <label>Date To:</label>
+                                <input type="date" id="analyticsDateTo">
+                            </div>
+                            <div class="form-row">
+                                <label>Material ID:</label>
+                                <input type="text" id="analyticsMaterialId" placeholder="specific material">
+                            </div>
+                            <div id="rawAnalyticsData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Tab -->
+        <div id="analytics" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Inventory Analytics</div>
+                        <div class="section-content">
+                            <button onclick="getValuation()">Inventory Valuation</button>
+                            <button onclick="getMovementTrends()">Movement Trends</button>
+                            <button onclick="getReorderSuggestions()">Reorder Suggestions</button>
+                            <button onclick="getPerformance()">Product Performance</button>
+                            <div class="form-row">
+                                <label>Days:</label>
+                                <input type="number" id="analyticsDays" placeholder="30" value="30">
+                            </div>
+                            <div id="analyticsData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Enhanced Alerts</div>
+                        <div class="section-content">
+                            <button onclick="getEnhancedAlerts()">Enhanced Alerts</button>
+                            <button onclick="getCategoryComparison()">Category Comparison</button>
+                            <div class="form-row">
+                                <label>Include Predictions:</label>
+                                <select id="includePredictions">
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                            <div id="alertsData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Staff Analytics</div>
+                        <div class="section-content">
+                            <button onclick="getInventoryStaffAnalytics()">Individual Staff</button>
+                            <button onclick="getAllInventoryStaffAnalytics()">All Staff</button>
+                            <div class="form-row">
+                                <label>Staff ID:</label>
+                                <input type="text" id="staffAnalyticsId" placeholder="staff-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Days:</label>
+                                <input type="number" id="staffAnalyticsDays" placeholder="30" value="30">
+                            </div>
+                            <div id="staffAnalyticsData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">Wastage Analysis</div>
+                        <div class="section-content">
+                            <button onclick="getWastageAnalysis()">Wastage Analysis</button>
+                            <div class="form-row">
+                                <label>Days:</label>
+                                <input type="number" id="wastageDays" placeholder="30" value="30">
+                            </div>
+                            <div id="wastageData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Optimization</div>
+                        <div class="section-content">
+                            <button onclick="getOptimization()">Stock Optimization</button>
+                            <div id="optimizationData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced Tab -->
+        <div id="advanced" class="tab-content">
+            <div class="grid">
+                <div>
+                    <div class="section">
+                        <div class="section-header">Bulk Operations</div>
+                        <div class="section-content">
+                            <button onclick="testBulkOperations()">Test Bulk Operations</button>
+                            <div id="bulkData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">SKU Management</div>
+                        <div class="section-content">
+                            <button onclick="getSKUCodes()">Load SKU Codes</button>
+                            <button onclick="createSKUCode()">Create SKU Code</button>
+                            <div class="form-row">
+                                <label>SKU Code:</label>
+                                <input type="text" id="skuCode" placeholder="SKU-001">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU Name:</label>
+                                <input type="text" id="skuName" placeholder="SKU Name">
+                            </div>
+                            <div class="form-row">
+                                <label>Barcode:</label>
+                                <input type="text" id="skuBarcode" placeholder="123456789">
+                            </div>
+                            <div id="skuData"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="section">
+                        <div class="section-header">Product-SKU Mapping</div>
+                        <div class="section-content">
+                            <button onclick="mapSKUToProduct()">Map SKU to Product</button>
+                            <button onclick="getProductSKUs()">Get Product SKUs</button>
+                            <div class="form-row">
+                                <label>Product ID:</label>
+                                <input type="text" id="mapProductId" placeholder="product-id">
+                            </div>
+                            <div class="form-row">
+                                <label>SKU Code ID:</label>
+                                <input type="text" id="mapSKUId" placeholder="sku-id">
+                            </div>
+                            <div class="form-row">
+                                <label>Primary:</label>
+                                <select id="mapPrimary">
+                                    <option value="false">No</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                            </div>
+                            <div id="mappingData"></div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">System Information</div>
+                        <div class="section-content">
+                            <button onclick="getSystemInfo()">Get System Info</button>
+                            <div id="systemData"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">Activity Logs</div>
+            <div class="section-content">
+                <div class="logs" id="logs"></div>
+                <button onclick="clearLogs()">Clear Logs</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = '';
+        let suppliers = [];
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('logs');
+            const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            logElement.textContent += logEntry;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+        }
+
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value.trim();
+        }
+
+        function updateStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        function showTab(tabName) {
+            // Hide all tab contents
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        function renderTable(data, containerId) {
+            if (!Array.isArray(data) || data.length === 0) {
+                document.getElementById(containerId).innerHTML = '<p>No data available</p>';
+                return;
+            }
+
+            const keys = Object.keys(data[0]);
+            let html = '<table><thead><tr>';
+            keys.forEach(key => html += `<th>${key}</th>`);
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    let value = row[key];
+                    if (typeof value === 'object' && value !== null) {
+                        value = JSON.stringify(value);
+                    }
+                    html += `<td>${value || ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            
+            document.getElementById(containerId).innerHTML = html;
+        }
+
+        function renderSummary(data, containerId) {
+            if (typeof data === 'object' && data !== null) {
+                let html = '<div>';
+                for (const [key, value] of Object.entries(data)) {
+                    if (typeof value === 'object' && value !== null) {
+                        html += `<h4>${key}:</h4>`;
+                        html += renderSummaryObject(value);
+                    } else {
+                        html += `<p><strong>${key}:</strong> ${value}</p>`;
+                    }
+                }
+                html += '</div>';
+                document.getElementById(containerId).innerHTML = html;
+            }
+        }
+
+        function renderSummaryObject(obj) {
+            let html = '<ul>';
+            for (const [key, value] of Object.entries(obj)) {
+                html += `<li><strong>${key}:</strong> ${value}</li>`;
+            }
+            html += '</ul>';
+            return html;
+        }
+
+        function renderSupplierDropdown() {
+            const dropdown = document.getElementById('supplierSelect');
+            if (!dropdown) return;
+            
+            dropdown.innerHTML = '<option value="">Select Supplier (Optional)</option>';
+            
+            suppliers.forEach(supplier => {
+                dropdown.innerHTML += `<option value="${supplier.id}">${supplier.name}</option>`;
+            });
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const url = `${getBaseUrl()}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json'
