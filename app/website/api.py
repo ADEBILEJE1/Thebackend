@@ -65,7 +65,7 @@ async def get_products_for_website(
     # Rest of your existing processing code...
     sorted_data = sorted(products_result.data, key=lambda x: (
         x.get("categories", {}).get("name", "") if x.get("categories") else "", 
-        x.get("product_templates", {}).get("name", "") if x.get("product_templates") else ""
+        x.get("name", "")
     ))
     
     products = []
@@ -78,6 +78,11 @@ async def get_products_for_website(
         category = {"id": None, "name": "Uncategorized"}
         if product.get("categories") and product["categories"]:
             category = product["categories"]
+
+        if product.get("product_type") == "main":
+            extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
+        else:
+            extras = type('obj', (object,), {'data': []})()
         
         products.append({
             "id": product["id"],
@@ -87,6 +92,7 @@ async def get_products_for_website(
             "image_url": product["image_url"],
             "available_stock": product["units"],
             "low_stock_threshold": product["low_stock_threshold"],
+            "extras": extras.data if product.get("product_type") == "main" else [],
             "category": category
         })
     
@@ -744,16 +750,13 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     if not q.isdigit():
         products.data = [
             p for p in products.data 
-            if (p.get("product_templates") and q.lower() in p["product_templates"]["name"].lower()) or
-               (p.get("categories") and q.lower() in p["categories"]["name"].lower())
+            if (p.get("categories") and q.lower() in p["categories"]["name"].lower()) or
+                (q.lower() in p["name"].lower())
         ]
     
     # Format like existing products endpoint
     result_products = []
     for product in products.data:
-        template_name = ""
-        if product.get("product_templates") and product["product_templates"]:
-            template_name = product["product_templates"]["name"]
         
         display_name = product["name"]
         if product.get("variant_name"):
@@ -762,6 +765,11 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
         category = {"id": None, "name": "Uncategorized"}
         if product.get("categories") and product["categories"]:
             category = product["categories"]
+
+        if product.get("product_type") == "main":
+            extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
+        else:
+            extras = type('obj', (object,), {'data': []})()
         
         result_products.append({
             "id": product["id"],
@@ -772,6 +780,7 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
             "available_stock": product["units"],
             "low_stock_threshold": product["low_stock_threshold"],
             "category": category,
+            "extras": extras.data if product.get("product_type") == "main" else [],
             "status": product["status"]
         })
     
