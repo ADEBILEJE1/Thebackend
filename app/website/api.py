@@ -97,6 +97,7 @@ async def get_products_for_website(
             "description": product["description"],
             "image_url": product["image_url"],
             "available_stock": product["units"],
+            "low_stock_threshold": product["low_stock_threshold"],
             "category": category
         })
     
@@ -105,7 +106,27 @@ async def get_products_for_website(
 
 
 
-
+@router.get("/products/{product_id}/current-stock")
+async def get_current_stock(product_id: str):
+    """Get real-time stock for quantity validation"""
+    cache_key = f"product_stock:{product_id}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    product = supabase_admin.table("products").select("units, low_stock_threshold").eq("id", product_id).eq("is_available", True).execute()
+    
+    if not product.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    result = {
+        "available_stock": product.data[0]["units"],
+        "low_stock_threshold": product.data[0]["low_stock_threshold"]
+    }
+    
+    
+    redis_client.set(cache_key, result, 30)
+    return result
 
 
 
@@ -173,22 +194,7 @@ async def verify_pin_and_save_address(verify_data: PinVerifyAndAddress):
 
 
 
-# @router.post("/addresses")
-# async def save_address(
-#     address_data: AddressCreate,
-#     session_token: str = Query(...)
-# ):
-#     """Save address with existing session"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     address = await AddressService.save_customer_address(
-#         session_data["customer_id"],
-#         address_data.dict()
-#     )
-    
-#     return address
+
 
 
 @router.post("/addresses")
@@ -667,26 +673,6 @@ async def get_order_history(
     }
 
 
-# @router.get("/orders/{order_id}")
-# async def get_order_details(
-#     order_id: str,
-#     session_token: str = Query(...)
-# ):
-#     """Get specific order details"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     order = supabase_admin.table("orders").select("""
-#         *, order_items(*), customer_addresses(*)
-#     """).eq("id", order_id).eq("website_customer_id", session_data["customer_id"]).execute()
-    
-#     if not order.data:
-#         raise HTTPException(status_code=404, detail="Order not found")
-    
-#     return order.data[0]
-
-
 
 
 
@@ -735,50 +721,6 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
 
 
 
-
-# @router.get("/search/suggestions")
-# async def get_search_suggestions(q: str = Query(min_length=2)):
-#     cache_key = f"search:suggestions:{q}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-    
-#     # Product name suggestions
-#     products = supabase_admin.table("products").select(
-#         "product_templates(name), price"
-#     ).ilike("product_templates.name", f"{q}%").limit(3).execute()
-    
-#     # If query is numeric, also search by price
-#     if q.isdigit():
-#         price = int(q)
-#         price_products = supabase_admin.table("products").select(
-#             "product_templates(name), price"
-#         ).eq("price", price).limit(3).execute()
-        
-#         # Combine results
-#         all_products = products.data + price_products.data
-#     else:
-#         all_products = products.data
-    
-#     # Categories
-#     categories = supabase_admin.table("categories").select("name").ilike("name", f"{q}%").limit(3).execute()
-    
-#     # Filter out products with null templates
-#     product_list = []
-#     for p in all_products:
-#         if p.get("product_templates") and p["product_templates"]:
-#             product_list.append({
-#                 "name": p["product_templates"]["name"], 
-#                 "price": float(p["price"])
-#             })
-    
-#     result = {
-#         "products": product_list,
-#         "categories": [c["name"] for c in categories.data]
-#     }
-    
-#     redis_client.set(cache_key, result, 300)
-#     return result
 
 
 @router.get("/search/suggestions")
@@ -847,6 +789,7 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
             "description": product["description"],
             "image_url": product["image_url"],
             "available_stock": product["units"],
+            "low_stock_threshold": product["low_stock_threshold"],
             "category": category,
             "status": product["status"]
         })
@@ -905,6 +848,7 @@ async def delete_address(
         raise HTTPException(status_code=404, detail="Address not found")
     
     return {"message": "Address deleted successfully"}
+
 
 @router.patch("/addresses/{address_id}/set-default")
 async def set_default_address(

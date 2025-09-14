@@ -624,6 +624,11 @@ async def delete_category(
     if products.data:
         raise HTTPException(status_code=400, detail="Cannot delete category with existing products")
     
+    # NEW: Check if category is referenced by product templates
+    templates = supabase_admin.table("product_templates").select("id").eq("default_category_id", category_id).execute()
+    if templates.data:
+        raise HTTPException(status_code=400, detail="Cannot delete category referenced by product templates")
+    
     result = supabase_admin.table("categories").delete().eq("id", category_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Category not found")
@@ -777,6 +782,39 @@ async def get_product_templates(
     
     result = query.order("name").execute()
     return result.data
+
+@router.patch("/product-templates/{template_id}")
+async def update_product_template(
+    template_id: str,
+    update: ProductTemplateUpdate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    updates = {k: v for k, v in update.dict().items() if v is not None}
+    
+    if updates:
+        result = supabase.table("product_templates").update(updates).eq("id", template_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Product template not found")
+    
+    return {"message": "Product template updated"}
+
+@router.delete("/product-templates/{template_id}")
+async def delete_product_template(
+    template_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    # Check if template is used by products
+    products = supabase.table("products").select("id").eq("product_template_id", template_id).execute()
+    if products.data:
+        raise HTTPException(status_code=400, detail="Cannot delete template with existing products")
+    
+    result = supabase.table("product_templates").delete().eq("id", template_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product template not found")
+    
+    return {"message": "Product template deleted"}
+
+
 
 
 # Reorder Suggestions
@@ -1334,6 +1372,9 @@ async def delete_banner(
         raise HTTPException(status_code=404, detail="Banner not found")
     
     return {"message": "Banner deleted"}
+
+
+
 
 
 
