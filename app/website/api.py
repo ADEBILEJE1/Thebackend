@@ -52,12 +52,7 @@ async def get_products_for_website(
         else:
             product["categories"] = None
             
-        # Fetch product template
-        if product["product_template_id"]:
-            template = supabase_admin.table("product_templates").select("*").eq("id", product["product_template_id"]).execute()
-            product["product_templates"] = template.data[0] if template.data else None
-        else:
-            product["product_templates"] = None
+        
     
     # Apply search filter after fetching related data
     if search:
@@ -79,12 +74,9 @@ async def get_products_for_website(
         if product.get("product_templates") and product["product_templates"]:
             template_name = product["product_templates"]["name"]
         
-        display_name = template_name
+        display_name = product["name"]
         if product.get("variant_name"):
-            display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
-        
-        if not display_name:
-            display_name = f"Product {product['id'][:8]}"
+            display_name += f" - {product['variant_name']}"
         
         category = {"id": None, "name": "Uncategorized"}
         if product.get("categories") and product["categories"]:
@@ -749,12 +741,7 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
         else:
             product["categories"] = None
             
-        # Fetch product template
-        if product["product_template_id"]:
-            template = supabase_admin.table("product_templates").select("*").eq("id", product["product_template_id"]).execute()
-            product["product_templates"] = template.data[0] if template.data else None
-        else:
-            product["product_templates"] = None
+        
     
     # Filter by search term after fetching related data
     if not q.isdigit():
@@ -771,12 +758,9 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
         if product.get("product_templates") and product["product_templates"]:
             template_name = product["product_templates"]["name"]
         
-        display_name = template_name
+        display_name = product["name"]
         if product.get("variant_name"):
-            display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
-        
-        if not display_name:
-            display_name = f"Product {product['id'][:8]}"
+            display_name += f" - {product['variant_name']}"
         
         category = {"id": None, "name": "Uncategorized"}
         if product.get("categories") and product["categories"]:

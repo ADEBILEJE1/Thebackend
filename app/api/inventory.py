@@ -38,7 +38,7 @@ class CategoryUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class ProductCreate(BaseModel):
-    product_template_id: str
+    name: str = Field(..., max_length=200)
     supplier_id: Optional[str] = None
     sku: Optional[str] = None
     variant_name: Optional[str] = None
@@ -337,8 +337,8 @@ async def create_product(
    
    product_data = {
        **product_dict,
-       "name": template_data["name"],
-       "description": final_description,
+       "name": product.name,
+       "description": product.description,
        "status": status,
        "created_by": current_user["id"],
        "updated_by": current_user["id"]
