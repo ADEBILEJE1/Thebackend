@@ -58,8 +58,8 @@ async def get_products_for_website(
     if search:
         products_result.data = [
             p for p in products_result.data 
-            if (p.get("product_templates") and search.lower() in p["product_templates"]["name"].lower()) or
-               (p.get("categories") and search.lower() in p["categories"]["name"].lower())
+            if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
+                (search.lower() in p["name"].lower())    
         ]
     
     # Rest of your existing processing code...
@@ -70,9 +70,6 @@ async def get_products_for_website(
     
     products = []
     for product in sorted_data:
-        template_name = ""
-        if product.get("product_templates") and product["product_templates"]:
-            template_name = product["product_templates"]["name"]
         
         display_name = product["name"]
         if product.get("variant_name"):

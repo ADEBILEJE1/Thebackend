@@ -121,16 +121,6 @@ class SupplierUpdate(BaseModel):
     address: Optional[str] = None
     is_active: Optional[bool] = None
 
-class ProductTemplateCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    default_category_id: Optional[str] = None
-
-class ProductTemplateUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    default_category_id: Optional[str] = None
-    is_active: Optional[bool] = None
 
 
 class CategoryCreate(BaseModel):
@@ -283,12 +273,7 @@ async def create_product(
    product: ProductCreate,
    current_user: dict = Depends(require_inventory_staff)
 ):
-   # Verify product template exists
-   template = supabase.table("product_templates").select("*").eq("id", product.product_template_id).execute()
-   if not template.data:
-       raise HTTPException(status_code=404, detail="Product template not found")
    
-   template_data = template.data[0]
 
    # Verify category exists
    category = supabase_admin.table("categories").select("id").eq("id", product.category_id).execute()
@@ -333,7 +318,7 @@ async def create_product(
    product_dict["price"] = float(product_dict["price"])
    
    # Use template description if no description provided
-   final_description = product.description or template_data.get("description")
+   final_description = product.description
    
    product_data = {
        **product_dict,
@@ -379,7 +364,7 @@ async def get_products(
     if cached:
         return cached
     
-    query = supabase.table("products").select("*, categories(*), suppliers(name), product_templates(name)")
+    query = supabase.table("products").select("*, categories(*), suppliers(name)")
     
     if category_id:
         query = query.eq("category_id", category_id)
@@ -624,10 +609,6 @@ async def delete_category(
     if products.data:
         raise HTTPException(status_code=400, detail="Cannot delete category with existing products")
     
-    # NEW: Check if category is referenced by product templates
-    templates = supabase_admin.table("product_templates").select("id").eq("default_category_id", category_id).execute()
-    if templates.data:
-        raise HTTPException(status_code=400, detail="Cannot delete category referenced by product templates")
     
     result = supabase_admin.table("categories").delete().eq("id", category_id).execute()
     if not result.data:
@@ -753,66 +734,7 @@ async def get_suppliers(
     result = query.order("name").execute()
     return result.data
 
-# Product Templates
-@router.post("/product-templates", response_model=dict)
-async def create_product_template(
-    template: ProductTemplateCreate,
-    current_user: dict = Depends(require_inventory_staff)
-):
-    # Check unique name
-    existing = supabase.table("product_templates").select("id").eq("name", template.name).execute()
-    if existing.data:
-        raise HTTPException(status_code=400, detail="Product template name already exists")
-    
-    template_data = {**template.dict(), "created_by": current_user["id"]}
-    result = supabase.table("product_templates").insert(template_data).execute()
-    return {"message": "Product template created", "data": result.data[0]}
 
-@router.get("/product-templates", response_model=List[dict])
-async def get_product_templates(
-    active_only: bool = True,
-    search: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    query = supabase.table("product_templates").select("*, categories(*)")
-    if active_only:
-        query = query.eq("is_active", True)
-    if search:
-        query = query.ilike("name", f"%{search}%")
-    
-    result = query.order("name").execute()
-    return result.data
-
-@router.patch("/product-templates/{template_id}")
-async def update_product_template(
-    template_id: str,
-    update: ProductTemplateUpdate,
-    current_user: dict = Depends(require_inventory_staff)
-):
-    updates = {k: v for k, v in update.dict().items() if v is not None}
-    
-    if updates:
-        result = supabase.table("product_templates").update(updates).eq("id", template_id).execute()
-        if not result.data:
-            raise HTTPException(status_code=404, detail="Product template not found")
-    
-    return {"message": "Product template updated"}
-
-@router.delete("/product-templates/{template_id}")
-async def delete_product_template(
-    template_id: str,
-    current_user: dict = Depends(require_inventory_staff)
-):
-    # Check if template is used by products
-    products = supabase.table("products").select("id").eq("product_template_id", template_id).execute()
-    if products.data:
-        raise HTTPException(status_code=400, detail="Cannot delete template with existing products")
-    
-    result = supabase.table("product_templates").delete().eq("id", template_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Product template not found")
-    
-    return {"message": "Product template deleted"}
 
 
 
