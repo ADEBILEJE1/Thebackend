@@ -205,6 +205,17 @@ class ImageType(str, Enum):
     CATEGORY = "category" 
     BANNER = "banner"
 
+class AreaCreate(BaseModel):
+    name: str = Field(max_length=100)
+    delivery_fee: Decimal = Field(gt=0)
+    estimated_time: str = Field(max_length=50)
+
+class AreaUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    delivery_fee: Optional[Decimal] = Field(None, gt=0)
+    estimated_time: Optional[str] = Field(None, max_length=50)
+    is_active: Optional[bool] = None
+
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 # Categories
@@ -1737,3 +1748,74 @@ async def update_raw_material(
     )
     
     return {"message": "Raw material updated"}
+
+
+@router.post("/areas", response_model=dict)
+async def create_area(
+    area: AreaCreate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    existing = supabase.table("delivery_areas").select("id").eq("name", area.name).execute()
+    if existing.data:
+        raise HTTPException(status_code=400, detail="Area name already exists")
+    
+    area_data = {
+        **area.dict(),
+        "delivery_fee": float(area.delivery_fee),
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("delivery_areas").insert(area_data).execute()
+    redis_client.delete("delivery:areas")
+    return {"message": "Area created", "data": result.data[0]}
+
+@router.get("/areas", response_model=List[dict])
+async def get_areas(
+    active_only: bool = True,
+    current_user: dict = Depends(get_current_user)
+):
+    cache_key = f"delivery:areas:{active_only}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    query = supabase.table("delivery_areas").select("*")
+    if active_only:
+        query = query.eq("is_active", True)
+    
+    result = query.order("name").execute()
+    redis_client.set(cache_key, result.data, 300)
+    return result.data
+
+@router.patch("/areas/{area_id}")
+async def update_area(
+    area_id: str,
+    update: AreaUpdate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    updates = {k: v for k, v in update.dict().items() if v is not None}
+    if "delivery_fee" in updates:
+        updates["delivery_fee"] = float(updates["delivery_fee"])
+    
+    if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        result = supabase.table("delivery_areas").update(updates).eq("id", area_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Area not found")
+    
+    redis_client.delete_pattern("delivery:areas:*")
+    return {"message": "Area updated"}
+
+@router.delete("/areas/{area_id}")
+async def delete_area(
+    area_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    result = supabase.table("delivery_areas").delete().eq("id", area_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Area not found")
+    
+    redis_client.delete_pattern("delivery:areas:*")
+    return {"message": "Area deleted"}
+
+

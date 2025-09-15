@@ -241,16 +241,27 @@ class CartService:
 class AddressService:
     @staticmethod
     async def save_customer_address(customer_id: str, address_data: Dict) -> Dict:
-        """Save customer address"""
-        # If this is set as default, unset other defaults
+        """Save customer address with area"""
         if address_data.get("is_default"):
             supabase.table("customer_addresses").update({
                 "is_default": False
             }).eq("customer_id", customer_id).execute()
         
+        # Get area details for full address
+        area = supabase.table("delivery_areas").select("name").eq("id", address_data["area_id"]).execute()
+        if not area.data:
+            raise ValueError("Invalid area selected")
+        
+        # Compose full address
+        full_address = f"{address_data['street_address']}, {area.data[0]['name']}"
+        
         address_entry = {
             "customer_id": customer_id,
-            **address_data
+            "name": address_data["name"],
+            "area_id": address_data["area_id"],
+            "street_address": address_data["street_address"],
+            "full_address": full_address,
+            "is_default": address_data.get("is_default", False)
         }
         
         result = supabase.table("customer_addresses").insert(address_entry).execute()
@@ -258,21 +269,27 @@ class AddressService:
     
     @staticmethod
     async def get_customer_addresses(customer_id: str) -> List[Dict]:
-        """Get all customer addresses"""
-        result = supabase.table("customer_addresses").select("*").eq("customer_id", customer_id).order("is_default", desc=True).execute()
+        """Get customer addresses with area details"""
+        result = supabase.table("customer_addresses").select("*, delivery_areas(name, delivery_fee, estimated_time)").eq("customer_id", customer_id).order("is_default", desc=True).execute()
         return result.data
     
     @staticmethod
     async def update_customer_address(address_id: str, customer_id: str, update_data: Dict) -> Dict:
-        """Update customer address"""
-        # Verify ownership
         existing = supabase.table("customer_addresses").select("*").eq("id", address_id).eq("customer_id", customer_id).execute()
         if not existing.data:
             raise ValueError("Address not found")
         
-        # Handle default setting
         if update_data.get("is_default"):
             supabase.table("customer_addresses").update({"is_default": False}).eq("customer_id", customer_id).execute()
+        
+        # If area_id is being updated, rebuild full_address
+        if "area_id" in update_data or "street_address" in update_data:
+            area_id = update_data.get("area_id", existing.data[0]["area_id"])
+            street = update_data.get("street_address", existing.data[0]["street_address"])
+            
+            area = supabase.table("delivery_areas").select("name").eq("id", area_id).execute()
+            if area.data:
+                update_data["full_address"] = f"{street}, {area.data[0]['name']}"
         
         updates = {k: v for k, v in update_data.items() if v is not None}
         result = supabase.table("customer_addresses").update(updates).eq("id", address_id).execute()

@@ -249,85 +249,173 @@ async def validate_cart(items: List[CartItem]):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/delivery/calculate")
-async def calculate_delivery(
-    latitude: float,
-    longitude: float
-):
-    """Calculate delivery fee and time"""
-    distance = DeliveryService.calculate_distance(
-        DeliveryService.RESTAURANT_LAT,
-        DeliveryService.RESTAURANT_LNG,
-        latitude,
-        longitude
-    )
+# @router.post("/delivery/calculate")
+# async def calculate_delivery(
+#     latitude: float,
+#     longitude: float
+# ):
+#     """Calculate delivery fee and time"""
+#     distance = DeliveryService.calculate_distance(
+#         DeliveryService.RESTAURANT_LAT,
+#         DeliveryService.RESTAURANT_LNG,
+#         latitude,
+#         longitude
+#     )
     
-    fee = DeliveryService.calculate_delivery_fee(distance)
-    time = DeliveryService.estimate_delivery_time(distance)
+#     fee = DeliveryService.calculate_delivery_fee(distance)
+#     time = DeliveryService.estimate_delivery_time(distance)
+    
+#     return {
+#         "distance_km": round(distance, 2),
+#         "fee": float(fee),
+#         "estimated_time": time
+#     }
+
+
+@router.get("/delivery-areas")
+async def get_delivery_areas():
+    """Get active delivery areas for customer selection"""
+    cached = redis_client.get("website:delivery_areas")
+    if cached:
+        return cached
+    
+    result = supabase_admin.table("delivery_areas").select("id, name, delivery_fee, estimated_time").eq("is_active", True).order("name").execute()
+    
+    redis_client.set("website:delivery_areas", result.data, 300)
+    return result.data
+
+@router.post("/delivery/calculate-by-area")
+async def calculate_delivery_by_area(area_id: str):
+    """Calculate delivery fee and time by area ID"""
+    area = supabase_admin.table("delivery_areas").select("*").eq("id", area_id).eq("is_active", True).execute()
+    
+    if not area.data:
+        raise HTTPException(status_code=404, detail="Area not found")
     
     return {
-        "distance_km": round(distance, 2),
-        "fee": float(fee),
-        "estimated_time": time
+        "area_name": area.data[0]["name"],
+        "fee": float(area.data[0]["delivery_fee"]),
+        "estimated_time": area.data[0]["estimated_time"]
     }
+
+
+# @router.post("/checkout/summary")
+# async def get_checkout_summary(checkout_data: CheckoutRequest):
+#     """Get checkout summary with all calculations"""
+#     import uuid
+    
+#     order_summaries = []
+#     total_subtotal = Decimal('0')
+#     total_vat = Decimal('0')
+#     delivery_fees_by_address = {}
+    
+#     for idx, order in enumerate(checkout_data.orders):
+#         # Validate delivery address is required
+#         if not order.delivery_address_id:
+#             raise HTTPException(
+#                 status_code=400, 
+#                 detail=f"Delivery address is required for order {idx + 1}"
+#             )
+        
+#         # Validate UUID format
+#         try:
+#             uuid.UUID(order.delivery_address_id)
+#         except ValueError:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=f"Invalid delivery address ID format for order {idx + 1}"
+#             )
+        
+#         # Validate items
+#         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
+#         totals = CartService.calculate_order_total(processed_items)
+        
+#         total_subtotal += totals["subtotal"]
+#         total_vat += totals["vat"]
+        
+#         # Get delivery address
+#         address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
+        
+#         if not address_result.data:
+#             raise HTTPException(
+#                 status_code=404, 
+#                 detail=f"Delivery address not found for order {idx + 1}"
+#             )
+        
+#         address_data = address_result.data[0]
+#         address_key = f"{address_data['latitude']}:{address_data['longitude']}"
+        
+#         if address_key not in delivery_fees_by_address:
+#             distance = DeliveryService.calculate_distance(
+#                 DeliveryService.RESTAURANT_LAT,
+#                 DeliveryService.RESTAURANT_LNG,
+#                 address_data["latitude"],
+#                 address_data["longitude"]
+#             )
+#             delivery_fees_by_address[address_key] = {
+#                 "fee": DeliveryService.calculate_delivery_fee(distance),
+#                 "address": address_data["full_address"]
+#             }
+        
+#         order_summaries.append({
+#             "order_index": idx,
+#             "items": [
+#                 {
+#                     "product_name": item["product_name"],
+#                     "quantity": item["quantity"],
+#                     "unit_price": float(item["unit_price"]),
+#                     "total_price": float(item["total_price"])
+#                 }
+#                 for item in processed_items
+#             ],
+#             "subtotal": float(totals["subtotal"]),
+#             "delivery_address": delivery_fees_by_address[address_key]["address"],
+#             "delivery_fee": float(delivery_fees_by_address[address_key]["fee"])
+#         })
+    
+#     total_delivery = sum(data["fee"] for data in delivery_fees_by_address.values())
+#     grand_total = total_subtotal + total_vat + total_delivery
+    
+#     return {
+#         "orders": order_summaries,
+#         "total_subtotal": float(total_subtotal),
+#         "total_vat": float(total_vat),
+#         "total_delivery": float(total_delivery),
+#         "grand_total": float(grand_total)
+#     }
 
 
 
 @router.post("/checkout/summary")
 async def get_checkout_summary(checkout_data: CheckoutRequest):
-    """Get checkout summary with all calculations"""
-    import uuid
-    
+    """Get checkout summary with area-based delivery"""
     order_summaries = []
     total_subtotal = Decimal('0')
     total_vat = Decimal('0')
-    delivery_fees_by_address = {}
+    delivery_fees_by_area = {}
     
     for idx, order in enumerate(checkout_data.orders):
-        # Validate delivery address is required
         if not order.delivery_address_id:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Delivery address is required for order {idx + 1}"
-            )
+            raise HTTPException(status_code=400, detail=f"Delivery address required for order {idx + 1}")
         
-        # Validate UUID format
-        try:
-            uuid.UUID(order.delivery_address_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid delivery address ID format for order {idx + 1}"
-            )
-        
-        # Validate items
         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
         totals = CartService.calculate_order_total(processed_items)
         
         total_subtotal += totals["subtotal"]
         total_vat += totals["vat"]
         
-        # Get delivery address
-        address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
+        # Get address with area details
+        address_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(*)").eq("id", order.delivery_address_id).execute()
         
         if not address_result.data:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Delivery address not found for order {idx + 1}"
-            )
+            raise HTTPException(status_code=404, detail=f"Address not found for order {idx + 1}")
         
         address_data = address_result.data[0]
-        address_key = f"{address_data['latitude']}:{address_data['longitude']}"
+        area_id = address_data["area_id"]
         
-        if address_key not in delivery_fees_by_address:
-            distance = DeliveryService.calculate_distance(
-                DeliveryService.RESTAURANT_LAT,
-                DeliveryService.RESTAURANT_LNG,
-                address_data["latitude"],
-                address_data["longitude"]
-            )
-            delivery_fees_by_address[address_key] = {
-                "fee": DeliveryService.calculate_delivery_fee(distance),
+        if area_id not in delivery_fees_by_area:
+            delivery_fees_by_area[area_id] = {
+                "fee": Decimal(str(address_data["delivery_areas"]["delivery_fee"])),
                 "address": address_data["full_address"]
             }
         
@@ -343,11 +431,11 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
                 for item in processed_items
             ],
             "subtotal": float(totals["subtotal"]),
-            "delivery_address": delivery_fees_by_address[address_key]["address"],
-            "delivery_fee": float(delivery_fees_by_address[address_key]["fee"])
+            "delivery_address": delivery_fees_by_area[area_id]["address"],
+            "delivery_fee": float(delivery_fees_by_area[area_id]["fee"])
         })
     
-    total_delivery = sum(data["fee"] for data in delivery_fees_by_address.values())
+    total_delivery = sum(data["fee"] for data in delivery_fees_by_area.values())
     grand_total = total_subtotal + total_vat + total_delivery
     
     return {
@@ -357,6 +445,7 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
         "total_delivery": float(total_delivery),
         "grand_total": float(grand_total)
     }
+
 
 
 @router.post("/checkout/complete")

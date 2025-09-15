@@ -18,10 +18,15 @@ class PinVerification(BaseModel):
 
 class AddressCreate(BaseModel):
     name: str = Field(max_length=100)
-    full_address: str
-    latitude: float
-    longitude: float
+    area_id: str
+    street_address: str
     is_default: bool = False
+
+class AddressUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    area_id: Optional[str] = None
+    street_address: Optional[str] = None
+    is_default: Optional[bool] = None
 
 class CartItem(BaseModel):
     product_id: str
