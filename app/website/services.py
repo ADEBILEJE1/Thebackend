@@ -199,14 +199,38 @@ class CartService:
     async def validate_cart_items(items: List[Dict]) -> List[Dict]:
         """Validate cart items and return processed data"""
         processed_items = []
+        main_products_in_cart = set()
+        extra_products_in_cart = []
         
+        # First pass: identify main products and collect extras
         for item in items:
-            # Get product details
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             
             if not product.data:
                 raise ValueError(f"Product {item['product_id']} not found")
             
+            product_data = product.data[0]
+            
+            if product_data["product_type"] == "main":
+                main_products_in_cart.add(item["product_id"])
+            elif product_data["product_type"] == "extra":
+                extra_products_in_cart.append({
+                    "item": item,
+                    "product_data": product_data,
+                    "main_product_id": product_data["main_product_id"]
+                })
+        
+        # Validate extras have corresponding main products
+        for extra_info in extra_products_in_cart:
+            main_product_id = extra_info["main_product_id"]
+            if main_product_id not in main_products_in_cart:
+                main_product = supabase.table("products").select("name").eq("id", main_product_id).execute()
+                main_name = main_product.data[0]["name"] if main_product.data else "Unknown"
+                raise ValueError(f"Cannot add extra '{extra_info['product_data']['name']}' without adding main product '{main_name}' to cart")
+        
+        # Second pass: process all items (validation passed)
+        for item in items:
+            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             product_data = product.data[0]
             
             if not product_data["is_available"] or product_data["status"] == "out_of_stock":
