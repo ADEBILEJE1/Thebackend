@@ -858,6 +858,32 @@ async def payment_webhook(request: Request):
     
 
 
+# @router.get("/orders/history")
+# async def get_order_history(
+#     session_token: str = Query(...),
+#     limit: int = Query(20, le=100),
+#     offset: int = Query(0, ge=0)
+# ):
+#     """Get customer order history - only completed orders"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     # Get completed orders
+#     orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
+    
+#     # Get items for each order
+#     for order in orders.data:
+#         items = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
+#         order["order_items"] = items.data
+    
+#     return {
+#         "orders": orders.data,
+#         "total_count": len(orders.data),
+#         "limit": limit,
+#         "offset": offset
+#     }
+
 @router.get("/orders/history")
 async def get_order_history(
     session_token: str = Query(...),
@@ -869,13 +895,17 @@ async def get_order_history(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get completed orders
-    orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
+    # Get completed orders with delivery info
+    orders = supabase_admin.table("orders").select("""
+        *, 
+        customer_addresses(full_address, delivery_areas(name))
+    """).eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
     
-    # Get items for each order
+    # Get items for each order and include delivery fee
     for order in orders.data:
         items = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
         order["order_items"] = items.data
+        order["delivery_fee"] = float(order.get("delivery_fee", 0))
     
     return {
         "orders": orders.data,
@@ -886,6 +916,48 @@ async def get_order_history(
 
 
 
+# @router.get("/orders/tracking")
+# async def get_all_orders_tracking(session_token: str = Query(...)):
+#     """Get tracking status for all customer orders"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     # Get all customer orders
+#     orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
+    
+#     tracking_orders = []
+#     for order_data in orders.data:
+#         # Get items for each order
+#         order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+        
+#         # Calculate tracking stages
+#         order_status = order_data["status"]
+#         tracking_stages = {
+#             "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
+#             "processed": order_status == "completed",
+#             "out_for_delivery": order_status == "completed"
+#         }
+        
+#         tracking_orders.append({
+#             "order": {
+#                 "id": order_data["id"],
+#                 "order_number": order_data["order_number"],
+#                 "status": order_status,
+#                 "total": float(order_data["total"]),
+#                 "created_at": order_data["created_at"],
+#                 "items": order_items.data
+#             },
+#             "tracking_stages": tracking_stages,
+#             "current_stage": (
+#                 "out_for_delivery" if order_status == "completed" else
+#                 "payment_confirmation" if order_status in ["confirmed", "preparing"] else
+#                 "pending"
+#             )
+#         })
+    
+#     return {"orders": tracking_orders}
+
 
 
 @router.get("/orders/tracking")
@@ -895,15 +967,16 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get all customer orders
-    orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
+    # Get orders with delivery address and area details
+    orders = supabase_admin.table("orders").select("""
+        *, 
+        customer_addresses(full_address, delivery_areas(name, estimated_time))
+    """).eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
     
     tracking_orders = []
     for order_data in orders.data:
-        # Get items for each order
         order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
         
-        # Calculate tracking stages
         order_status = order_data["status"]
         tracking_stages = {
             "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
@@ -911,15 +984,25 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
             "out_for_delivery": order_status == "completed"
         }
         
+        # Get delivery info
+        delivery_info = None
+        if order_data.get("customer_addresses"):
+            delivery_info = {
+                "address": order_data["customer_addresses"]["full_address"],
+                "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+            }
+        
         tracking_orders.append({
             "order": {
                 "id": order_data["id"],
                 "order_number": order_data["order_number"],
                 "status": order_status,
                 "total": float(order_data["total"]),
+                "delivery_fee": float(order_data.get("delivery_fee", 0)),
                 "created_at": order_data["created_at"],
                 "items": order_items.data
             },
+            "delivery_info": delivery_info,
             "tracking_stages": tracking_stages,
             "current_stage": (
                 "out_for_delivery" if order_status == "completed" else
@@ -929,8 +1012,6 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
         })
     
     return {"orders": tracking_orders}
-
-
 
 
 
