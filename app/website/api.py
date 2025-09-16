@@ -133,9 +133,9 @@ async def get_products_for_website(
     # Single optimized query with joins
     query = supabase_admin.table("products").select("""
         *,
-        categories(*),
+        categories!inner(*),
         extras:products!main_product_id(*)
-    """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+    """)
     
     # Apply filters to the query
     if category_id:
