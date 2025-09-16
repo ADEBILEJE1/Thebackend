@@ -16,7 +16,7 @@ from ..core.permissions import (
 from ..core.activity_logger import log_activity
 from ..core.rate_limiter import default_limiter
 from ..services.redis import redis_client
-from ..database import supabase
+from ..database import supabase, supabase_admin
 from ..api.websocket import notify_order_update
 from ..website.services import CartService
 
@@ -311,31 +311,60 @@ async def get_live_sales_metrics(
     return live_data
 
 # Financial Reports
-@router.get("/reports/financial")
+# @router.get("/reports/financial")
+# async def get_financial_report(
+#     request: Request,
+#     date_from: date,
+#     date_to: date,
+#     current_user: dict = Depends(require_manager_up)
+# ):
+#     """Generate comprehensive financial report"""
+#     if (date_to - date_from).days > 365:
+#         raise HTTPException(status_code=400, detail="Maximum 365 days range allowed")
+    
+#     if date_from > date_to:
+#         raise HTTPException(status_code=400, detail="Start date must be before end date")
+    
+#     financial_data = await SalesService.generate_financial_report(date_from, date_to)
+    
+#     # Log activity
+#     await log_activity(
+#         current_user["id"], current_user["email"], current_user["role"],
+#         "generate", "financial_report", None, 
+#         {"date_from": str(date_from), "date_to": str(date_to)}, 
+#         request
+#     )
+    
+#     return financial_data
+
+
+
+@router.get("/financial-report")
 async def get_financial_report(
     request: Request,
-    date_from: date,
-    date_to: date,
+    start_date: date,  # Changed from date_from
+    end_date: date,    # Changed from date_to
     current_user: dict = Depends(require_manager_up)
 ):
     """Generate comprehensive financial report"""
-    if (date_to - date_from).days > 365:
+    if (end_date - start_date).days > 365:
         raise HTTPException(status_code=400, detail="Maximum 365 days range allowed")
     
-    if date_from > date_to:
+    if start_date > end_date:
         raise HTTPException(status_code=400, detail="Start date must be before end date")
     
-    financial_data = await SalesService.generate_financial_report(date_from, date_to)
+    financial_data = await SalesService.generate_financial_report(start_date, end_date)
     
     # Log activity
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "generate", "financial_report", None, 
-        {"date_from": str(date_from), "date_to": str(date_to)}, 
+        {"start_date": str(start_date), "end_date": str(end_date)}, 
         request
     )
     
     return financial_data
+
 
 # Sales Targets Management
 @router.get("/targets")
@@ -372,7 +401,7 @@ async def get_sales_targets(
     current_target = targets[period]
     
     # Get actual performance
-    orders_result = supabase.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
+    orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
     
     orders = orders_result.data
     actual_orders = len(orders)
@@ -512,7 +541,7 @@ async def get_completion_rates(
     start_date = end_date - timedelta(days=days)
     
     # Get orders with status breakdown
-    orders_result = supabase.table("orders").select("*").gte("created_at", start_date.isoformat()).execute()
+    orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).execute()
     
     orders = orders_result.data
     
@@ -574,7 +603,7 @@ async def get_online_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get confirmed online orders waiting to be pushed to kitchen"""
-    result = supabase.table("orders").select("*, order_items(*)").eq("order_type", "online").eq("status", "confirmed").order("confirmed_at").execute()
+    result = supabase_admin.table("orders").select("*, order_items(*)").eq("order_type", "online").eq("status", "confirmed").order("confirmed_at").execute()
     
     return result.data
 
@@ -585,12 +614,12 @@ async def push_order_to_kitchen(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Push confirmed online order to kitchen"""
-    order = supabase.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "confirmed").execute()
+    order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "confirmed").execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found or already processed")
     
-    supabase.table("orders").update({
+    supabase_admin.table("orders").update({
         "status": "preparing",
         "preparing_at": datetime.utcnow().isoformat()
     }).eq("id", order_id).execute()

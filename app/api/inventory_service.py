@@ -175,7 +175,7 @@ class InventoryService:
         total_units = 0
         
         for product in products:
-            category_name = product["categories"]["name"]
+            category_name = product["categories"]["name"] if product["categories"] else "Uncategorized"
             product_value = float(product["price"]) * product["units"]
             total_value += product_value
             total_units += product["units"]
@@ -216,6 +216,13 @@ class InventoryService:
                 "products": sorted(data["products"], key=lambda x: x["total_value"], reverse=True)
             })
         
+        for category in valuation_data:
+            category["total_value"] = float(category["total_value"])
+            category["average_unit_price"] = float(category["average_unit_price"])
+            for product in category["products"]:
+                product["unit_price"] = float(product["unit_price"])
+                product["total_value"] = float(product["total_value"])
+
         return {
             "total_inventory_value": float(total_value),
             "total_units": total_units,
@@ -411,7 +418,7 @@ class InventoryService:
                     suggestions.append({
                         "product_id": product["id"],
                         "product_name": product["name"],
-                        "category": product["categories"]["name"],
+                        "category": product["categories"]["name"] if product["categories"] else "Uncategorized",
                         "current_stock": current_stock,
                         "threshold": threshold,
                         "suggested_quantity": suggested_quantity,

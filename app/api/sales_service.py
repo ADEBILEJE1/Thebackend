@@ -2,7 +2,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from collections import defaultdict
-from ..database import supabase
+from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
 from ..core.cache import CacheKeys
 from ..models.order import OrderType, OrderStatus, PaymentStatus
@@ -100,7 +100,7 @@ class SalesService:
         start_date = end_date - timedelta(days=days)
         
         # Get ALL orders - no user filtering
-        orders_result = supabase.table("orders").select("*").gte("created_at", start_date.isoformat()).execute()
+        orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).execute()
         orders = orders_result.data
         
         # Daily revenue breakdown
@@ -142,13 +142,15 @@ class SalesService:
             this_week_revenue = sum(
                 float(o["total"]) for o in orders 
                 if o["status"] != OrderStatus.CANCELLED 
-                and datetime.fromisoformat(o["created_at"]) >= this_week_start
+                and o.get("created_at")
+                and o["created_at"] >= this_week_start.isoformat()
             )
             
             last_week_revenue = sum(
                 float(o["total"]) for o in orders 
                 if o["status"] != OrderStatus.CANCELLED 
-                and last_week_start <= datetime.fromisoformat(o["created_at"]) < this_week_start
+                and o.get("created_at")
+                and last_week_start.isoformat() <= o["created_at"] < this_week_start.isoformat()
             )
             
             growth_rate = ((this_week_revenue - last_week_revenue) / last_week_revenue * 100) if last_week_revenue > 0 else 0
@@ -257,7 +259,7 @@ class SalesService:
         start_date = end_date - timedelta(days=days)
         
         # Get orders with customer info
-        orders_result = supabase.table("orders").select("*").gte("created_at", start_date.isoformat()).neq("status", OrderStatus.CANCELLED).execute()
+        orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).neq("status", OrderStatus.CANCELLED).execute()
         
         orders = orders_result.data
         
@@ -442,16 +444,16 @@ class SalesService:
         
         # Current hour metrics
         current_hour_start = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        last_hour_start = current_hour_start - timedelta(hours=1)  # ADD THIS LINE
+        
         current_hour_orders = [
             o for o in orders 
-            if datetime.fromisoformat(o["created_at"]) >= current_hour_start
+            if o.get("created_at") and o["created_at"] >= current_hour_start.isoformat()
         ]
-        
-        # Last hour comparison
-        last_hour_start = current_hour_start - timedelta(hours=1)
+
         last_hour_orders = [
             o for o in orders 
-            if last_hour_start <= datetime.fromisoformat(o["created_at"]) < current_hour_start
+            if o.get("created_at") and last_hour_start.isoformat() <= o["created_at"] < current_hour_start.isoformat()
         ]
         
         # Calculate velocity

@@ -491,7 +491,7 @@ async def update_stock(
        "entered_by": current_user["id"]
    }
    
-   supabase.table("stock_entries").insert(stock_entry).execute()
+   supabase_admin.table("stock_entries").insert(stock_entry).execute()
    
    # Invalidate cache
    invalidate_product_cache(product_id)
@@ -548,8 +548,12 @@ async def get_stock_history(
     limit: int = 50,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    result = supabase.table("stock_entries").select("*, profiles(email)").eq("product_id", product_id).order("created_at", desc=True).limit(limit).execute()
+    result = supabase_admin.table("stock_entries").select("*, profiles(email)").eq("product_id", product_id).order("created_at", desc=True).limit(limit).execute()
     return result.data
+
+
+
+
 
 # Low Stock Alert
 @router.get("/alerts/low-stock")
