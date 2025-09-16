@@ -305,6 +305,7 @@ async def calculate_delivery_by_area(area_id: str):
 #     """Get checkout summary with all calculations"""
 #     import uuid
     
+    
 #     order_summaries = []
 #     total_subtotal = Decimal('0')
 #     total_vat = Decimal('0')
