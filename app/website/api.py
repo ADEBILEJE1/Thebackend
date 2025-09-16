@@ -49,18 +49,13 @@ async def get_products_for_website(
     # Fetch categories and extras for each main product
     for product in products_result.data:
         # Fetch category
-        # if product["category_id"]:
-        #     category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-        #     product["categories"] = category.data[0] if category.data else None
-        # else:
-        #     product["categories"] = None
-        
         if product["category_id"]:
-    # Instead of individual queries, batch them:
-            category_ids = [p["category_id"] for p in products_result.data if p["category_id"]]
-            categories = supabase_admin.table("categories").select("*").in_("id", category_ids).execute()
-            category_map = {c["id"]: c for c in categories.data}
-            product["categories"] = category_map.get(product["category_id"])
+            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+            product["categories"] = category.data[0] if category.data else None
+        else:
+            product["categories"] = None
+        
+       
 
 
         # Fetch extras for this main product
