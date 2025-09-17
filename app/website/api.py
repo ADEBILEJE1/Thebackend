@@ -152,6 +152,7 @@ async def get_products_for_website(
         query = query.limit(200)  # Get more to filter from
     
     products_result = query.execute()
+    print("Raw result:", products_result.data)
     
     # Apply search filter after fetching
     if search:
