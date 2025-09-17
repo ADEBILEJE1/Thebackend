@@ -1020,93 +1020,6 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
 
 
 
-@router.get("/search/suggestions")
-async def get_search_suggestions(q: str = Query(min_length=2)):
-    cache_key = f"search:suggestions:{q}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-    
-    
-    query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
-    
-    
-    if q.isdigit():
-        price = float(q)
-        products = query.or_(f"price.eq.{price}").limit(10).execute()
-    else:
-        products = query.limit(10).execute()
-    
-    
-    for product in products.data:
-        
-        if product["category_id"]:
-            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-            product["categories"] = category.data[0] if category.data else None
-        else:
-            product["categories"] = None
-        
-        
-        extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-        product["extras"] = extras.data
-    
-    
-    if not q.isdigit():
-        products.data = [
-            p for p in products.data 
-            if (p.get("categories") and q.lower() in p["categories"]["name"].lower()) or
-                (q.lower() in p["name"].lower())
-        ]
-    
-   
-    result_products = []
-    for product in products.data:
-        display_name = product["name"]
-        if product.get("variant_name"):
-            display_name += f" - {product['variant_name']}"
-        
-        category = {"id": None, "name": "Uncategorized"}
-        if product.get("categories") and product["categories"]:
-            category = product["categories"]
-        
-        
-        formatted_extras = []
-        for extra in product["extras"]:
-            extra_display_name = extra["name"]
-            if extra.get("variant_name"):
-                extra_display_name += f" - {extra['variant_name']}"
-            
-            formatted_extras.append({
-                "id": extra["id"],
-                "name": extra_display_name,
-                "price": float(extra["price"]),
-                "description": extra["description"],
-                "image_url": extra["image_url"],
-                "available_stock": extra["units"],
-                "low_stock_threshold": extra["low_stock_threshold"],
-                "status": extra["status"]
-            })
-        
-        result_products.append({
-            "id": product["id"],
-            "name": display_name,
-            "price": float(product["price"]),
-            "description": product["description"],
-            "image_url": product["image_url"],
-            "available_stock": product["units"],
-            "low_stock_threshold": product["low_stock_threshold"],
-            "category": category,
-            "extras": formatted_extras,
-            "status": product["status"]
-        })
-    
-    redis_client.set(cache_key, result_products, 300)
-    return result_products
-
-
-
-
-
 # @router.get("/search/suggestions")
 # async def get_search_suggestions(q: str = Query(min_length=2)):
 #     cache_key = f"search:suggestions:{q}"
@@ -1114,16 +1027,38 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
 #     if cached:
 #         return cached
     
-#     # Single optimized query with joins
-#     products = supabase_admin.table("products").select("""
-#         *, 
-#         categories(*),
-#         extras:products!main_product_id(*)
-#     """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").or_(
-#         f"name.ilike.%{q}%,categories.name.ilike.%{q}%"
-#     ).limit(10).execute()
     
-#     # Format response
+#     query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+    
+    
+#     if q.isdigit():
+#         price = float(q)
+#         products = query.or_(f"price.eq.{price}").limit(10).execute()
+#     else:
+#         products = query.limit(10).execute()
+    
+    
+#     for product in products.data:
+        
+#         if product["category_id"]:
+#             category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+#             product["categories"] = category.data[0] if category.data else None
+#         else:
+#             product["categories"] = None
+        
+        
+#         extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
+#         product["extras"] = extras.data
+    
+    
+#     if not q.isdigit():
+#         products.data = [
+#             p for p in products.data 
+#             if (p.get("categories") and q.lower() in p["categories"]["name"].lower()) or
+#                 (q.lower() in p["name"].lower())
+#         ]
+    
+   
 #     result_products = []
 #     for product in products.data:
 #         display_name = product["name"]
@@ -1131,12 +1066,12 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
 #             display_name += f" - {product['variant_name']}"
         
 #         category = {"id": None, "name": "Uncategorized"}
-#         if product.get("categories"):
+#         if product.get("categories") and product["categories"]:
 #             category = product["categories"]
         
-#         # Format extras (already loaded via join)
+        
 #         formatted_extras = []
-#         for extra in product.get("extras", []):
+#         for extra in product["extras"]:
 #             extra_display_name = extra["name"]
 #             if extra.get("variant_name"):
 #                 extra_display_name += f" - {extra['variant_name']}"
@@ -1165,8 +1100,70 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
 #             "status": product["status"]
 #         })
     
-#     redis_client.set(cache_key, result_products, 60)
+#     redis_client.set(cache_key, result_products, 300)
 #     return result_products
+
+
+@router.get("/search/suggestions")
+async def get_search_suggestions(q: str = Query(min_length=2)):
+    cache_key = f"search:suggestions:{q}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+    
+    # Single optimized query with joins
+    products = supabase_admin.table("products").select("""
+        *, 
+        categories(*),
+        extras:products!main_product_id(*)
+    """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").or_(
+        f"name.ilike.%{q}%,categories.name.ilike.%{q}%"
+    ).limit(10).execute()
+    
+    # Format response
+    result_products = []
+    for product in products.data:
+        display_name = product["name"]
+        if product.get("variant_name"):
+            display_name += f" - {product['variant_name']}"
+        
+        category = {"id": None, "name": "Uncategorized"}
+        if product.get("categories"):
+            category = product["categories"]
+        
+        # Format extras (already loaded via join)
+        formatted_extras = []
+        for extra in product.get("extras", []):
+            extra_display_name = extra["name"]
+            if extra.get("variant_name"):
+                extra_display_name += f" - {extra['variant_name']}"
+            
+            formatted_extras.append({
+                "id": extra["id"],
+                "name": extra_display_name,
+                "price": float(extra["price"]),
+                "description": extra["description"],
+                "image_url": extra["image_url"],
+                "available_stock": extra["units"],
+                "low_stock_threshold": extra["low_stock_threshold"],
+                "status": extra["status"]
+            })
+        
+        result_products.append({
+            "id": product["id"],
+            "name": display_name,
+            "price": float(product["price"]),
+            "description": product["description"],
+            "image_url": product["image_url"],
+            "available_stock": product["units"],
+            "low_stock_threshold": product["low_stock_threshold"],
+            "category": category,
+            "extras": formatted_extras,
+            "status": product["status"]
+        })
+    
+    redis_client.set(cache_key, result_products, 60)
+    return result_products
 
 
 @router.get("/banners")
