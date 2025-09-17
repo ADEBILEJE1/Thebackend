@@ -21,6 +21,106 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
+# @router.get("/products")
+# async def get_products_for_website(
+#     category_id: Optional[str] = None,
+#     search: Optional[str] = None,
+#     min_price: Optional[float] = None,
+#     max_price: Optional[float] = None
+# ):
+#     """Get products for website display"""
+#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     # Get only main products first
+#     query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+    
+#     if category_id:
+#         query = query.eq("category_id", category_id)
+#     if min_price:
+#         query = query.gte("price", min_price)
+#     if max_price:
+#         query = query.lte("price", max_price)
+    
+#     products_result = query.execute()
+    
+#     # Fetch categories and extras for each main product
+#     for product in products_result.data:
+#         # Fetch category
+#         if product["category_id"]:
+#             category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+#             product["categories"] = category.data[0] if category.data else None
+#         else:
+#             product["categories"] = None
+        
+       
+
+
+#         # Fetch extras for this main product
+#         extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
+#         product["extras"] = extras.data
+    
+#     # Apply search filter after fetching related data
+#     if search:
+#         products_result.data = [
+#             p for p in products_result.data 
+#             if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
+#                 (search.lower() in p["name"].lower())    
+#         ]
+    
+#     # Format response
+#     products = []
+#     for product in products_result.data:
+#         display_name = product["name"]
+#         if product.get("variant_name"):
+#             display_name += f" - {product['variant_name']}"
+        
+#         category = {"id": None, "name": "Uncategorized"}
+#         if product.get("categories") and product["categories"]:
+#             category = product["categories"]
+        
+#         # Format extras
+#         formatted_extras = []
+#         for extra in product["extras"]:
+#             extra_display_name = extra["name"]
+#             if extra.get("variant_name"):
+#                 extra_display_name += f" - {extra['variant_name']}"
+            
+#             formatted_extras.append({
+#                 "id": extra["id"],
+#                 "name": extra_display_name,
+#                 "price": float(extra["price"]),
+#                 "description": extra["description"],
+#                 "image_url": extra["image_url"],
+#                 "available_stock": extra["units"],
+#                 "low_stock_threshold": extra["low_stock_threshold"]
+#             })
+        
+#         products.append({
+#             "id": product["id"],
+#             "name": display_name,
+#             "price": float(product["price"]),
+#             "description": product["description"],
+#             "image_url": product["image_url"],
+#             "available_stock": product["units"],
+#             "low_stock_threshold": product["low_stock_threshold"],
+#             "extras": formatted_extras,
+#             "category": category
+#         })
+    
+#     # Sort by category then name
+#     sorted_data = sorted(products, key=lambda x: (
+#         x.get("category", {}).get("name", ""), 
+#         x.get("name", "")
+#     ))
+    
+#     redis_client.set(cache_key, sorted_data, 300)
+#     return sorted_data
+
+
+
 @router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
@@ -28,62 +128,54 @@ async def get_products_for_website(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None
 ):
-    """Get products for website display"""
+    """Get products for website display - optimized single query"""
     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
     cached = redis_client.get(cache_key)
     if cached:
         return cached
     
-    # Get only main products first
-    query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+    # Single optimized query with joins
+    query = supabase_admin.table("products").select("""
+        *,
+        categories(*),
+        extras:products!main_product_id(*)
+    """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
     
+    # Apply filters to the query
     if category_id:
         query = query.eq("category_id", category_id)
     if min_price:
         query = query.gte("price", min_price)
     if max_price:
         query = query.lte("price", max_price)
+    if search:
+        query = query.limit(200)  # Get more to filter from
     
     products_result = query.execute()
     
-    # Fetch categories and extras for each main product
-    for product in products_result.data:
-        # Fetch category
-        if product["category_id"]:
-            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-            product["categories"] = category.data[0] if category.data else None
-        else:
-            product["categories"] = None
-        
-       
-
-
-        # Fetch extras for this main product
-        extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-        product["extras"] = extras.data
-    
-    # Apply search filter after fetching related data
+    # Apply search filter after fetching
     if search:
         products_result.data = [
             p for p in products_result.data 
-            if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
-                (search.lower() in p["name"].lower())    
+            if search.lower() in p["name"].lower() or
+               (p.get("categories") and search.lower() in p["categories"]["name"].lower())
         ]
     
-    # Format response
+    # Format response (no more loops for database calls)
     products = []
     for product in products_result.data:
         display_name = product["name"]
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
         
+        # Category is already loaded from join
         category = {"id": None, "name": "Uncategorized"}
-        if product.get("categories") and product["categories"]:
+        if product.get("categories"):
             category = product["categories"]
         
-        # Format extras
+        # Extras are already loaded from join
         formatted_extras = []
-        for extra in product["extras"]:
+        for extra in product.get("extras", []):
             extra_display_name = extra["name"]
             if extra.get("variant_name"):
                 extra_display_name += f" - {extra['variant_name']}"
@@ -116,10 +208,9 @@ async def get_products_for_website(
         x.get("name", "")
     ))
     
-    redis_client.set(cache_key, sorted_data, 300)
+    # Cache for 1 hour instead of 5 minutes
+    redis_client.set(cache_key, sorted_data, 3600)
     return sorted_data
-
-
 
 
 @router.get("/products/{product_id}/current-stock")
