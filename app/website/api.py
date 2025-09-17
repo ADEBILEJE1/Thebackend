@@ -1113,12 +1113,12 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     
     # Single optimized query with joins
     products = supabase_admin.table("products").select("""
-        *, 
-        categories(*),
-        extras:products!main_product_id(*)
-    """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").or_(
-        f"name.ilike.%{q}%,categories.name.ilike.%{q}%"
-    ).limit(10).execute()
+    *, 
+    categories(*),
+    extras:products!main_product_id(*)
+""").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").or_(
+    f"name.ilike.*{q}*,categories.name.ilike.*{q}*"
+).limit(10).execute()
     
     # Format response
     result_products = []
