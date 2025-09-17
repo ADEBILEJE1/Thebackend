@@ -138,8 +138,8 @@ async def get_products_for_website(
     query = supabase_admin.table("products").select("""
         *,
         categories(*),
-        extras:products!main_product_id(*)
-    """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+        products!main_product_id(*)
+    """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").limit(5)
     
     # Apply filters to the query
     if category_id:
@@ -152,7 +152,7 @@ async def get_products_for_website(
         query = query.limit(200)  # Get more to filter from
     
     products_result = query.execute()
-    print("Raw result:", products_result.data)
+    
     
     # Apply search filter after fetching
     if search:
