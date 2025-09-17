@@ -1120,16 +1120,45 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
         extras:products!main_product_id(*)
     """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").limit(50).execute()
 
-    # Then filter in Python
+    # Filter products by search term
     filtered_products = [
         p for p in products.data 
         if q.lower() in p["name"].lower() or 
         (p.get("categories") and q.lower() in p["categories"]["name"].lower())
-    ][:10]
+    ]
+
+    # Add relevance scoring function
+    def get_relevance_score(product, query):
+        score = 0
+        name = product["name"].lower()
+        query_lower = query.lower()
+        
+        # Exact match gets highest score
+        if name == query_lower:
+            score += 100
+        # Starts with query
+        elif name.startswith(query_lower):
+            score += 50
+        # Contains query as whole word
+        elif f" {query_lower} " in f" {name} ":
+            score += 40
+        # Contains query anywhere
+        elif query_lower in name:
+            score += 30
+        
+        # Category matches (lower priority)
+        if product.get("categories") and query_lower in product["categories"]["name"].lower():
+            score += 10
+        
+        return score
+
+    # Sort by relevance, then limit to 10
+    sorted_products = sorted(filtered_products, 
+        key=lambda p: get_relevance_score(p, q), reverse=True)[:10]
     
     # Format response
     result_products = []
-    for product in products.data:
+    for product in sorted_products:
         display_name = product["name"]
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
