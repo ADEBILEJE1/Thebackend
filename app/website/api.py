@@ -35,8 +35,10 @@ async def get_products_for_website(
         return cached
     
     # Get only main products first
-    query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
-    
+    # query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+    query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
+
+
     if category_id:
         query = query.eq("category_id", category_id)
     if min_price:
@@ -122,8 +124,6 @@ async def get_products_for_website(
 
 
 
-
-
 @router.get("/products/{product_id}/current-stock")
 async def get_current_stock(product_id: str):
     """Get real-time stock for quantity validation"""
@@ -132,20 +132,19 @@ async def get_current_stock(product_id: str):
     if cached:
         return cached
     
-    product = supabase_admin.table("products").select("units, low_stock_threshold").eq("id", product_id).eq("is_available", True).execute()
+    product = supabase_admin.table("products").select("units, low_stock_threshold, status").eq("id", product_id).eq("is_available", True).execute()
     
     if not product.data:
         raise HTTPException(status_code=404, detail="Product not found")
     
     result = {
         "available_stock": product.data[0]["units"],
-        "low_stock_threshold": product.data[0]["low_stock_threshold"]
+        "low_stock_threshold": product.data[0]["low_stock_threshold"],
+        "is_out_of_stock": product.data[0]["status"] == "out_of_stock"
     }
-    
     
     redis_client.set(cache_key, result, 30)
     return result
-
 
 
 @router.get("/categories")
@@ -302,92 +301,6 @@ async def calculate_delivery_by_area(area_id: str):
     }
 
 
-# @router.post("/checkout/summary")
-# async def get_checkout_summary(checkout_data: CheckoutRequest):
-#     """Get checkout summary with all calculations"""
-#     import uuid
-    
-    
-#     order_summaries = []
-#     total_subtotal = Decimal('0')
-#     total_vat = Decimal('0')
-#     delivery_fees_by_address = {}
-    
-#     for idx, order in enumerate(checkout_data.orders):
-#         # Validate delivery address is required
-#         if not order.delivery_address_id:
-#             raise HTTPException(
-#                 status_code=400, 
-#                 detail=f"Delivery address is required for order {idx + 1}"
-#             )
-        
-#         # Validate UUID format
-#         try:
-#             uuid.UUID(order.delivery_address_id)
-#         except ValueError:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"Invalid delivery address ID format for order {idx + 1}"
-#             )
-        
-#         # Validate items
-#         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
-#         totals = CartService.calculate_order_total(processed_items)
-        
-#         total_subtotal += totals["subtotal"]
-#         total_vat += totals["vat"]
-        
-#         # Get delivery address
-#         address_result = supabase_admin.table("customer_addresses").select("*").eq("id", order.delivery_address_id).execute()
-        
-#         if not address_result.data:
-#             raise HTTPException(
-#                 status_code=404, 
-#                 detail=f"Delivery address not found for order {idx + 1}"
-#             )
-        
-#         address_data = address_result.data[0]
-#         address_key = f"{address_data['latitude']}:{address_data['longitude']}"
-        
-#         if address_key not in delivery_fees_by_address:
-#             distance = DeliveryService.calculate_distance(
-#                 DeliveryService.RESTAURANT_LAT,
-#                 DeliveryService.RESTAURANT_LNG,
-#                 address_data["latitude"],
-#                 address_data["longitude"]
-#             )
-#             delivery_fees_by_address[address_key] = {
-#                 "fee": DeliveryService.calculate_delivery_fee(distance),
-#                 "address": address_data["full_address"]
-#             }
-        
-#         order_summaries.append({
-#             "order_index": idx,
-#             "items": [
-#                 {
-#                     "product_name": item["product_name"],
-#                     "quantity": item["quantity"],
-#                     "unit_price": float(item["unit_price"]),
-#                     "total_price": float(item["total_price"])
-#                 }
-#                 for item in processed_items
-#             ],
-#             "subtotal": float(totals["subtotal"]),
-#             "delivery_address": delivery_fees_by_address[address_key]["address"],
-#             "delivery_fee": float(delivery_fees_by_address[address_key]["fee"])
-#         })
-    
-#     total_delivery = sum(data["fee"] for data in delivery_fees_by_address.values())
-#     grand_total = total_subtotal + total_vat + total_delivery
-    
-#     return {
-#         "orders": order_summaries,
-#         "total_subtotal": float(total_subtotal),
-#         "total_vat": float(total_vat),
-#         "total_delivery": float(total_delivery),
-#         "grand_total": float(grand_total)
-#     }
-
 
 
 @router.post("/checkout/summary")
@@ -452,59 +365,7 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
 
 
 
-# @router.post("/checkout/complete")
-# async def complete_checkout(
-#     checkout_data: CheckoutRequest,
-#     session_token: str = Query(...)
-# ):
-#     """Complete the checkout process"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     # Create orders in the system
-#     created_orders = []
-    
-#     for order in checkout_data.orders:
-#         # Validate and process items
-#         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
-#         totals = CartService.calculate_order_total(processed_items)
-        
-#         # Create order
-#         order_data = {
-#             "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
-#             "order_type": "online",
-#             "status": "pending",
-#             "payment_status": "pending",
-#             "customer_email": session_data.get("customer_email"),
-#             "subtotal": float(totals["subtotal"]),
-#             "tax": float(totals["vat"]),
-#             "total": float(totals["total"]),
-#             "website_customer_id": session_data["customer_id"]
-#         }
-        
-#         created_order = supabase_admin.table("orders").insert(order_data).execute()
-#         order_id = created_order.data[0]["id"]
-        
-#         # Create order items
-#         for item in processed_items:
-#             item_data = {
-#                 "order_id": order_id,
-#                 "product_id": item["product_id"],
-#                 "product_name": item["product_name"],
-#                 "quantity": item["quantity"],
-#                 "unit_price": float(item["unit_price"]),
-#                 "total_price": float(item["total_price"]),
-#                 "notes": item.get("notes")
-#             }
-#             supabase_admin.table("order_items").insert(item_data).execute()
-        
-#         created_orders.append(created_order.data[0])
-    
-#     return {
-#         "message": "Orders created successfully",
-#         "orders": created_orders
-#     }
+
 
 
 @router.post("/checkout/complete")
@@ -679,92 +540,6 @@ async def create_payment_account(
 
 
 
-
-
-
-# @router.post("/payment/bypass-create")
-# async def bypass_payment_create(
-#     payment_data: PaymentRequest,
-#     session_token: str = Query(...)
-# ):
-#     """Bypass payment for testing - auto-complete orders"""
-
-#     # 🔹 Step 1: validate session
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-
-#     # If Redis stores bytes, decode to dict
-#     if isinstance(session_data, bytes):
-#         import json
-#         session_data = json.loads(session_data.decode("utf-8"))
-
-#     # 🔹 Step 2: generate fake payment reference
-#     payment_reference = (
-#         f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-"
-#         f"{session_data['customer_id'][:8]}"
-#     )
-
-#     # 🔹 Step 3: process orders
-#     created_orders = []
-
-#     for order_data in payment_data.orders:
-#         processed_items = await CartService.validate_cart_items(
-#             [item.dict() for item in order_data.items]
-#         )
-#         totals = CartService.calculate_order_total(processed_items)
-
-#         # Insert order without order_number
-#         order_entry = {
-#             "order_type": "online",
-#             "status": "confirmed",
-#             "payment_status": "paid",
-#             "payment_reference": payment_reference,
-#             "subtotal": float(totals["subtotal"]),
-#             "tax": float(totals["vat"]),
-#             "total": float(totals["total"]),
-#             "website_customer_id": session_data["customer_id"],
-#             "confirmed_at": datetime.utcnow().isoformat()
-#         }
-
-#         created_order = supabase_admin.table("orders").insert(order_entry).execute()
-#         order_id = created_order.data[0]["id"]
-
-#         # Generate unique order_number from DB id
-#         today = datetime.utcnow().strftime("%Y%m%d")
-#         order_number = f"WEB-{today}-{str(order_id).zfill(3)}"
-
-#         # Update order with order_number
-#         updated_order = (
-#             supabase_admin.table("orders")
-#             .update({"order_number": order_number})
-#             .eq("id", order_id)
-#             .execute()
-#         )
-
-#         # Insert items
-#         for item in processed_items:
-#             item_data = {
-#                 "order_id": order_id,
-#                 "product_id": item["product_id"],
-#                 "product_name": item["product_name"],
-#                 "quantity": item["quantity"],
-#                 "unit_price": float(item["unit_price"]),
-#                 "total_price": float(item["total_price"]),
-#             }
-#             supabase_admin.table("order_items").insert(item_data).execute()
-
-#         created_orders.append(updated_order.data[0])
-
-#     return {
-#         "payment_status": "success",
-#         "payment_reference": payment_reference,
-#         "orders": created_orders,
-#         "message": "Payment bypassed - orders created successfully",
-#     }
-
-
-
 @router.post("/payment/bypass-create")
 async def bypass_payment_create(
     payment_data: PaymentRequest,
@@ -862,31 +637,6 @@ async def payment_webhook(request: Request):
     
 
 
-# @router.get("/orders/history")
-# async def get_order_history(
-#     session_token: str = Query(...),
-#     limit: int = Query(20, le=100),
-#     offset: int = Query(0, ge=0)
-# ):
-#     """Get customer order history - only completed orders"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     # Get completed orders
-#     orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
-    
-#     # Get items for each order
-#     for order in orders.data:
-#         items = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
-#         order["order_items"] = items.data
-    
-#     return {
-#         "orders": orders.data,
-#         "total_count": len(orders.data),
-#         "limit": limit,
-#         "offset": offset
-#     }
 
 @router.get("/orders/history")
 async def get_order_history(
@@ -917,50 +667,6 @@ async def get_order_history(
         "limit": limit,
         "offset": offset
     }
-
-
-
-# @router.get("/orders/tracking")
-# async def get_all_orders_tracking(session_token: str = Query(...)):
-#     """Get tracking status for all customer orders"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-#     # Get all customer orders
-#     orders = supabase_admin.table("orders").select("*").eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
-    
-#     tracking_orders = []
-#     for order_data in orders.data:
-#         # Get items for each order
-#         order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
-        
-#         # Calculate tracking stages
-#         order_status = order_data["status"]
-#         tracking_stages = {
-#             "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
-#             "processed": order_status == "completed",
-#             "out_for_delivery": order_status == "completed"
-#         }
-        
-#         tracking_orders.append({
-#             "order": {
-#                 "id": order_data["id"],
-#                 "order_number": order_data["order_number"],
-#                 "status": order_status,
-#                 "total": float(order_data["total"]),
-#                 "created_at": order_data["created_at"],
-#                 "items": order_items.data
-#             },
-#             "tracking_stages": tracking_stages,
-#             "current_stage": (
-#                 "out_for_delivery" if order_status == "completed" else
-#                 "payment_confirmation" if order_status in ["confirmed", "preparing"] else
-#                 "pending"
-#             )
-#         })
-    
-#     return {"orders": tracking_orders}
 
 
 
@@ -1020,90 +726,6 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
 
 
 
-
-
-# @router.get("/search/suggestions")
-# async def get_search_suggestions(q: str = Query(min_length=2)):
-#     cache_key = f"search:suggestions:{q}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-    
-    
-#     query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
-    
-    
-#     if q.isdigit():
-#         price = float(q)
-#         products = query.or_(f"price.eq.{price}").limit(10).execute()
-#     else:
-#         products = query.limit(10).execute()
-    
-    
-#     for product in products.data:
-        
-#         if product["category_id"]:
-#             category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-#             product["categories"] = category.data[0] if category.data else None
-#         else:
-#             product["categories"] = None
-        
-        
-#         extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-#         product["extras"] = extras.data
-    
-    
-#     if not q.isdigit():
-#         products.data = [
-#             p for p in products.data 
-#             if (p.get("categories") and q.lower() in p["categories"]["name"].lower()) or
-#                 (q.lower() in p["name"].lower())
-#         ]
-    
-   
-#     result_products = []
-#     for product in products.data:
-#         display_name = product["name"]
-#         if product.get("variant_name"):
-#             display_name += f" - {product['variant_name']}"
-        
-#         category = {"id": None, "name": "Uncategorized"}
-#         if product.get("categories") and product["categories"]:
-#             category = product["categories"]
-        
-        
-#         formatted_extras = []
-#         for extra in product["extras"]:
-#             extra_display_name = extra["name"]
-#             if extra.get("variant_name"):
-#                 extra_display_name += f" - {extra['variant_name']}"
-            
-#             formatted_extras.append({
-#                 "id": extra["id"],
-#                 "name": extra_display_name,
-#                 "price": float(extra["price"]),
-#                 "description": extra["description"],
-#                 "image_url": extra["image_url"],
-#                 "available_stock": extra["units"],
-#                 "low_stock_threshold": extra["low_stock_threshold"],
-#                 "status": extra["status"]
-#             })
-        
-#         result_products.append({
-#             "id": product["id"],
-#             "name": display_name,
-#             "price": float(product["price"]),
-#             "description": product["description"],
-#             "image_url": product["image_url"],
-#             "available_stock": product["units"],
-#             "low_stock_threshold": product["low_stock_threshold"],
-#             "category": category,
-#             "extras": formatted_extras,
-#             "status": product["status"]
-#         })
-    
-#     redis_client.set(cache_key, result_products, 300)
-#     return result_products
 
 
 @router.get("/search/suggestions")

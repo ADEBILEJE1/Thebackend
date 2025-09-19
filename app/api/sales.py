@@ -310,32 +310,6 @@ async def get_live_sales_metrics(
     
     return live_data
 
-# Financial Reports
-# @router.get("/reports/financial")
-# async def get_financial_report(
-#     request: Request,
-#     date_from: date,
-#     date_to: date,
-#     current_user: dict = Depends(require_manager_up)
-# ):
-#     """Generate comprehensive financial report"""
-#     if (date_to - date_from).days > 365:
-#         raise HTTPException(status_code=400, detail="Maximum 365 days range allowed")
-    
-#     if date_from > date_to:
-#         raise HTTPException(status_code=400, detail="Start date must be before end date")
-    
-#     financial_data = await SalesService.generate_financial_report(date_from, date_to)
-    
-#     # Log activity
-#     await log_activity(
-#         current_user["id"], current_user["email"], current_user["role"],
-#         "generate", "financial_report", None, 
-#         {"date_from": str(date_from), "date_to": str(date_to)}, 
-#         request
-#     )
-    
-#     return financial_data
 
 
 
@@ -814,7 +788,60 @@ async def confirm_order_payment(
         request
     )
     
-    return {"message": "Order confirmed and sent to kitchen"}
+    # Return confirmation with receipt data
+    return {
+        "message": "Order confirmed and sent to kitchen",
+        "receipt": {
+            "order_number": order.data[0]["order_number"],
+            "customer_name": order.data[0].get("customer_name", "Walk-in Customer"),
+            "payment_method": order.data[0].get("payment_method"),
+            "items": order.data[0]["order_items"],
+            "subtotal": order.data[0]["subtotal"],
+            "tax": order.data[0]["tax"],
+            "total": order.data[0]["total"],
+            "created_at": order.data[0]["created_at"]
+        }
+    }
+
+
+
+
+@router.get("/orders/{order_id}/print")
+async def print_sales_receipt(
+    order_id: str,
+    request: Request,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Generate printable sales receipt"""
+    order = supabase.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
+    
+    if not order.data:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    order_data = order.data[0]
+    
+    receipt_data = {
+        "order_number": order_data["order_number"],
+        "order_type": order_data["order_type"],
+        "customer_name": order_data.get("customer_name", "Walk-in Customer"),
+        "payment_method": order_data.get("payment_method"),
+        "created_at": order_data["created_at"],
+        "items": order_data["order_items"],
+        "subtotal": order_data["subtotal"],
+        "tax": order_data["tax"],
+        "total": order_data["total"]
+    }
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "print", "sales_receipt", order_id, 
+        {"order_number": order_data["order_number"]}, 
+        request
+    )
+    
+    return receipt_data
+
+
 
 @router.get("/orders/pending")
 async def get_pending_orders(

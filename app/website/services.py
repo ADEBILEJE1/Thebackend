@@ -239,6 +239,9 @@ class CartService:
             if product_data["units"] < item["quantity"]:
                 raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
             
+            if not product_data["is_available"] or product_data["status"] == "out_of_stock":
+                raise ValueError(f"{product_data['name']} is currently out of stock")
+            
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
