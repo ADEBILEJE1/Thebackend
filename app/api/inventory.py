@@ -53,7 +53,6 @@ class ProductCreate(BaseModel):
 
 class ProductUpdate(BaseModel):
     category_id: Optional[str] = None
-    price: Optional[Decimal] = Field(gt=0, default=None)
     sku: Optional[str] = None
     supplier: Optional[str] = None
     description: Optional[str] = None
@@ -65,6 +64,7 @@ class ProductUpdate(BaseModel):
 class StockUpdate(BaseModel):
     quantity: int = Field(gt=0)
     operation: str = Field(pattern="^(add|remove)$")
+    price: Optional[Decimal] = Field(gt=0, default=None)
     notes: Optional[str] = None
 
 class ProductAvailability(BaseModel):
@@ -437,6 +437,92 @@ async def update_product(
     return {"message": "Product updated"}
 
 # Stock Management
+# @router.post("/products/{product_id}/stock")
+# async def update_stock(
+#    product_id: str,
+#    stock: StockUpdate,
+#    request: Request,
+#    current_user: dict = Depends(require_inventory_staff)
+# ):
+#    # Get current product
+#    product = supabase.table("products").select("*").eq("id", product_id).execute()
+#    if not product.data:
+#        raise HTTPException(status_code=404, detail="Product not found")
+   
+#    current_units = product.data[0]["units"]
+#    low_threshold = product.data[0]["low_stock_threshold"]
+#    product_name = product.data[0]["name"]
+   
+#    # Calculate new units
+#    if stock.operation == "add":
+#        new_units = current_units + stock.quantity
+#    else:  # remove
+#        if stock.quantity > current_units:
+#            raise HTTPException(
+#                status_code=status.HTTP_400_BAD_REQUEST,
+#                detail=f"Cannot remove {stock.quantity} units. Only {current_units} available"
+#            )
+#        new_units = current_units - stock.quantity
+   
+#    # Determine new status
+#    if new_units == 0:
+#        new_status = StockStatus.OUT_OF_STOCK
+#    elif new_units <= low_threshold:
+#        new_status = StockStatus.LOW_STOCK
+#    else:
+#        new_status = StockStatus.IN_STOCK
+   
+#    # Update product
+#    product_update = {
+#        "units": new_units,
+#        "status": new_status,
+#        "updated_by": current_user["id"],
+#        "updated_at": datetime.utcnow().isoformat()
+#    }
+   
+#    supabase.table("products").update(product_update).eq("id", product_id).execute()
+   
+#    # Log stock entry
+#    stock_entry = {
+#        "product_id": product_id,
+#        "quantity": stock.quantity,
+#        "entry_type": stock.operation,
+#        "notes": stock.notes,
+#        "entered_by": current_user["id"]
+#    }
+   
+#    supabase_admin.table("stock_entries").insert(stock_entry).execute()
+   
+#    # Invalidate cache
+#    invalidate_product_cache(product_id)
+   
+#    # Update low stock alerts cache if needed
+#    if new_status in [StockStatus.LOW_STOCK, StockStatus.OUT_OF_STOCK]:
+#        redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
+   
+#    # Enhanced activity logging
+#    await log_activity(
+#        current_user["id"], current_user["email"], current_user["role"],
+#        f"stock_{stock.operation}", "product", product_id,
+#        {
+#            "product_name": product_name,
+#            "quantity": stock.quantity,
+#            "previous_units": current_units,
+#            "new_units": new_units,
+#            "new_status": new_status,
+#            "notes": stock.notes,
+#            "operation": stock.operation
+#        },
+#        request
+#    )
+   
+#    return {
+#        "message": f"Stock {stock.operation}ed successfully",
+#        "current_units": new_units,
+#        "status": new_status
+#    }
+
+
 @router.post("/products/{product_id}/stock")
 async def update_stock(
    product_id: str,
@@ -452,6 +538,7 @@ async def update_stock(
    current_units = product.data[0]["units"]
    low_threshold = product.data[0]["low_stock_threshold"]
    product_name = product.data[0]["name"]
+   current_price = float(product.data[0]["price"])
    
    # Calculate new units
    if stock.operation == "add":
@@ -480,6 +567,10 @@ async def update_stock(
        "updated_at": datetime.utcnow().isoformat()
    }
    
+   # Add price update if provided
+   if stock.price:
+       product_update["price"] = float(stock.price)
+   
    supabase.table("products").update(product_update).eq("id", product_id).execute()
    
    # Log stock entry
@@ -501,26 +592,40 @@ async def update_stock(
        redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
    
    # Enhanced activity logging
+   log_data = {
+       "product_name": product_name,
+       "quantity": stock.quantity,
+       "previous_units": current_units,
+       "new_units": new_units,
+       "new_status": new_status,
+       "notes": stock.notes,
+       "operation": stock.operation
+   }
+   
+   if stock.price:
+       log_data["previous_price"] = current_price
+       log_data["new_price"] = float(stock.price)
+       log_data["price_change"] = float(stock.price) - current_price
+   
    await log_activity(
        current_user["id"], current_user["email"], current_user["role"],
        f"stock_{stock.operation}", "product", product_id,
-       {
-           "product_name": product_name,
-           "quantity": stock.quantity,
-           "previous_units": current_units,
-           "new_units": new_units,
-           "new_status": new_status,
-           "notes": stock.notes,
-           "operation": stock.operation
-       },
+       log_data,
        request
    )
    
-   return {
+   # Prepare return data
+   return_data = {
        "message": f"Stock {stock.operation}ed successfully",
        "current_units": new_units,
        "status": new_status
    }
+   
+   if stock.price:
+       return_data["new_price"] = float(stock.price)
+   
+   return return_data
+
 
 # Availability Toggle (for Sales staff)
 @router.patch("/products/{product_id}/availability")

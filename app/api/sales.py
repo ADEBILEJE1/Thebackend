@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks, Query
 from typing import List, Optional,  Dict, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
@@ -342,8 +342,8 @@ async def get_live_sales_metrics(
 @router.get("/financial-report")
 async def get_financial_report(
     request: Request,
-    start_date: date,  # Changed from date_from
-    end_date: date,    # Changed from date_to
+    start_date: date = Query(...),
+    end_date: date = Query(...),
     current_user: dict = Depends(require_manager_up)
 ):
     """Generate comprehensive financial report"""
@@ -751,7 +751,7 @@ async def create_offline_order(
         "created_by": current_user["id"]
     }
     
-    created_order = supabase.table("orders").insert(order_entry).execute()
+    created_order = supabase_admin.table("orders").insert(order_entry).execute()
     order_id = created_order.data[0]["id"]
     
     # Create order items
@@ -765,7 +765,7 @@ async def create_offline_order(
             "total_price": float(item["total_price"]),
             "notes": item.get("notes")
         }
-        supabase.table("order_items").insert(item_data).execute()
+        supabase_admin.table("order_items").insert(item_data).execute()
     
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
@@ -821,7 +821,7 @@ async def get_pending_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get all pending orders"""
-    result = supabase.table("orders").select("*, order_items(*)").eq("status", "pending").order("created_at", desc=True).execute()
+    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "pending").order("created_at", desc=True).execute()
     return result.data
 
 @router.patch("/orders/{order_id}")

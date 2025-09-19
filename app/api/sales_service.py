@@ -336,6 +336,99 @@ class SalesService:
             }
         }
     
+    # @staticmethod
+    # async def get_product_sales_analysis(days: int = 30) -> Dict[str, Any]:
+    #     """Analyze product sales performance"""
+    #     end_date = datetime.utcnow()
+    #     start_date = end_date - timedelta(days=days)
+        
+    #     # Get order items with product details
+    #     order_items_result = supabase.table("order_items").select(
+    #         "*, orders!inner(created_at, status), products!inner(name, price, categories(name))"
+    #     ).gte("orders.created_at", start_date.isoformat()).neq("orders.status", "cancelled").execute()
+        
+    #     order_items = order_items_result.data
+        
+    #     # Product performance analysis
+    #     product_performance = defaultdict(lambda: {
+    #         "quantity_sold": 0,
+    #         "revenue": 0,
+    #         "orders": set(),
+    #         "category": "",
+    #         "unit_price": 0
+    #     })
+        
+    #     category_performance = defaultdict(lambda: {"quantity": 0, "revenue": 0, "products": set()})
+        
+    #     for item in order_items:
+    #         product_name = item["products"]["name"]
+    #         category_name = item["products"]["categories"]["name"]
+    #         quantity = item["quantity"]
+    #         revenue = float(item["total_price"])
+    #         order_id = item["order_id"]
+            
+    #         product_performance[product_name]["quantity_sold"] += quantity
+    #         product_performance[product_name]["revenue"] += revenue
+    #         product_performance[product_name]["orders"].add(order_id)
+    #         product_performance[product_name]["category"] = category_name
+    #         product_performance[product_name]["unit_price"] = float(item["products"]["price"])
+            
+    #         category_performance[category_name]["quantity"] += quantity
+    #         category_performance[category_name]["revenue"] += revenue
+    #         category_performance[category_name]["products"].add(product_name)
+        
+    #     # Convert to lists and calculate metrics
+    #     product_list = []
+    #     for product_name, data in product_performance.items():
+    #         order_frequency = len(data["orders"])
+    #         avg_quantity_per_order = data["quantity_sold"] / order_frequency if order_frequency > 0 else 0
+            
+    #         product_list.append({
+    #             "product_name": product_name,
+    #             "category": data["category"],
+    #             "quantity_sold": data["quantity_sold"],
+    #             "revenue": round(data["revenue"], 2),
+    #             "order_frequency": order_frequency,
+    #             "average_quantity_per_order": round(avg_quantity_per_order, 2),
+    #             "revenue_per_unit": round(data["revenue"] / data["quantity_sold"], 2) if data["quantity_sold"] > 0 else 0,
+    #             "daily_average_sales": round(data["quantity_sold"] / days, 2)
+    #         })
+        
+    #     category_list = [
+    #         {
+    #             "category": k,
+    #             "quantity_sold": v["quantity"],
+    #             "revenue": round(v["revenue"], 2),
+    #             "product_count": len(v["products"]),
+    #             "average_revenue_per_product": round(v["revenue"] / len(v["products"]), 2) if v["products"] else 0
+    #         }
+    #         for k, v in category_performance.items()
+    #     ]
+        
+    #     # Sort by different metrics
+    #     top_by_quantity = sorted(product_list, key=lambda x: x["quantity_sold"], reverse=True)[:10]
+    #     top_by_revenue = sorted(product_list, key=lambda x: x["revenue"], reverse=True)[:10]
+    #     top_by_frequency = sorted(product_list, key=lambda x: x["order_frequency"], reverse=True)[:10]
+        
+    #     return {
+    #         "period": {"start": start_date.date(), "end": end_date.date(), "days": days},
+    #         "top_products": {
+    #             "by_quantity": top_by_quantity,
+    #             "by_revenue": top_by_revenue,
+    #             "by_frequency": top_by_frequency
+    #         },
+    #         "category_performance": sorted(category_list, key=lambda x: x["revenue"], reverse=True),
+    #         "summary": {
+    #             "total_products_sold": len(product_list),
+    #             "total_quantity_sold": sum(p["quantity_sold"] for p in product_list),
+    #             "total_revenue": sum(p["revenue"] for p in product_list),
+    #             "average_items_per_order": sum(p["quantity_sold"] for p in product_list) / len(set().union(*[list(data["orders"]) for data in product_performance.values()])) if product_performance else 0
+    #         }
+    #     }
+    
+
+
+
     @staticmethod
     async def get_product_sales_analysis(days: int = 30) -> Dict[str, Any]:
         """Analyze product sales performance"""
@@ -345,7 +438,7 @@ class SalesService:
         # Get order items with product details
         order_items_result = supabase.table("order_items").select(
             "*, orders!inner(created_at, status), products!inner(name, price, categories(name))"
-        ).gte("orders.created_at", start_date.isoformat()).neq("orders.status", OrderStatus.CANCELLED).execute()
+        ).gte("orders.created_at", start_date.isoformat()).neq("orders.status", "cancelled").execute()
         
         order_items = order_items_result.data
         
@@ -410,6 +503,53 @@ class SalesService:
         top_by_revenue = sorted(product_list, key=lambda x: x["revenue"], reverse=True)[:10]
         top_by_frequency = sorted(product_list, key=lambda x: x["order_frequency"], reverse=True)[:10]
         
+        # Add inventory insights for sales alerts
+        inventory_insights = {
+            "unavailable_bestsellers": [],
+            "critical_reorder_needed": []
+        }
+        
+        # Get current product stock status
+        products_result = supabase.table("products").select("id, name, units, status, low_stock_threshold").execute()
+        products_stock = {p["name"]: p for p in products_result.data}
+        
+        # Find unavailable bestsellers (out of stock products that sold well)
+        for product in top_by_quantity[:10]:  # Top 10 by quantity
+            product_name = product["product_name"]
+            if product_name in products_stock and products_stock[product_name]["status"] == "out_of_stock":
+                inventory_insights["unavailable_bestsellers"].append({
+                    "product_name": product_name,
+                    "quantity_sold": product["quantity_sold"],
+                    "daily_average_sales": product["daily_average_sales"]
+                })
+        
+        # Find critical reorder needed
+        for product in product_list:
+            product_name = product["product_name"]
+            if product_name in products_stock:
+                stock_data = products_stock[product_name]
+                if stock_data["status"] == "low_stock":
+                    days_coverage = stock_data["units"] / product["daily_average_sales"] if product["daily_average_sales"] > 0 else 0
+                    if days_coverage < 3:  # Less than 3 days stock
+                        inventory_insights["critical_reorder_needed"].append({
+                            "product_name": product_name,
+                            "current_stock": stock_data["units"],
+                            "daily_average_sales": product["daily_average_sales"],
+                            "stock_coverage_days": round(days_coverage, 1),
+                            "reorder_urgency": "critical" if days_coverage < 1 else "high"
+                        })
+        
+        # Add sales recommendations
+        sales_recommendations = {
+            "immediate_actions": [
+                "Restock critical items immediately",
+                "Promote high-margin products",
+                "Focus on bestselling categories",
+                "Review out-of-stock bestsellers",
+                "Optimize inventory levels"
+            ]
+        }
+        
         return {
             "period": {"start": start_date.date(), "end": end_date.date(), "days": days},
             "top_products": {
@@ -418,6 +558,8 @@ class SalesService:
                 "by_frequency": top_by_frequency
             },
             "category_performance": sorted(category_list, key=lambda x: x["revenue"], reverse=True),
+            "inventory_insights": inventory_insights,
+            "sales_recommendations": sales_recommendations,
             "summary": {
                 "total_products_sold": len(product_list),
                 "total_quantity_sold": sum(p["quantity_sold"] for p in product_list),
@@ -425,7 +567,8 @@ class SalesService:
                 "average_items_per_order": sum(p["quantity_sold"] for p in product_list) / len(set().union(*[list(data["orders"]) for data in product_performance.values()])) if product_performance else 0
             }
         }
-    
+
+
     @staticmethod
     async def get_live_metrics() -> Dict[str, Any]:
         """Get real-time sales metrics for live dashboard"""
