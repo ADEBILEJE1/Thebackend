@@ -1424,13 +1424,111 @@ async def delete_banner(
 
 
 
+# @router.post("/create_raw-materials", response_model=dict)
+# async def create_raw_material(
+#     material: RawMaterialCreate,
+#     request: Request,
+#     current_user: dict = Depends(require_inventory_staff)
+# ):
+#     """Create new raw material"""
+#     material.validate_units_per_pack()
+    
+#     # Check unique name
+#     existing = supabase.table("raw_materials").select("id").eq("name", material.name).execute()
+#     if existing.data:
+#         raise HTTPException(status_code=400, detail="Material name already exists")
+    
+#     # Check SKU uniqueness if provided
+#     if material.sku:
+#         existing_sku = supabase.table("raw_materials").select("id").eq("sku", material.sku).execute()
+#         if existing_sku.data:
+#             raise HTTPException(status_code=400, detail="SKU already exists")
+    
+#     # Verify supplier if provided
+#     if material.supplier_id:
+#         supplier = supabase.table("suppliers").select("id").eq("name", material.supplier_id).execute()
+#         if not supplier.data:
+#             raise HTTPException(status_code=404, detail="Supplier not found")
+    
+#     material_data = {
+#         **material.dict(exclude={"initial_quantity"}),
+#         "current_quantity": float(material.initial_quantity),
+#         "purchase_price": float(material.purchase_price) if material.purchase_price else None,
+#         "created_by": current_user["id"]
+#     }
+    
+#     result = supabase.table("raw_materials").insert(material_data).execute()
+#     material_id = result.data[0]["id"]
+    
+#     # Log initial quantity if > 0
+#     if material.initial_quantity > 0:
+#         transaction_data = {
+#             "material_id": material_id,
+#             "transaction_type": TransactionType.PURCHASE,
+#             "quantity": float(material.initial_quantity),
+#             "remaining_after": float(material.initial_quantity),
+#             "cost": float(material.purchase_price) if material.purchase_price else None,
+#             "notes": "Initial stock",
+#             "created_by": current_user["id"]
+#         }
+#         supabase.table("raw_material_transactions").insert(transaction_data).execute()
+    
+#     await log_activity(
+#         current_user["id"], current_user["email"], current_user["role"],
+#         "create", "raw_material", material_id, 
+#         {"name": material.name, "unit": material.measurement_unit}, 
+#         request
+#     )
+    
+#     return {"message": "Raw material created", "data": result.data[0]}
+
+# @router.get("/get_raw_materials", response_model=List[dict])
+# async def get_raw_materials(
+#     request: Request,
+#     search: Optional[str] = None,
+#     measurement_unit: Optional[MeasurementUnit] = None,
+#     supplier_id: Optional[str] = None,
+#     low_stock_only: bool = False,
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """Get raw materials with filtering"""
+#     cache_key = f"raw_materials:list:{search}:{measurement_unit}:{supplier_id}:{low_stock_only}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     query = supabase.table("raw_materials").select("*, suppliers(name)")
+    
+#     if search:
+#         query = query.or_(f"name.ilike.%{search}%,sku.ilike.%{search}%")
+    
+#     if measurement_unit:
+#         query = query.eq("measurement_unit", measurement_unit)
+    
+#     if supplier_id:
+#         query = query.eq("supplier_id", supplier_id)
+    
+#     if low_stock_only:
+#         query = query.lte("current_quantity", 10)  # Configurable threshold
+    
+#     result = query.order("name").execute()
+    
+#     # Add stock status
+#     for material in result.data:
+#         qty = material["current_quantity"]
+#         if qty <= 0:
+#             material["stock_status"] = "out_of_stock"
+#         elif qty <= 10:  # Configurable
+#             material["stock_status"] = "low_stock"
+#         else:
+#             material["stock_status"] = "in_stock"
+    
+#     redis_client.set(cache_key, result.data, 120)
+#     return result.data
 
 
 
-
-
-
-@router.post("/create_raw-materials", response_model=dict)
+@router.post("/raw-materials", response_model=dict)
 async def create_raw_material(
     material: RawMaterialCreate,
     request: Request,
@@ -1452,7 +1550,7 @@ async def create_raw_material(
     
     # Verify supplier if provided
     if material.supplier_id:
-        supplier = supabase.table("suppliers").select("id").eq("name", material.supplier_id).execute()
+        supplier = supabase.table("suppliers").select("id").eq("id", material.supplier_id).execute()
         if not supplier.data:
             raise HTTPException(status_code=404, detail="Supplier not found")
     
@@ -1488,7 +1586,9 @@ async def create_raw_material(
     
     return {"message": "Raw material created", "data": result.data[0]}
 
-@router.get("/get_raw_materials", response_model=List[dict])
+
+
+@router.get("/raw-materials", response_model=List[dict])
 async def get_raw_materials(
     request: Request,
     search: Optional[str] = None,
@@ -1531,8 +1631,6 @@ async def get_raw_materials(
     
     redis_client.set(cache_key, result.data, 120)
     return result.data
-
-
 
 
 @router.post("/transactions", response_model=dict)
