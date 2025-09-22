@@ -251,7 +251,7 @@ async def get_orders(
 
     # Sales can only see confirmed+ orders
     if current_user["role"] == UserRole.SALES:
-        query = query.in_("status", [OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.COMPLETED])
+        query = query.in_("status", ["confirmed", "preparing", "ready", "completed"])
 
     result = query.order("created_at", desc=True).execute()
     return result.data
