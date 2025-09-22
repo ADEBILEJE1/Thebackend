@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, date, timedelta
 from .core.permissions import require_super_admin
 from fastapi import Depends
-from .api import auth, inventory, orders, websocket, sales, admin
+from .api import auth, inventory, kitchen, websocket, sales, admin
 from .config import settings
 import time
 from .database import supabase, supabase_admin
@@ -57,7 +57,7 @@ async def shutdown_event():
 
 app.include_router(auth.router)
 app.include_router(inventory.router)
-app.include_router(orders.router)
+app.include_router(kitchen.router)
 app.include_router(websocket.router)
 app.include_router(sales.router)
 app.include_router(admin.router)

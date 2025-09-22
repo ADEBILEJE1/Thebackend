@@ -598,7 +598,7 @@ async def push_order_to_kitchen(
         "preparing_at": datetime.utcnow().isoformat()
     }).eq("id", order_id).execute()
     
-    from ..api.orders import deduct_stock
+    from .kitchen import deduct_stock
     await deduct_stock(order.data[0]["order_items"])
     
     from ..api.websocket import notify_order_update
