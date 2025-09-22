@@ -69,94 +69,94 @@ class OrderResponse(BaseModel):
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
-# def generate_order_number() -> str:
-#     """Generate unique order number: ORD-20250828-001"""
-#     today = date.today().strftime("%Y%m%d")
+def generate_order_number() -> str:
+    """Generate unique order number: ORD-20250828-001"""
+    today = date.today().strftime("%Y%m%d")
 
-#     # Get today's order count
-#     start_of_day = datetime.combine(date.today(), datetime.min.time())
-#     result = supabase.table("orders").select("id").gte("created_at", start_of_day.isoformat()).execute()
+    # Get today's order count
+    start_of_day = datetime.combine(date.today(), datetime.min.time())
+    result = supabase.table("orders").select("id").gte("created_at", start_of_day.isoformat()).execute()
 
-#     count = len(result.data) + 1
-#     return f"ORD-{today}-{count:03d}"
+    count = len(result.data) + 1
+    return f"ORD-{today}-{count:03d}"
 
-# # Corrected function to return a dict as intended, with the correct type hint
-# def calculate_order_total(items: List[dict]) -> dict:
-#     """Helper function to calculate order total, taxes, and subtotal."""
-#     subtotal = sum(Decimal(str(item["quantity"])) * Decimal(str(item["price"])) for item in items)
-#     tax = subtotal * Decimal("0.08")
-#     total = subtotal + tax
-#     return {"subtotal": subtotal, "tax": tax, "total": total}
+# Corrected function to return a dict as intended, with the correct type hint
+def calculate_order_total(items: List[dict]) -> dict:
+    """Helper function to calculate order total, taxes, and subtotal."""
+    subtotal = sum(Decimal(str(item["quantity"])) * Decimal(str(item["price"])) for item in items)
+    tax = subtotal * Decimal("0.08")
+    total = subtotal + tax
+    return {"subtotal": subtotal, "tax": tax, "total": total}
 
-# async def check_product_availability(items: List[dict]) -> List[dict]:
-#     """Check if products are available and have sufficient stock"""
-#     processed_items = []
+async def check_product_availability(items: List[dict]) -> List[dict]:
+    """Check if products are available and have sufficient stock"""
+    processed_items = []
 
-#     for item in items:
-#         # Get product details
-#         product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+    for item in items:
+        # Get product details
+        product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
 
-#         if not product.data:
-#             raise HTTPException(status_code=404, detail=f"Product {item['product_id']} not found")
+        if not product.data:
+            raise HTTPException(status_code=404, detail=f"Product {item['product_id']} not found")
 
-#         product_data = product.data[0]
+        product_data = product.data[0]
 
-#         if not product_data["is_available"]:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"{product_data['name']} is not available"
-#             )
+        if not product_data["is_available"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{product_data['name']} is not available"
+            )
 
-#         if product_data["units"] < item["quantity"]:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}"
-#             )
+        if product_data["units"] < item["quantity"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}"
+            )
 
-#         processed_items.append({
-#             "product_id": item["product_id"],
-#             "product_name": product_data["name"],
-#             "quantity": item["quantity"],
-#             "unit_price": product_data["price"],
-#             "total_price": Decimal(str(product_data["price"])) * item["quantity"],
-#             "notes": item.get("notes")
-#         })
+        processed_items.append({
+            "product_id": item["product_id"],
+            "product_name": product_data["name"],
+            "quantity": item["quantity"],
+            "unit_price": product_data["price"],
+            "total_price": Decimal(str(product_data["price"])) * item["quantity"],
+            "notes": item.get("notes")
+        })
 
-#     return processed_items
+    return processed_items
 
-# async def deduct_stock(items: List[dict]):
-#     """Deduct stock after order confirmation"""
-#     from ..services.celery import send_low_stock_alert
+async def deduct_stock(items: List[dict]):
+    """Deduct stock after order confirmation"""
+    from ..services.celery import send_low_stock_alert
 
-#     low_stock_products = []
+    low_stock_products = []
 
-#     for item in items:
-#         # Get current stock
-#         product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
-#         product_data = product.data[0]
-#         current_units = product_data["units"]
+    for item in items:
+        # Get current stock
+        product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+        product_data = product.data[0]
+        current_units = product_data["units"]
 
-#         # Update stock
-#         new_units = current_units - item["quantity"]
-#         new_status = "out_of_stock" if new_units == 0 else ("low_stock" if new_units <= product_data["low_stock_threshold"] else "in_stock")
+        # Update stock
+        new_units = current_units - item["quantity"]
+        new_status = "out_of_stock" if new_units == 0 else ("low_stock" if new_units <= product_data["low_stock_threshold"] else "in_stock")
 
-#         supabase.table("products").update({
-#             "units": new_units,
-#             "status": new_status,
-#             "updated_at": datetime.utcnow().isoformat()
-#         }).eq("id", item["product_id"]).execute()
+        supabase.table("products").update({
+            "units": new_units,
+            "status": new_status,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", item["product_id"]).execute()
 
-#         # Track low stock items
-#         if new_status in ["low_stock", "out_of_stock"]:
-#             low_stock_products.append({
-#                 "name": product_data["name"],
-#                 "units": new_units,
-#                 "threshold": product_data["low_stock_threshold"]
-#             })
+        # Track low stock items
+        if new_status in ["low_stock", "out_of_stock"]:
+            low_stock_products.append({
+                "name": product_data["name"],
+                "units": new_units,
+                "threshold": product_data["low_stock_threshold"]
+            })
 
-#     # Send low stock alert if needed
-#     if low_stock_products:
-#         send_low_stock_alert.delay(low_stock_products)
+    # Send low stock alert if needed
+    if low_stock_products:
+        send_low_stock_alert.delay(low_stock_products)
 
 # Kitchen Queue Management
 @router.get("/queue/kitchen")
