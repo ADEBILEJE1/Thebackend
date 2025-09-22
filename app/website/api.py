@@ -2,15 +2,17 @@ from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 import json
+import uuid
 from pydantic import BaseModel
 from datetime import datetime
+
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService
 # from ..database import supabase
 from ..database import supabase_admin
 from ..services.redis import redis_client
 from .services import MonnifyService
-
+from .services import CartService
 router = APIRouter(prefix="/website", tags=["Website"])
 
 
@@ -378,6 +380,11 @@ async def complete_checkout(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
+
+
+    batch_id = CartService.generate_batch_id()
+    batch_created_at = datetime.utcnow().isoformat()
+    
     created_orders = []
     
     for order in checkout_data.orders:
@@ -555,6 +562,10 @@ async def bypass_payment_create(
         session_data = json.loads(session_data.decode("utf-8"))
 
     payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
+
+    batch_id = CartService.generate_batch_id()
+    batch_created_at = datetime.utcnow().isoformat()
+
     created_orders = []
 
     for order_data in payment_data.orders:
@@ -566,6 +577,8 @@ async def bypass_payment_create(
         delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
 
         order_entry = {
+            "batch_id": batch_id,
+            "batch_created_at": batch_created_at,
             "order_type": "online",
             "status": "confirmed",
             "payment_status": "paid",

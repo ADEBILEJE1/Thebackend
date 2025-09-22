@@ -50,6 +50,10 @@ class Order(BaseModel):
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
     
+    batch_id: Optional[str] = None
+    batch_created_at: Optional[datetime] = None
+
+
     # Amounts
     subtotal: Decimal
     tax: Decimal = Decimal("0")

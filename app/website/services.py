@@ -2,6 +2,7 @@ from typing import List, Dict, Optional, Any
 from decimal import Decimal
 from datetime import datetime, timedelta
 import re
+import uuid
 import random
 import string
 import math
@@ -264,6 +265,12 @@ class CartService:
             "vat": vat,
             "total": subtotal + vat
         }
+    
+    @staticmethod
+    def generate_batch_id() -> str:
+        """Generate unique batch ID for grouping related orders"""
+        import uuid
+        return f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
 
 class AddressService:
     @staticmethod

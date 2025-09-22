@@ -706,6 +706,10 @@ async def create_offline_order(
     processed_items = await CartService.validate_cart_items(order_data.items)
     totals = CartService.calculate_order_total(processed_items)
     
+    batch_id = SalesService.generate_batch_id()
+    batch_created_at = datetime.utcnow().isoformat()
+
+
     # Generate order number
     order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
     
@@ -722,7 +726,9 @@ async def create_offline_order(
         "tax": float(totals["vat"]),
         "total": float(totals["total"]),
         "notes": order_data.notes,
-        "created_by": current_user["id"]
+        "created_by": current_user["id"],
+        "batch_id": batch_id,
+        "batch_created_at": batch_created_at
     }
     
     created_order = supabase_admin.table("orders").insert(order_entry).execute()

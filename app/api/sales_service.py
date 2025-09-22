@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
+import uuid
 from collections import defaultdict
 from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
@@ -902,3 +903,8 @@ class SalesService:
         redis_client.delete_pattern("inventory:dashboard:*")
         redis_client.delete_pattern("sales:products:*")
         redis_client.delete("inventory:alerts:low_stock")
+
+    @staticmethod
+    def generate_batch_id() -> str:
+        """Generate unique batch ID for order grouping"""
+        return f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"

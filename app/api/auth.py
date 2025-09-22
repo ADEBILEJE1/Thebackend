@@ -96,7 +96,7 @@ async def invite_user(
     result = supabase_admin.table("invitations").insert(invitation_data).execute()
     
     # Send invitation email
-    send_invitation_email.delay(invitation.email, token)
+    # send_invitation_email.delay(invitation.email, token)
     
     return {"message": "Invitation sent successfully"}
 
