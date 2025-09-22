@@ -1957,7 +1957,7 @@ async def update_raw_material(
     return {"message": "Raw material updated"}
 
 
-@router.post("/areas", response_model=dict)
+@router.post("/delivery/areas", response_model=dict)
 async def create_area(
     area: AreaCreate,
     current_user: dict = Depends(require_inventory_staff)
@@ -1994,7 +1994,7 @@ async def create_area(
 #     redis_client.set(cache_key, result.data, 300)
 #     return result.data
 
-@router.get("/areas", response_model=List[dict])
+@router.get("/delivery/areas", response_model=List[dict])
 async def get_areas(
     active_only: bool = True,
     current_user: dict = Depends(get_current_user)
@@ -2009,7 +2009,7 @@ async def get_areas(
 
 
 
-@router.patch("/areas/{area_id}")
+@router.patch("/delivery/areas/{area_id}")
 async def update_area(
     area_id: str,
     update: AreaUpdate,
@@ -2028,7 +2028,7 @@ async def update_area(
     redis_client.delete_pattern("delivery:areas:*")
     return {"message": "Area updated"}
 
-@router.delete("/areas/{area_id}")
+@router.delete("/delivery/areas/{area_id}")
 async def delete_area(
     area_id: str,
     current_user: dict = Depends(require_inventory_staff)
