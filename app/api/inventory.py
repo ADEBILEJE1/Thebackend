@@ -1976,23 +1976,38 @@ async def create_area(
     redis_client.delete("delivery:areas")
     return {"message": "Area created", "data": result.data[0]}
 
+# @router.get("/areas", response_model=List[dict])
+# async def get_areas(
+#     active_only: bool = True,
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     cache_key = f"delivery:areas:{active_only}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     query = supabase.table("delivery_areas").select("*")
+#     if active_only:
+#         query = query.eq("is_active", True)
+    
+#     result = query.order("name").execute()
+#     redis_client.set(cache_key, result.data, 300)
+#     return result.data
+
 @router.get("/areas", response_model=List[dict])
 async def get_areas(
     active_only: bool = True,
     current_user: dict = Depends(get_current_user)
 ):
-    cache_key = f"delivery:areas:{active_only}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-    
     query = supabase.table("delivery_areas").select("*")
     if active_only:
         query = query.eq("is_active", True)
     
     result = query.order("name").execute()
-    redis_client.set(cache_key, result.data, 300)
     return result.data
+
+
+
 
 @router.patch("/areas/{area_id}")
 async def update_area(
