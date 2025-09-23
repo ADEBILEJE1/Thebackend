@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Query
 from typing import List, Optional, Any, Dict
 from datetime import datetime, date, timedelta
 from decimal import Decimal
@@ -183,33 +183,17 @@ async def get_kitchen_queue(
 
 
 
-# @router.get("/queue/kitchen-batches")
-# async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
-#     """Get orders grouped by batches"""
-#     result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "preparing").not_.is_("batch_id", "null").order("preparing_at").execute()
-    
-#     # Group by batch_id
-#     batches = {}
-#     for order in result.data:
-#         batch_id = order["batch_id"]
-#         if batch_id not in batches:
-#             batches[batch_id] = {
-#                 "batch_id": batch_id,
-#                 "customer_name": order.get("customer_name"),
-#                 "orders": [],
-#                 "total_items": 0
-#             }
-        
-#         batches[batch_id]["orders"].append(order)
-#         batches[batch_id]["total_items"] += len(order["order_items"])
-    
-#     return {"batches": list(batches.values())}
 
 
 @router.get("/queue/kitchen-batches")
 async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
-    """Get orders grouped by batches"""
-    result = supabase_admin.table("orders").select("*, order_items(*)").not_.is_("batch_id", "null").order("preparing_at").execute()
+    """Get orders grouped by batches - confirmed and preparing status"""
+    result = supabase_admin.table("orders").select("""
+        *, 
+        order_items(*),
+        customer_addresses(full_address, delivery_areas(name, estimated_time)),
+        website_customers(full_name, email, phone)
+    """).in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("preparing_at").execute()
     
     # Group by batch_id
     batches = {}
@@ -218,14 +202,23 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
         if batch_id not in batches:
             batches[batch_id] = {
                 "batch_id": batch_id,
-                "customer_name": order.get("customer_name"),
                 "orders": [],
                 "total_items": 0,
-                "preparing_at": order["preparing_at"]
+                "preparing_at": order.get("preparing_at"),
+                "status": order["status"],
+                "customer_info": {
+                    "name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
+                    "phone": order.get("customer_phone") or (order.get("website_customers", {}) or {}).get("phone"),
+                    "email": order.get("customer_email") or (order.get("website_customers", {}) or {}).get("email")
+                },
+                "delivery_info": order.get("customer_addresses")
             }
         
         batches[batch_id]["orders"].append(order)
-        batches[batch_id]["total_items"] += len(order["order_items"])
+        # Safety check for order_items
+        order_items = order.get("order_items", [])
+        if order_items:
+            batches[batch_id]["total_items"] += len(order_items)
     
     return {"batches": list(batches.values())}
 
@@ -236,21 +229,93 @@ async def mark_batch_ready(
     batch_id: str,
     current_user: dict = Depends(require_chef_staff)
 ):
-    """Mark entire batch as completed"""
-    orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "preparing").execute()
+    """Mark entire batch as completed - all orders in batch"""
+    orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
     
     if not orders.data:
-        raise HTTPException(status_code=404, detail="Batch not found")
+        raise HTTPException(status_code=404, detail="Batch not found or already completed")
     
     order_ids = [o["id"] for o in orders.data]
+    completed_at = datetime.utcnow().isoformat()
     
-    # Mark all orders as completed
+    # Mark all orders in batch as completed
     supabase_admin.table("orders").update({
         "status": "completed",
-        "completed_at": datetime.utcnow().isoformat()
+        "completed_at": completed_at,
+        "updated_at": completed_at
     }).in_("id", order_ids).execute()
     
-    return {"message": f"Batch {batch_id} marked as ready"}
+    # Send notifications for online orders
+    for order in orders.data:
+        if order["order_type"] == "online" and order.get("customer_email"):
+            send_order_ready_notification.delay(
+                order["order_number"],
+                order["customer_email"]
+            )
+    
+    # Invalidate caches
+    for order_id in order_ids:
+        invalidate_order_cache(order_id)
+    
+    # Notify via WebSocket
+    await notify_order_update(batch_id, "batch_completed", {"batch_id": batch_id, "order_count": len(orders.data)})
+    
+    return {"message": f"Batch {batch_id} completed - {len(orders.data)} orders marked ready"}
+
+
+@router.get("/queue/history")
+async def get_kitchen_history(
+    request: Request,
+    current_user: dict = Depends(require_chef_staff),
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """Get kitchen order history (completed orders)"""
+    result = supabase_admin.table("orders").select("""
+        *, 
+        order_items(*),
+        customer_addresses(full_address, delivery_areas(name)),
+        website_customers(full_name, email, phone)
+    """).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
+    
+    # Group by batch_id for batch orders, individual for others
+    history_items = []
+    batches = {}
+    
+    for order in result.data:
+        if order.get("batch_id"):
+            batch_id = order["batch_id"]
+            if batch_id not in batches:
+                batches[batch_id] = {
+                    "type": "batch",
+                    "batch_id": batch_id,
+                    "orders": [],
+                    "total_items": 0,
+                    "completed_at": order["completed_at"],
+                    "customer_info": {
+                        "name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
+                        "phone": order.get("customer_phone") or (order.get("website_customers", {}) or {}).get("phone")
+                    }
+                }
+            
+            batches[batch_id]["orders"].append(order)
+            # Safety check for order_items
+            order_items = order.get("order_items", [])
+            if order_items:
+                batches[batch_id]["total_items"] += len(order_items)
+        else:
+            # Individual order
+            history_items.append({
+                "type": "individual",
+                "order": order,
+                "completed_at": order["completed_at"]
+            })
+    
+    # Combine and sort by completion time
+    all_items = list(batches.values()) + history_items
+    all_items.sort(key=lambda x: x.get("completed_at", ""), reverse=True)
+    
+    return {"history": all_items}
 
 
 @router.get("/", response_model=List[dict])
@@ -261,7 +326,8 @@ async def get_orders(
     date_to: Optional[date] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    query = supabase_admin.table("orders").select("*, order_items(*)")
+    # Only show batch orders that have been pushed to kitchen
+    query = supabase_admin.table("orders").select("*, order_items(*)").not_.is_("batch_id", "null").in_("status", ["preparing", "completed"])
 
     if status:
         query = query.eq("status", status)
@@ -272,10 +338,6 @@ async def get_orders(
     if date_to:
         query = query.lte("created_at", date_to.isoformat())
 
-    # Sales can only see confirmed+ orders
-    if current_user["role"] == UserRole.SALES:
-        query = query.in_("status", ["confirmed", "preparing", "ready", "completed"])
-
     result = query.order("created_at", desc=True).execute()
     return result.data
 
@@ -284,18 +346,11 @@ async def get_order(
     order_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    # Check cache first
-    cache_key = CacheKeys.ORDER_DETAIL.format(order_id=order_id)
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-
-    result = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
+    # Only allow access to batch orders in kitchen
+    result = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).not_.is_("batch_id", "null").in_("status", ["preparing", "completed"]).execute()
+    
     if not result.data:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    # Cache for 30 seconds
-    redis_client.set(cache_key, result.data[0], 30)
+        raise HTTPException(status_code=404, detail="Order not found in kitchen queue")
 
     return result.data[0]
 
@@ -305,20 +360,17 @@ async def update_order_status(
     status_update: OrderStatusUpdate,
     current_user: dict = Depends(require_sales_staff)
 ):
-    # Get current order
-    order = supabase_admin.table("orders").select("*").eq("id", order_id).execute()
+    # Only allow updates to batch orders
+    order = supabase_admin.table("orders").select("*").eq("id", order_id).not_.is_("batch_id", "null").execute()
     if not order.data:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Order not found in kitchen")
 
     current_status = order.data[0]["status"]
     new_status = status_update.status
 
-    # Validate status transition
+    # Validate status transition - kitchen can only complete orders
     valid_transitions = {
-        OrderStatus.PENDING: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-        OrderStatus.CONFIRMED: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
-        OrderStatus.PREPARING: [OrderStatus.READY],
-        OrderStatus.READY: [OrderStatus.COMPLETED],
+        OrderStatus.PREPARING: [OrderStatus.COMPLETED],
     }
 
     if new_status not in valid_transitions.get(current_status, []):
@@ -330,26 +382,14 @@ async def update_order_status(
     # Update status with timestamp
     update_data = {"status": new_status, "updated_at": datetime.utcnow().isoformat()}
 
-    if new_status == OrderStatus.CONFIRMED:
-        update_data["confirmed_at"] = datetime.utcnow().isoformat()
-        # Deduct stock for online orders
-        if order.data[0]["order_type"] == OrderType.ONLINE:
-            items = supabase.table("order_items").select("*").eq("order_id", order_id).execute()
-            await deduct_stock(items.data)
-    elif new_status == OrderStatus.PREPARING:
-        update_data["preparing_at"] = datetime.utcnow().isoformat()
-    elif new_status == OrderStatus.READY:
-        update_data["ready_at"] = datetime.utcnow().isoformat()
+    if new_status == OrderStatus.COMPLETED:
+        update_data["completed_at"] = datetime.utcnow().isoformat()
         # Send notification to customer if online order
         if order.data[0]["order_type"] == OrderType.ONLINE and order.data[0].get("customer_email"):
             send_order_ready_notification.delay(
                 order.data[0]["order_number"],
                 order.data[0]["customer_email"]
             )
-    elif new_status == OrderStatus.COMPLETED:
-        update_data["completed_at"] = datetime.utcnow().isoformat()
-    elif new_status == OrderStatus.CANCELLED:
-        update_data["cancelled_at"] = datetime.utcnow().isoformat()
 
     supabase.table("orders").update(update_data).eq("id", order_id).execute()
 
@@ -360,6 +400,7 @@ async def update_order_status(
     await notify_order_update(order_id, "status_update", {"status": new_status})
 
     return {"message": f"Order status updated to {new_status}"}
+
 
 @router.post("/chef/ready")
 async def mark_order_ready(

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Complete Inventory Management Test - Updated</title>
+    <title>Kitchen Management Test - Batch Support</title>
     <style>
         body {
             font-family: Calibri, Arial, sans-serif;
@@ -51,7 +51,7 @@
         tr:nth-child(even) {
             background: #f9f9f9;
         }
-        input, select, button {
+        input, select, button, textarea {
             font-family: inherit;
             font-size: 10pt;
             padding: 3px 6px;
@@ -84,6 +84,12 @@
             background: #fcfcfc;
             font-family: Consolas, monospace;
             font-size: 9pt;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: white;
         }
         .status {
             padding: 2px 6px;
@@ -98,735 +104,287 @@
             grid-template-columns: 1fr 1fr 1fr;
             gap: 10px;
         }
-        .tabs {
-            display: flex;
-            background: #f0f0f0;
-            border-bottom: 1px solid #ccc;
+        body {
+            padding-bottom: 170px;
         }
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border-right: 1px solid #ccc;
-            background: #f0f0f0;
+        .token-display {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            font-family: Consolas, monospace;
+            font-size: 9pt;
+            word-break: break-all;
+            margin: 5px 0;
         }
-        .tab.active {
-            background: white;
-            border-bottom: 1px solid white;
-            margin-bottom: -1px;
+        .copy-btn {
+            float: right;
+            font-size: 8pt;
+            padding: 1px 4px;
         }
-        .tab-content {
-            display: none;
-            padding: 20px;
+        .batch-section {
+            background: #f0f8ff;
+            border: 2px solid #4169e1;
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 4px;
         }
-        .tab-content.active {
-            display: block;
+        .batch-header {
+            font-weight: bold;
+            color: #4169e1;
+            margin-bottom: 5px;
         }
-        .upload-section {
-            border: 2px dashed #ccc;
-            padding: 20px;
-            text-align: center;
-            margin: 10px 0;
-        }
-        .upload-section:hover {
-            border-color: #999;
+        .customer-info {
             background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+        .delivery-info {
+            background: #fff8dc;
+            border: 1px solid #ddd;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+        .history-section {
+            background: #f5f5f5;
+            border: 1px solid #999;
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .history-header {
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 5px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h2>Complete Inventory Management System - Test Interface (Updated)</h2>
+            <h2>Kitchen Management System - Test Interface (Batch Support)</h2>
             <div class="form-row">
                 <label>Base URL:</label>
                 <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
             </div>
             <div class="form-row">
-                <label>Staff Email:</label>
-                <input type="text" id="staffEmail" placeholder="inventory@example.com">
+                <label>Admin Email:</label>
+                <input type="text" id="adminEmail" placeholder="admin@example.com">
             </div>
             <div class="form-row">
                 <label>Password:</label>
-                <input type="password" id="staffPassword" placeholder="password">
+                <input type="password" id="adminPassword" placeholder="admin password">
             </div>
             <button onclick="testConnection()">Test Connection</button>
-            <button onclick="login()">Login</button>
+            <button onclick="loginUser()">Login</button>
             <span id="authStatus" class="status"></span>
-        </div>
-
-        <div class="tabs">
-            <div class="tab active" onclick="showTab('finished-products')">Finished Products</div>
-            <div class="tab" onclick="showTab('raw-materials')">Raw Materials</div>
-            <div class="tab" onclick="showTab('images-banners')">Images & Banners</div>
-            <div class="tab" onclick="showTab('analytics')">Analytics</div>
-            <div class="tab" onclick="showTab('advanced')">Advanced</div>
-        </div>
-
-        <!-- Finished Products Tab -->
-        <div id="finished-products" class="tab-content active">
-            <div class="grid">
-                <div>
-                    <div class="section">
-                        <div class="section-header">Dashboard Overview</div>
-                        <div class="section-content">
-                            <button onclick="getDashboard()">Get Dashboard</button>
-                            <button onclick="getLowStockAlerts()">Low Stock Alerts</button>
-                            <div id="dashboardData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Categories</div>
-                        <div class="section-content">
-                            <button onclick="getCategories()">Load Categories</button>
-                            <button onclick="createCategory()">Create Category</button>
-                            <div class="form-row">
-                                <label>Name:</label>
-                                <input type="text" id="categoryName" placeholder="Category Name">
-                            </div>
-                            <div class="form-row">
-                                <label>Description:</label>
-                                <input type="text" id="categoryDesc" placeholder="Description">
-                            </div>
-                            <div class="form-row">
-                                <label>Image URL:</label>
-                                <input type="text" id="categoryImageUrl" placeholder="Image URL">
-                            </div>
-                            <div id="categoriesData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Suppliers</div>
-                        <div class="section-content">
-                            <button onclick="getSuppliers()">Load Suppliers</button>
-                            <button onclick="createSupplier()">Create Supplier</button>
-                            <div class="form-row">
-                                <label>Name:</label>
-                                <input type="text" id="supplierName" placeholder="Supplier Name">
-                            </div>
-                            <div class="form-row">
-                                <label>Contact:</label>
-                                <input type="text" id="supplierContact" placeholder="Contact Person">
-                            </div>
-                            <div class="form-row">
-                                <label>Email:</label>
-                                <input type="email" id="supplierEmail" placeholder="supplier@example.com">
-                            </div>
-                            <div class="form-row">
-                                <label>Phone:</label>
-                                <input type="text" id="supplierPhone" placeholder="Phone Number">
-                            </div>
-                            <div class="form-row">
-                                <label>Address:</label>
-                                <input type="text" id="supplierAddress" placeholder="Address">
-                            </div>
-                            <div id="suppliersData"></div>
-                        </div>
+            
+            <div id="tokenDisplay" style="display:none;">
+                <div class="form-row">
+                    <label>Access Token:</label>
+                    <div class="token-display" id="accessToken">
+                        <button class="copy-btn" onclick="copyToken()">Copy</button>
+                        <div id="accessTokenValue"></div>
                     </div>
                 </div>
-
-                <div>
-                    <div class="section">
-                        <div class="section-header">Product Templates</div>
-                        <div class="section-content">
-                            <button onclick="getTemplates()">Load Templates</button>
-                            <button onclick="createTemplate()">Create Template</button>
-                            <div class="form-row">
-                                <label>Name:</label>
-                                <input type="text" id="templateName" placeholder="Template Name">
-                            </div>
-                            <div class="form-row">
-                                <label>Description:</label>
-                                <input type="text" id="templateDesc" placeholder="Description">
-                            </div>
-                            <div class="form-row">
-                                <label>Default Category:</label>
-                                <select id="templateCategoryId">
-                                    <option value="">Select Category</option>
-                                </select>
-                            </div>
-                            <div id="templatesData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Products</div>
-                        <div class="section-content">
-                            <button onclick="getProducts()">Load Products</button>
-                            <button onclick="createProduct()">Create Product</button>
-                            <div class="form-row">
-                                <label>Template ID:</label>
-                                <input type="text" id="productTemplate" placeholder="template-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Category ID:</label>
-                                <input type="text" id="productCategory" placeholder="category-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Supplier ID:</label>
-                                <input type="text" id="productSupplierId" placeholder="supplier-id">
-                            </div>
-                            <div class="form-row">
-                                <label>SKU:</label>
-                                <input type="text" id="productSku" placeholder="SKU-001">
-                            </div>
-                            <div class="form-row">
-                                <label>Variant Name:</label>
-                                <input type="text" id="productVariant" placeholder="Size L, Red, etc.">
-                            </div>
-                            <div class="form-row">
-                                <label>Price:</label>
-                                <input type="number" id="productPrice" placeholder="10.00" step="0.01">
-                            </div>
-                            <div class="form-row">
-                                <label>Description:</label>
-                                <input type="text" id="productDescription" placeholder="Product description">
-                            </div>
-                            <div class="form-row">
-                                <label>Image URL:</label>
-                                <input type="text" id="productImageUrl" placeholder="Image URL">
-                            </div>
-                            <div class="form-row">
-                                <label>Units:</label>
-                                <input type="number" id="productUnits" placeholder="100">
-                            </div>
-                            <div class="form-row">
-                                <label>Low Stock Threshold:</label>
-                                <input type="number" id="productThreshold" placeholder="10">
-                            </div>
-                            <div class="form-row">
-                                <label>Product Type:</label>
-                                <select id="productType">
-                                    <option value="main">Main Product</option>
-                                    <option value="extra">Extra Product</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Main Product ID:</label>
-                                <input type="text" id="mainProductId" placeholder="For extra products only">
-                            </div>
-                            <div id="productsData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Stock Management</div>
-                        <div class="section-content">
-                            <div class="form-row">
-                                <label>Product ID:</label>
-                                <input type="text" id="stockProductId" placeholder="product-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Quantity:</label>
-                                <input type="number" id="stockQuantity" placeholder="10">
-                            </div>
-                            <div class="form-row">
-                                <label>Operation:</label>
-                                <select id="stockOperation">
-                                    <option value="add">Add</option>
-                                    <option value="remove">Remove</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Notes:</label>
-                                <input type="text" id="stockNotes" placeholder="Stock update notes">
-                            </div>
-                            <button onclick="updateStock()">Update Stock</button>
-                            <button onclick="getStockHistory()">Get Stock History</button>
-                            <div id="stockData"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div>
-                    <div class="section">
-                        <div class="section-header">Product Actions</div>
-                        <div class="section-content">
-                            <button onclick="getMainProducts()">Main Products</button>
-                            <button onclick="getProductExtras()">Product Extras</button>
-                            <button onclick="toggleAvailability()">Toggle Availability</button>
-                            <div class="form-row">
-                                <label>Product ID:</label>
-                                <input type="text" id="actionProductId" placeholder="product-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Available:</label>
-                                <select id="productAvailable">
-                                    <option value="true">Yes</option>
-                                    <option value="false">No</option>
-                                </select>
-                            </div>
-                            <div id="actionsData"></div>
-                        </div>
-                    </div>
+                <div class="form-row">
+                    <label>Manual Token:</label>
+                    <input type="text" id="manualToken" placeholder="Paste token here to use manually" style="width:400px">
+                    <button onclick="setManualToken()">Use Token</button>
                 </div>
             </div>
         </div>
 
-        <!-- Raw Materials Tab -->
-        <div id="raw-materials" class="tab-content">
-            <div class="grid">
-                <div>
-                    <div class="section">
-                        <div class="section-header">Raw Materials Dashboard</div>
-                        <div class="section-content">
-                            <button onclick="getRawMaterialsDashboard()">Get Dashboard</button>
-                            <button onclick="getRawMaterialsLowStock()">Low Stock Report</button>
-                            <div id="rawDashboardData"></div>
+        <div class="grid">
+            <div>
+                <div class="section">
+                    <div class="section-header">Batch Kitchen Queue (Active)</div>
+                    <div class="section-content">
+                        <button onclick="getKitchenBatchQueue()">Get Active Batches</button>
+                        <button onclick="markBatchReady()">Mark Batch Ready</button>
+                        <button onclick="getKitchenQueue()">Get Individual Orders</button>
+                        
+                        <div class="form-row">
+                            <label>Batch ID:</label>
+                            <input type="text" id="batchId" placeholder="BATCH-20250923-..." style="width:200px">
                         </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Create Raw Material</div>
-                        <div class="section-content">
-                            <div class="form-row">
-                                <label>Name:</label>
-                                <input type="text" id="rawMaterialName" placeholder="Rice, Palm Oil, etc.">
-                            </div>
-                            <div class="form-row">
-                                <label>SKU:</label>
-                                <input type="text" id="rawMaterialSku" placeholder="SKU-001">
-                            </div>
-                            <div class="form-row">
-                                <label>Unit:</label>
-                                <select id="rawMaterialUnit">
-                                    <option value="kg">Kilograms (kg)</option>
-                                    <option value="liters">Liters</option>
-                                    <option value="packs">Packs</option>
-                                    <option value="dozens">Dozens</option>
-                                    <option value="units">Units</option>
-                                    <option value="grams">Grams</option>
-                                    <option value="ml">Milliliters</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Units per Pack:</label>
-                                <input type="number" id="rawMaterialUnitsPerPack" placeholder="12 (only for packs)">
-                            </div>
-                            <div class="form-row">
-                                <label>Supplier:</label>
-                                <select id="supplierSelect">
-                                    <option value="">Select Supplier (Optional)</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Initial Qty:</label>
-                                <input type="number" id="rawMaterialInitialQty" placeholder="50" step="0.001">
-                            </div>
-                            <div class="form-row">
-                                <label>Price:</label>
-                                <input type="number" id="rawMaterialPrice" placeholder="100.00" step="0.01">
-                            </div>
-                            <div class="form-row">
-                                <label>Notes:</label>
-                                <input type="text" id="rawMaterialNotes" placeholder="Additional notes">
-                            </div>
-                            <button onclick="createRawMaterial()">Create Raw Material</button>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Raw Materials List</div>
-                        <div class="section-content">
-                            <button onclick="getRawMaterials()">Load All</button>
-                            <button onclick="searchRawMaterials()">Search</button>
-                            <div class="form-row">
-                                <label>Search:</label>
-                                <input type="text" id="rawMaterialSearch" placeholder="Search name or SKU">
-                            </div>
-                            <div class="form-row">
-                                <label>Filter Unit:</label>
-                                <select id="rawMaterialFilterUnit">
-                                    <option value="">All Units</option>
-                                    <option value="kg">Kilograms</option>
-                                    <option value="liters">Liters</option>
-                                    <option value="packs">Packs</option>
-                                    <option value="dozens">Dozens</option>
-                                    <option value="units">Units</option>
-                                    <option value="grams">Grams</option>
-                                    <option value="ml">Milliliters</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Low Stock Only:</label>
-                                <select id="lowStockOnly">
-                                    <option value="false">All Materials</option>
-                                    <option value="true">Low Stock Only</option>
-                                </select>
-                            </div>
-                            <div id="rawMaterialsData"></div>
-                        </div>
+                        
+                        <div id="batchQueueData"></div>
                     </div>
                 </div>
 
-                <div>
-                    <div class="section">
-                        <div class="section-header">Transactions</div>
-                        <div class="section-content">
-                            <div class="form-row">
-                                <label>Material ID:</label>
-                                <input type="text" id="transactionMaterialId" placeholder="material-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Type:</label>
-                                <select id="transactionType">
-                                    <option value="purchase">Purchase (Add Stock)</option>
-                                    <option value="usage">Usage (Remove Stock)</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Quantity:</label>
-                                <input type="number" id="transactionQuantity" placeholder="10" step="0.001">
-                            </div>
-                            <div class="form-row">
-                                <label>Cost:</label>
-                                <input type="number" id="transactionCost" placeholder="50.00" step="0.01">
-                            </div>
-                            <div class="form-row">
-                                <label>Notes:</label>
-                                <input type="text" id="transactionNotes" placeholder="Purchase from supplier">
-                            </div>
-                            <button onclick="createTransaction()">Record Transaction</button>
-                            <button onclick="getTransactionHistory()">Get History</button>
-                            <div id="transactionData"></div>
+                <div class="section">
+                    <div class="section-header">Kitchen History</div>
+                    <div class="section-content">
+                        <button onclick="getKitchenHistory()">Get Kitchen History</button>
+                        <button onclick="clearHistoryView()">Clear View</button>
+                        
+                        <div class="form-row">
+                            <label>Limit:</label>
+                            <input type="number" id="historyLimit" value="20" style="width:60px">
                         </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Material Details</div>
-                        <div class="section-content">
-                            <div class="form-row">
-                                <label>Material ID:</label>
-                                <input type="text" id="materialDetailId" placeholder="material-id">
-                            </div>
-                            <button onclick="getMaterialDetails()">Get Details</button>
-                            <button onclick="updateMaterial()">Update Material</button>
-                            <div class="form-row">
-                                <label>New Name:</label>
-                                <input type="text" id="updateMaterialName" placeholder="New name">
-                            </div>
-                            <div class="form-row">
-                                <label>New SKU:</label>
-                                <input type="text" id="updateMaterialSku" placeholder="New SKU">
-                            </div>
-                            <div class="form-row">
-                                <label>Notes:</label>
-                                <input type="text" id="updateMaterialNotes" placeholder="Updated notes">
-                            </div>
-                            <div id="materialDetailsData"></div>
+                        <div class="form-row">
+                            <label>Offset:</label>
+                            <input type="number" id="historyOffset" value="0" style="width:60px">
                         </div>
+                        
+                        <div id="historyData"></div>
                     </div>
                 </div>
 
-                <div>
-                    <div class="section">
-                        <div class="section-header">Raw Materials Analytics</div>
-                        <div class="section-content">
-                            <button onclick="getRawMaterialsUsageSummary()">Usage Summary</button>
-                            <button onclick="getRawMaterialsCostAnalysis()">Cost Analysis</button>
-                            <div class="form-row">
-                                <label>Date From:</label>
-                                <input type="date" id="analyticsDateFrom">
-                            </div>
-                            <div class="form-row">
-                                <label>Date To:</label>
-                                <input type="date" id="analyticsDateTo">
-                            </div>
-                            <div class="form-row">
-                                <label>Material ID:</label>
-                                <input type="text" id="analyticsMaterialId" placeholder="specific material">
-                            </div>
-                            <div id="rawAnalyticsData"></div>
+                <div class="section">
+                    <div class="section-header">Traditional Kitchen Queue</div>
+                    <div class="section-content">
+                        <button onclick="getKitchenQueue()">Get Kitchen Queue</button>
+                        <button onclick="markOrderReady()">Mark Order Ready</button>
+                        <button onclick="printOrderReceipt()">Print Receipt</button>
+                        
+                        <div class="form-row">
+                            <label>Order Number:</label>
+                            <input type="text" id="orderNumber" placeholder="ORD-20250101-001" style="width:150px">
                         </div>
+                        <div class="form-row">
+                            <label>Order ID:</label>
+                            <input type="text" id="orderId" placeholder="order-id" style="width:150px">
+                        </div>
+                        
+                        <div id="kitchenData"></div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Images & Banners Tab -->
-        <div id="images-banners" class="tab-content">
-            <div class="grid">
-                <div>
-                    <div class="section">
-                        <div class="section-header">Image Upload</div>
-                        <div class="section-content">
-                            <div class="form-row">
-                                <label>Image Type:</label>
-                                <select id="imageType">
-                                    <option value="product">Product Image</option>
-                                    <option value="category">Category Image</option>
-                                    <option value="banner">Banner Image</option>
-                                </select>
-                            </div>
-                            <div class="upload-section">
-                                <input type="file" id="imageFile" accept="image/jpeg,image/jpg,image/png,image/webp" style="display: none;">
-                                <button onclick="document.getElementById('imageFile').click()">Choose Image File</button>
-                                <p id="selectedFile">No file selected</p>
-                                <button onclick="uploadImage()">Upload Image</button>
-                            </div>
-                            <div id="uploadResult"></div>
+            <div>
+                <div class="section">
+                    <div class="section-header">Order Management (Batch Orders Only)</div>
+                    <div class="section-content">
+                        <button onclick="getAllOrders()">Get All Batch Orders</button>
+                        <button onclick="getOrderById()">Get Order by ID</button>
+                        <button onclick="updateOrderStatus()">Update Status</button>
+                        
+                        <div class="form-row">
+                            <label>Status Filter:</label>
+                            <select id="statusFilter" style="width:120px">
+                                <option value="">All</option>
+                                <option value="preparing">Preparing</option>
+                                <option value="completed">Completed</option>
+                            </select>
                         </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Banner Management</div>
-                        <div class="section-content">
-                            <button onclick="getBanners()">Load Banners</button>
-                            <button onclick="createBanner()">Create Banner</button>
-                            <div class="form-row">
-                                <label>Title:</label>
-                                <input type="text" id="bannerTitle" placeholder="Banner Title">
-                            </div>
-                            <div class="form-row">
-                                <label>Description:</label>
-                                <input type="text" id="bannerDescription" placeholder="Banner Description">
-                            </div>
-                            <div class="form-row">
-                                <label>Image URL:</label>
-                                <input type="text" id="bannerImageUrl" placeholder="Image URL">
-                            </div>
-                            <div class="form-row">
-                                <label>Link URL:</label>
-                                <input type="text" id="bannerLinkUrl" placeholder="Link URL (optional)">
-                            </div>
-                            <div class="form-row">
-                                <label>Active:</label>
-                                <select id="bannerActive">
-                                    <option value="true">Yes</option>
-                                    <option value="false">No</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Display Order:</label>
-                                <input type="number" id="bannerDisplayOrder" placeholder="0" min="0">
-                            </div>
-                            <div id="bannersData"></div>
+                        <div class="form-row">
+                            <label>Order Type:</label>
+                            <select id="orderTypeFilter" style="width:120px">
+                                <option value="">All</option>
+                                <option value="online">Online</option>
+                                <option value="offline">Offline</option>
+                            </select>
                         </div>
+                        <div class="form-row">
+                            <label>New Status:</label>
+                            <select id="newStatus" style="width:120px">
+                                <option value="completed">Completed</option>
+                            </select>
+                        </div>
+                        
+                        <div id="orderData"></div>
                     </div>
                 </div>
 
-                <div>
-                    <div class="section">
-                        <div class="section-header">Banner Actions</div>
-                        <div class="section-content">
-                            <div class="form-row">
-                                <label>Banner ID:</label>
-                                <input type="text" id="bannerActionId" placeholder="banner-id">
-                            </div>
-                            <button onclick="updateBanner()">Update Banner</button>
-                            <button onclick="deleteBanner()">Delete Banner</button>
-                            <div class="form-row">
-                                <label>New Title:</label>
-                                <input type="text" id="updateBannerTitle" placeholder="New title">
-                            </div>
-                            <div class="form-row">
-                                <label>New Description:</label>
-                                <input type="text" id="updateBannerDescription" placeholder="New description">
-                            </div>
-                            <div class="form-row">
-                                <label>New Image URL:</label>
-                                <input type="text" id="updateBannerImageUrl" placeholder="New image URL">
-                            </div>
-                            <div class="form-row">
-                                <label>Active:</label>
-                                <select id="updateBannerActive">
-                                    <option value="">No Change</option>
-                                    <option value="true">Yes</option>
-                                    <option value="false">No</option>
-                                </select>
-                            </div>
-                            <div id="bannerActionsData"></div>
+                <div class="section">
+                    <div class="section-header">Today's Statistics</div>
+                    <div class="section-content">
+                        <button onclick="getTodayStats()">Get Today's Stats</button>
+                        
+                        <div id="statsData"></div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">Chef Analytics</div>
+                    <div class="section-content">
+                        <button onclick="getChefAnalytics()">Chef Analytics</button>
+                        
+                        <div class="form-row">
+                            <label>Chef ID:</label>
+                            <input type="text" id="chefId" placeholder="chef-id" style="width:150px">
                         </div>
+                        <div class="form-row">
+                            <label>Days:</label>
+                            <input type="number" id="analyticsDays" value="30" style="width:60px">
+                        </div>
+                        
+                        <div id="analyticsData"></div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Analytics Tab -->
-        <div id="analytics" class="tab-content">
-            <div class="grid">
-                <div>
-                    <div class="section">
-                        <div class="section-header">Inventory Analytics</div>
-                        <div class="section-content">
-                            <button onclick="getValuation()">Inventory Valuation</button>
-                            <button onclick="getMovementTrends()">Movement Trends</button>
-                            <button onclick="getReorderSuggestions()">Reorder Suggestions</button>
-                            <button onclick="getPerformance()">Product Performance</button>
-                            <div class="form-row">
-                                <label>Days:</label>
-                                <input type="number" id="analyticsDays" placeholder="30" value="30">
-                            </div>
-                            <div id="analyticsData"></div>
+            <div>
+                <div class="section">
+                    <div class="section-header">Date Filters</div>
+                    <div class="section-content">
+                        <div class="form-row">
+                            <label>Date From:</label>
+                            <input type="date" id="dateFrom" style="width:150px">
                         </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Enhanced Alerts</div>
-                        <div class="section-content">
-                            <button onclick="getEnhancedAlerts()">Enhanced Alerts</button>
-                            <button onclick="getCategoryComparison()">Category Comparison</button>
-                            <div class="form-row">
-                                <label>Include Predictions:</label>
-                                <select id="includePredictions">
-                                    <option value="true">Yes</option>
-                                    <option value="false">No</option>
-                                </select>
-                            </div>
-                            <div id="alertsData"></div>
+                        <div class="form-row">
+                            <label>Date To:</label>
+                            <input type="date" id="dateTo" style="width:150px">
                         </div>
+                        <button onclick="getOrdersWithFilters()">Apply Filters</button>
+                        
+                        <div id="filteredData"></div>
                     </div>
                 </div>
 
-                <div>
-                    <div class="section">
-                        <div class="section-header">Staff Analytics</div>
-                        <div class="section-content">
-                            <button onclick="getInventoryStaffAnalytics()">Individual Staff</button>
-                            <button onclick="getAllInventoryStaffAnalytics()">All Staff</button>
-                            <div class="form-row">
-                                <label>Staff ID:</label>
-                                <input type="text" id="staffAnalyticsId" placeholder="staff-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Days:</label>
-                                <input type="number" id="staffAnalyticsDays" placeholder="30" value="30">
-                            </div>
-                            <div id="staffAnalyticsData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">Wastage Analysis</div>
-                        <div class="section-content">
-                            <button onclick="getWastageAnalysis()">Wastage Analysis</button>
-                            <div class="form-row">
-                                <label>Days:</label>
-                                <input type="number" id="wastageDays" placeholder="30" value="30">
-                            </div>
-                            <div id="wastageData"></div>
-                        </div>
+                <div class="section">
+                    <div class="section-header">Order Queue Management</div>
+                    <div class="section-content">
+                        <button onclick="refreshQueue()">Refresh Queue</button>
+                        <button onclick="clearCompletedOrders()">Clear Completed</button>
+                        
+                        <div id="queueData"></div>
                     </div>
                 </div>
 
-                <div>
-                    <div class="section">
-                        <div class="section-header">Optimization</div>
-                        <div class="section-content">
-                            <button onclick="getOptimization()">Stock Optimization</button>
-                            <div id="optimizationData"></div>
+                <div class="section">
+                    <div class="section-header">Kitchen Performance</div>
+                    <div class="section-content">
+                        <button onclick="getKitchenPerformance()">Performance Report</button>
+                        <button onclick="getPreparationTimes()">Prep Times</button>
+                        
+                        <div class="form-row">
+                            <label>Report Days:</label>
+                            <input type="number" id="reportDays" value="7" style="width:60px">
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Advanced Tab -->
-        <div id="advanced" class="tab-content">
-            <div class="grid">
-                <div>
-                    <div class="section">
-                        <div class="section-header">Bulk Operations</div>
-                        <div class="section-content">
-                            <button onclick="testBulkOperations()">Test Bulk Operations</button>
-                            <div id="bulkData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">SKU Management</div>
-                        <div class="section-content">
-                            <button onclick="getSKUCodes()">Load SKU Codes</button>
-                            <button onclick="createSKUCode()">Create SKU Code</button>
-                            <div class="form-row">
-                                <label>SKU Code:</label>
-                                <input type="text" id="skuCode" placeholder="SKU-001">
-                            </div>
-                            <div class="form-row">
-                                <label>SKU Name:</label>
-                                <input type="text" id="skuName" placeholder="SKU Name">
-                            </div>
-                            <div class="form-row">
-                                <label>Description:</label>
-                                <input type="text" id="skuDescription" placeholder="SKU Description">
-                            </div>
-                            <div class="form-row">
-                                <label>Category:</label>
-                                <select id="skuCategoryId">
-                                    <option value="">Select Category</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Supplier:</label>
-                                <select id="skuSupplierId">
-                                    <option value="">Select Supplier</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <label>Barcode:</label>
-                                <input type="text" id="skuBarcode" placeholder="123456789">
-                            </div>
-                            <div class="form-row">
-                                <label>Manufacturer Code:</label>
-                                <input type="text" id="skuManufacturerCode" placeholder="MFG-001">
-                            </div>
-                            <div id="skuData"></div>
-                        </div>
+                        
+                        <div id="performanceData"></div>
                     </div>
                 </div>
 
-                <div>
-                    <div class="section">
-                        <div class="section-header">Product-SKU Mapping</div>
-                        <div class="section-content">
-                            <button onclick="mapSKUToProduct()">Map SKU to Product</button>
-                            <button onclick="getProductSKUs()">Get Product SKUs</button>
-                            <button onclick="unmapSKUFromProduct()">Unmap SKU</button>
-                            <button onclick="getSKUProducts()">Get SKU Products</button>
-                            <div class="form-row">
-                                <label>Product ID:</label>
-                                <input type="text" id="mapProductId" placeholder="product-id">
-                            </div>
-                            <div class="form-row">
-                                <label>SKU Code ID:</label>
-                                <input type="text" id="mapSKUId" placeholder="sku-id">
-                            </div>
-                            <div class="form-row">
-                                <label>Primary:</label>
-                                <select id="mapPrimary">
-                                    <option value="false">No</option>
-                                    <option value="true">Yes</option>
-                                </select>
-                            </div>
-                            <div id="mappingData"></div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-header">System Information</div>
-                        <div class="section-content">
-                            <button onclick="getSystemInfo()">Get System Info</button>
-                            <div id="systemData"></div>
-                        </div>
+                <div class="section">
+                    <div class="section-header">System Information</div>
+                    <div class="section-content">
+                        <button onclick="getSystemInfo()">System Info</button>
+                        <button onclick="checkApiHealth()">API Health</button>
+                        
+                        <div id="systemData"></div>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="section-header">Activity Logs</div>
-            <div class="section-content">
-                <div class="logs" id="logs"></div>
-                <button onclick="clearLogs()">Clear Logs</button>
             </div>
         </div>
     </div>
 
+    <div class="logs" id="logsContainer">
+        <div style="padding: 5px; background: #eee; border-bottom: 1px solid #ccc;">
+            <strong>Activity Logs</strong>
+            <button onclick="clearLogs()" style="float: right;">Clear</button>
+        </div>
+        <div class="logs" id="logs" style="height: 120px; position: static;"></div>
+    </div>
+
     <script>
         let authToken = '';
-        let suppliers = [];
-        let categories = [];
+        let currentUser = null;
         
         function log(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
@@ -848,17 +406,6 @@
             const element = document.getElementById(elementId);
             element.textContent = message;
             element.className = `status ${type}`;
-        }
-
-        function showTab(tabName) {
-            const tabContents = document.querySelectorAll('.tab-content');
-            tabContents.forEach(content => content.classList.remove('active'));
-            
-            const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => tab.classList.remove('active'));
-            
-            document.getElementById(tabName).classList.add('active');
-            event.target.classList.add('active');
         }
 
         function renderTable(data, containerId) {
@@ -888,84 +435,126 @@
             document.getElementById(containerId).innerHTML = html;
         }
 
-        function renderSummary(data, containerId) {
-            if (typeof data === 'object' && data !== null) {
-                let html = '<div>';
-                for (const [key, value] of Object.entries(data)) {
-                    if (typeof value === 'object' && value !== null) {
-                        html += `<h4>${key}:</h4>`;
-                        html += renderSummaryObject(value);
-                    } else {
-                        html += `<p><strong>${key}:</strong> ${value}</p>`;
-                    }
+        function renderBatchData(data, containerId) {
+            if (!data || !data.batches || data.batches.length === 0) {
+                document.getElementById(containerId).innerHTML = '<p>No batch data available</p>';
+                return;
+            }
+
+            let html = '';
+            data.batches.forEach(batch => {
+                html += `<div class="batch-section">`;
+                html += `<div class="batch-header">Batch ID: ${batch.batch_id}</div>`;
+                
+                // Customer Information
+                if (batch.customer_info) {
+                    html += `<div class="customer-info">`;
+                    html += `<strong>Customer Information:</strong><br>`;
+                    html += `Name: ${batch.customer_info.name || 'N/A'}<br>`;
+                    html += `Phone: ${batch.customer_info.phone || 'N/A'}<br>`;
+                    html += `Email: ${batch.customer_info.email || 'N/A'}`;
+                    html += `</div>`;
                 }
-                html += '</div>';
-                document.getElementById(containerId).innerHTML = html;
-            }
-        }
-
-        function renderSummaryObject(obj) {
-            let html = '<ul>';
-            for (const [key, value] of Object.entries(obj)) {
-                html += `<li><strong>${key}:</strong> ${value}</li>`;
-            }
-            html += '</ul>';
-            return html;
-        }
-
-        function renderSupplierDropdown() {
-            const dropdown = document.getElementById('supplierSelect');
-            if (dropdown) {
-                dropdown.innerHTML = '<option value="">Select Supplier (Optional)</option>';
-                suppliers.forEach(supplier => {
-                    dropdown.innerHTML += `<option value="${supplier.id}">${supplier.name}</option>`;
-                });
-            }
-
-            // Update SKU supplier dropdown
-            const skuSupplierDropdown = document.getElementById('skuSupplierId');
-            if (skuSupplierDropdown) {
-                skuSupplierDropdown.innerHTML = '<option value="">Select Supplier</option>';
-                suppliers.forEach(supplier => {
-                    skuSupplierDropdown.innerHTML += `<option value="${supplier.id}">${supplier.name}</option>`;
-                });
-            }
-        }
-
-        function renderCategoryDropdown() {
-            const templateDropdown = document.getElementById('templateCategoryId');
-            if (templateDropdown) {
-                templateDropdown.innerHTML = '<option value="">Select Category</option>';
-                categories.forEach(category => {
-                    templateDropdown.innerHTML += `<option value="${category.id}">${category.name}</option>`;
-                });
-            }
-
-            // Update SKU category dropdown
-            const skuCategoryDropdown = document.getElementById('skuCategoryId');
-            if (skuCategoryDropdown) {
-                skuCategoryDropdown.innerHTML = '<option value="">Select Category</option>';
-                categories.forEach(category => {
-                    skuCategoryDropdown.innerHTML += `<option value="${category.id}">${category.name}</option>`;
-                });
-            }
-        }
-
-        // File selection handler
-        document.addEventListener('DOMContentLoaded', function() {
-            const fileInput = document.getElementById('imageFile');
-            if (fileInput) {
-                fileInput.addEventListener('change', function() {
-                    const file = fileInput.files[0];
-                    const selectedFileElement = document.getElementById('selectedFile');
-                    if (file) {
-                        selectedFileElement.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-                    } else {
-                        selectedFileElement.textContent = 'No file selected';
+                
+                // Delivery Information
+                if (batch.delivery_info) {
+                    html += `<div class="delivery-info">`;
+                    html += `<strong>Delivery Information:</strong><br>`;
+                    html += `Address: ${batch.delivery_info.full_address || 'N/A'}<br>`;
+                    if (batch.delivery_info.delivery_areas) {
+                        html += `Area: ${batch.delivery_info.delivery_areas.name || 'N/A'}<br>`;
+                        html += `Est. Time: ${batch.delivery_info.delivery_areas.estimated_time || 'N/A'}`;
                     }
+                    html += `</div>`;
+                }
+                
+                html += `<p><strong>Total Items:</strong> ${batch.total_items}</p>`;
+                html += `<p><strong>Orders Count:</strong> ${batch.orders.length}</p>`;
+                html += `<p><strong>Preparing Since:</strong> ${new Date(batch.preparing_at).toLocaleString()}</p>`;
+                
+                html += `<h4>Orders in Batch:</h4>`;
+                batch.orders.forEach(order => {
+                    html += `<div style="margin-left: 20px; margin-bottom: 10px;">`;
+                    html += `<p><strong>Order #:</strong> ${order.order_number || order.id}</p>`;
+                    html += `<p><strong>Items:</strong></p>`;
+                    html += `<ul>`;
+                    order.order_items.forEach(item => {
+                        html += `<li>${item.product_name} x${item.quantity}`;
+                        if (item.notes) html += ` (${item.notes})`;
+                        html += `</li>`;
+                    });
+                    html += `</ul>`;
+                    html += `</div>`;
                 });
+                
+                html += `</div>`;
+            });
+            
+            document.getElementById(containerId).innerHTML = html;
+        }
+
+        function renderHistoryData(data, containerId) {
+            if (!data || !data.history || data.history.length === 0) {
+                document.getElementById(containerId).innerHTML = '<p>No history data available</p>';
+                return;
             }
-        });
+
+            let html = '';
+            data.history.forEach(item => {
+                html += `<div class="history-section">`;
+                
+                if (item.type === 'batch') {
+                    html += `<div class="history-header">BATCH: ${item.batch_id}</div>`;
+                    html += `<p><strong>Completed:</strong> ${new Date(item.completed_at).toLocaleString()}</p>`;
+                    html += `<p><strong>Total Items:</strong> ${item.total_items}</p>`;
+                    html += `<p><strong>Orders:</strong> ${item.orders.length}</p>`;
+                    
+                    if (item.customer_info) {
+                        html += `<p><strong>Customer:</strong> ${item.customer_info.name || 'N/A'}</p>`;
+                        html += `<p><strong>Phone:</strong> ${item.customer_info.phone || 'N/A'}</p>`;
+                    }
+                } else {
+                    html += `<div class="history-header">INDIVIDUAL ORDER: ${item.order.order_number}</div>`;
+                    html += `<p><strong>Completed:</strong> ${new Date(item.completed_at).toLocaleString()}</p>`;
+                    html += `<p><strong>Customer:</strong> ${item.order.customer_name || 'N/A'}</p>`;
+                    html += `<p><strong>Total:</strong> $${item.order.total}</p>`;
+                }
+                
+                html += `</div>`;
+            });
+            
+            document.getElementById(containerId).innerHTML = html;
+        }
+
+        function renderData(data, containerId) {
+            if (typeof data === 'object' && !Array.isArray(data)) {
+                document.getElementById(containerId).innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } else if (Array.isArray(data)) {
+                renderTable(data, containerId);
+            } else {
+                document.getElementById(containerId).innerHTML = `<p>${data}</p>`;
+            }
+        }
+
+        function copyToken() {
+            const tokenElement = document.getElementById('accessTokenValue');
+            const tokenText = tokenElement.textContent;
+            
+            navigator.clipboard.writeText(tokenText).then(() => {
+                log(`Token copied to clipboard: ${tokenText.substring(0, 20)}...`, 'success');
+            }).catch(err => {
+                log(`Failed to copy token: ${err}`, 'error');
+            });
+        }
+
+        function setManualToken() {
+            const manualToken = document.getElementById('manualToken').value;
+            if (manualToken) {
+                authToken = manualToken;
+                updateStatus('authStatus', 'Manual token set', 'success');
+                log('Manual token applied', 'success');
+            }
+        }
 
         async function apiCall(endpoint, method = 'GET', body = null) {
             const url = `${getBaseUrl()}${endpoint}`;
@@ -1003,36 +592,6 @@
             }
         }
 
-        async function uploadApiCall(endpoint, formData) {
-            const url = `${getBaseUrl()}${endpoint}`;
-            const headers = {};
-
-            if (authToken) {
-                headers['Authorization'] = `Bearer ${authToken}`;
-            }
-
-            try {
-                log(`POST ${url} (File Upload)`);
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers,
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${data.detail || 'Upload failed'}`);
-                }
-                
-                log(`Upload successful: ${JSON.stringify(data)}`, 'success');
-                return data;
-            } catch (error) {
-                log(`Upload error: ${error.message}`, 'error');
-                throw error;
-            }
-        }
-
         async function testConnection() {
             try {
                 const response = await fetch(`${getBaseUrl()}/docs`);
@@ -1048,9 +607,9 @@
             }
         }
 
-        async function login() {
-            const email = document.getElementById('staffEmail').value;
-            const password = document.getElementById('staffPassword').value;
+        async function loginUser() {
+            const email = document.getElementById('adminEmail').value;
+            const password = document.getElementById('adminPassword').value;
             
             if (!email || !password) {
                 updateStatus('authStatus', 'Email and password required', 'error');
@@ -1060,895 +619,284 @@
             try {
                 const data = await apiCall('/auth/login', 'POST', { email, password });
                 authToken = data.access_token;
+                currentUser = data.user;
+                
                 updateStatus('authStatus', `Logged in as ${data.user.role}`, 'success');
                 log(`Login successful: ${data.user.email} (${data.user.role})`, 'success');
                 
-                // Load initial data
-                getSuppliers();
-                getCategories();
+                document.getElementById('tokenDisplay').style.display = 'block';
+                document.getElementById('accessTokenValue').textContent = data.access_token;
+                
             } catch (error) {
                 updateStatus('authStatus', 'Login Failed', 'error');
             }
         }
 
-        // ========== FINISHED PRODUCTS FUNCTIONS ==========
-        
-        async function getDashboard() {
+        // New Batch Kitchen Queue Functions
+        async function getKitchenBatchQueue() {
             try {
-                const data = await apiCall('/inventory/dashboard');
-                renderSummary(data.summary, 'dashboardData');
+                const data = await apiCall('/orders/queue/kitchen-batches');
+                renderBatchData(data, 'batchQueueData');
+                log(`Found ${data.batches ? data.batches.length : 0} batches in queue`, 'success');
             } catch (error) {
-                document.getElementById('dashboardData').innerHTML = '<p class="status error">Failed to load dashboard</p>';
+                document.getElementById('batchQueueData').innerHTML = '<p class="status error">Failed to load batch queue</p>';
             }
         }
 
-        async function getLowStockAlerts() {
-            try {
-                const data = await apiCall('/inventory/alerts/low-stock');
-                renderTable(data, 'dashboardData');
-            } catch (error) {
-                document.getElementById('dashboardData').innerHTML = '<p class="status error">Failed to load alerts</p>';
-            }
-        }
-
-        async function getCategories() {
-            try {
-                categories = await apiCall('/inventory/categories');
-                renderTable(categories, 'categoriesData');
-                renderCategoryDropdown();
-            } catch (error) {
-                document.getElementById('categoriesData').innerHTML = '<p class="status error">Failed to load categories</p>';
-            }
-        }
-
-        async function createCategory() {
-            const name = document.getElementById('categoryName').value;
-            const description = document.getElementById('categoryDesc').value;
-            const image_url = document.getElementById('categoryImageUrl').value;
+        async function markBatchReady() {
+            const batchId = document.getElementById('batchId').value;
             
-            if (!name) {
-                log('Category name is required', 'error');
+            if (!batchId) {
+                log('Batch ID is required', 'error');
                 return;
             }
             
             try {
-                const data = await apiCall('/inventory/categories', 'POST', { name, description, image_url });
-                log(`Category created: ${data.data.name}`, 'success');
-                getCategories();
-                
-                // Clear form
-                document.getElementById('categoryName').value = '';
-                document.getElementById('categoryDesc').value = '';
-                document.getElementById('categoryImageUrl').value = '';
+                const data = await apiCall(`/orders/chef/batch-ready?batch_id=${batchId}`, 'POST');
+                renderData(data, 'batchQueueData');
+                log(`Batch ${batchId} marked as ready`, 'success');
+                // Refresh the queue to show updated state
+                setTimeout(() => getKitchenBatchQueue(), 1000);
             } catch (error) {
-                // Error already logged in apiCall
+                document.getElementById('batchQueueData').innerHTML = '<p class="status error">Failed to mark batch ready</p>';
             }
         }
 
-        async function getSuppliers() {
-            try {
-                suppliers = await apiCall('/inventory/suppliers');
-                renderTable(suppliers, 'suppliersData');
-                renderSupplierDropdown();
-            } catch (error) {
-                document.getElementById('suppliersData').innerHTML = '<p class="status error">Failed to load suppliers</p>';
-            }
-        }
-
-        async function createSupplier() {
-            const name = document.getElementById('supplierName').value;
-            const contact_person = document.getElementById('supplierContact').value;
-            const email = document.getElementById('supplierEmail').value;
-            const phone = document.getElementById('supplierPhone').value;
-            const address = document.getElementById('supplierAddress').value;
+        // Kitchen History
+        async function getKitchenHistory() {
+            const limit = document.getElementById('historyLimit').value || 20;
+            const offset = document.getElementById('historyOffset').value || 0;
             
-            if (!name) {
-                log('Supplier name is required', 'error');
+            try {
+                const data = await apiCall(`/orders/queue/history?limit=${limit}&offset=${offset}`);
+                renderHistoryData(data, 'historyData');
+                log(`Loaded ${data.history ? data.history.length : 0} history items`, 'success');
+            } catch (error) {
+                document.getElementById('historyData').innerHTML = '<p class="status error">Failed to load kitchen history</p>';
+            }
+        }
+
+        async function clearHistoryView() {
+            document.getElementById('historyData').innerHTML = '<p class="status info">History view cleared</p>';
+            log('History view cleared', 'info');
+        }
+
+        // Kitchen Queue (Traditional)
+        async function getKitchenQueue() {
+            try {
+                const data = await apiCall('/orders/queue/kitchen');
+                renderData(data, 'kitchenData');
+            } catch (error) {
+                document.getElementById('kitchenData').innerHTML = '<p class="status error">Failed to load kitchen queue</p>';
+            }
+        }
+
+        async function markOrderReady() {
+            const orderNumber = document.getElementById('orderNumber').value;
+            
+            if (!orderNumber) {
+                log('Order number is required', 'error');
                 return;
             }
             
             try {
-                const data = await apiCall('/inventory/suppliers', 'POST', { 
-                    name, contact_person, email, phone, address 
+                const data = await apiCall('/orders/chef/ready', 'POST', {
+                    order_number: orderNumber
                 });
-                log(`Supplier created: ${data.data.name}`, 'success');
-                getSuppliers();
-                
-                // Clear form
-                document.getElementById('supplierName').value = '';
-                document.getElementById('supplierContact').value = '';
-                document.getElementById('supplierEmail').value = '';
-                document.getElementById('supplierPhone').value = '';
-                document.getElementById('supplierAddress').value = '';
+                renderData(data, 'kitchenData');
+                log(`Order ${orderNumber} marked as ready`, 'success');
             } catch (error) {
-                // Error already logged in apiCall
+                document.getElementById('kitchenData').innerHTML = '<p class="status error">Failed to mark order ready</p>';
             }
         }
 
-        async function getTemplates() {
-            try {
-                const data = await apiCall('/inventory/product-templates');
-                renderTable(data, 'templatesData');
-            } catch (error) {
-                document.getElementById('templatesData').innerHTML = '<p class="status error">Failed to load templates</p>';
-            }
-        }
-
-        async function createTemplate() {
-            const name = document.getElementById('templateName').value;
-            const description = document.getElementById('templateDesc').value;
-            const default_category_id = document.getElementById('templateCategoryId').value || null;
+        async function printOrderReceipt() {
+            const orderId = document.getElementById('orderId').value;
             
-            if (!name) {
-                log('Template name is required', 'error');
+            if (!orderId) {
+                log('Order ID is required', 'error');
                 return;
             }
             
             try {
-                const data = await apiCall('/inventory/product-templates', 'POST', { 
-                    name, description, default_category_id 
+                const data = await apiCall(`/orders/${orderId}/print`);
+                renderData(data, 'kitchenData');
+                log(`Receipt generated for order ${orderId}`, 'success');
+            } catch (error) {
+                document.getElementById('kitchenData').innerHTML = '<p class="status error">Failed to generate receipt</p>';
+            }
+        }
+
+        // Order Management (Updated to only show batch orders)
+        async function getAllOrders() {
+            try {
+                const data = await apiCall('/orders/');
+                renderTable(data, 'orderData');
+                log(`Loaded ${data.length} batch orders`, 'success');
+            } catch (error) {
+                document.getElementById('orderData').innerHTML = '<p class="status error">Failed to load orders</p>';
+            }
+        }
+
+        async function getOrderById() {
+            const orderId = document.getElementById('orderId').value;
+            
+            if (!orderId) {
+                log('Order ID is required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/orders/${orderId}`);
+                renderData(data, 'orderData');
+            } catch (error) {
+                document.getElementById('orderData').innerHTML = '<p class="status error">Failed to load order</p>';
+            }
+        }
+
+        async function updateOrderStatus() {
+            const orderId = document.getElementById('orderId').value;
+            const newStatus = document.getElementById('newStatus').value;
+            
+            if (!orderId || !newStatus) {
+                log('Order ID and new status are required', 'error');
+                return;
+            }
+            
+            try {
+                const data = await apiCall(`/orders/${orderId}/status`, 'PATCH', {
+                    status: newStatus
                 });
-                log(`Template created: ${data.data.name}`, 'success');
-                getTemplates();
-                
-                // Clear form
-                document.getElementById('templateName').value = '';
-                document.getElementById('templateDesc').value = '';
-                document.getElementById('templateCategoryId').value = '';
+                renderData(data, 'orderData');
+                log(`Order ${orderId} status updated to ${newStatus}`, 'success');
             } catch (error) {
-                // Error already logged in apiCall
+                document.getElementById('orderData').innerHTML = '<p class="status error">Failed to update order status</p>';
             }
         }
 
-        async function getProducts() {
-            try {
-                const data = await apiCall('/inventory/products');
-                renderTable(data, 'productsData');
-            } catch (error) {
-                document.getElementById('productsData').innerHTML = '<p class="status error">Failed to load products</p>';
-            }
-        }
-
-        async function createProduct() {
-            const product_template_id = document.getElementById('productTemplate').value;
-            const category_id = document.getElementById('productCategory').value;
-            const supplier_id = document.getElementById('productSupplierId').value || null;
-            const sku = document.getElementById('productSku').value || null;
-            const variant_name = document.getElementById('productVariant').value || null;
-            const price = parseFloat(document.getElementById('productPrice').value);
-            const description = document.getElementById('productDescription').value || null;
-            const image_url = document.getElementById('productImageUrl').value || null;
-            const units = parseInt(document.getElementById('productUnits').value);
-            const low_stock_threshold = parseInt(document.getElementById('productThreshold').value) || 10;
-            const product_type = document.getElementById('productType').value;
-            const main_product_id = document.getElementById('mainProductId').value || null;
+        async function getOrdersWithFilters() {
+            const status = document.getElementById('statusFilter').value;
+            const orderType = document.getElementById('orderTypeFilter').value;
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
             
-            if (!product_template_id || !category_id || !price || isNaN(units)) {
-                log('Template ID, Category ID, Price, and Units are required', 'error');
+            let endpoint = '/orders/?';
+            const params = [];
+            
+            if (status) params.push(`status=${status}`);
+            if (orderType) params.push(`order_type=${orderType}`);
+            if (dateFrom) params.push(`date_from=${dateFrom}`);
+            if (dateTo) params.push(`date_to=${dateTo}`);
+            
+            endpoint += params.join('&');
+            
+            try {
+                const data = await apiCall(endpoint);
+                renderTable(data, 'filteredData');
+            } catch (error) {
+                document.getElementById('filteredData').innerHTML = '<p class="status error">Failed to load filtered orders</p>';
+            }
+        }
+
+        // Statistics
+        async function getTodayStats() {
+            try {
+                const data = await apiCall('/orders/stats/today');
+                renderData(data, 'statsData');
+            } catch (error) {
+                document.getElementById('statsData').innerHTML = '<p class="status error">Failed to load today stats</p>';
+            }
+        }
+
+        // Analytics
+        async function getChefAnalytics() {
+            const chefId = document.getElementById('chefId').value;
+            const days = document.getElementById('analyticsDays').value || 30;
+            
+            if (!chefId) {
+                log('Chef ID is required', 'error');
                 return;
             }
             
             try {
-                const data = await apiCall('/inventory/products', 'POST', {
-                    product_template_id, category_id, supplier_id, sku, variant_name, 
-                    price, description, image_url, units, low_stock_threshold,
-                    product_type, main_product_id
-                });
-                log(`Product created: ${data.data.id}`, 'success');
-                getProducts();
-                
-                // Clear form
-                document.getElementById('productTemplate').value = '';
-                document.getElementById('productCategory').value = '';
-                document.getElementById('productSupplierId').value = '';
-                document.getElementById('productSku').value = '';
-                document.getElementById('productVariant').value = '';
-                document.getElementById('productPrice').value = '';
-                document.getElementById('productDescription').value = '';
-                document.getElementById('productImageUrl').value = '';
-                document.getElementById('productUnits').value = '';
-                document.getElementById('productThreshold').value = '';
-                document.getElementById('productType').value = 'main';
-                document.getElementById('mainProductId').value = '';
+                const data = await apiCall(`/orders/analytics/chef/${chefId}?days=${days}`);
+                renderData(data, 'analyticsData');
             } catch (error) {
-                // Error already logged in apiCall
+                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load chef analytics</p>';
             }
         }
 
-        async function updateStock() {
-            const productId = document.getElementById('stockProductId').value;
-            const quantity = parseInt(document.getElementById('stockQuantity').value);
-            const operation = document.getElementById('stockOperation').value;
-            const notes = document.getElementById('stockNotes').value;
-            
-            if (!productId || isNaN(quantity) || quantity <= 0) {
-                log('Product ID and valid quantity are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/stock`, 'POST', {
-                    quantity: quantity,
-                    operation: operation,
-                    notes: notes
-                });
-                log(`Stock updated: ${data.message}`, 'success');
-                renderSummary(data, 'stockData');
-            } catch (error) {
-                // Error already logged in apiCall
-            }
+        // Queue Management
+        async function refreshQueue() {
+            await getKitchenBatchQueue();
+            await getKitchenQueue();
+            log('Kitchen queues refreshed', 'success');
         }
 
-        async function getStockHistory() {
-            const productId = document.getElementById('stockProductId').value;
-            if (!productId) {
-                log('Product ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/history`);
-                renderTable(data, 'stockData');
-            } catch (error) {
-                document.getElementById('stockData').innerHTML = '<p class="status error">Failed to load stock history</p>';
-            }
+        async function clearCompletedOrders() {
+            log('Clear completed orders - this would filter out completed orders from display', 'info');
+            document.getElementById('queueData').innerHTML = '<p class="status success">Completed orders cleared from view</p>';
         }
 
-        async function getMainProducts() {
-            try {
-                const data = await apiCall('/inventory/main-products-dropdown');
-                renderTable(data, 'actionsData');
-            } catch (error) {
-                document.getElementById('actionsData').innerHTML = '<p class="status error">Failed to load main products</p>';
-            }
+        // Performance
+        async function getKitchenPerformance() {
+            const days = document.getElementById('reportDays').value || 7;
+            
+            log(`Kitchen performance report for last ${days} days`, 'info');
+            document.getElementById('performanceData').innerHTML = `
+                <p class="status info">Performance report for ${days} days</p>
+                <p>Use Chef Analytics for detailed performance data</p>
+            `;
         }
 
-        async function getProductExtras() {
-            const productId = document.getElementById('actionProductId').value;
-            if (!productId) {
-                log('Product ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/extras`);
-                renderTable(data, 'actionsData');
-            } catch (error) {
-                document.getElementById('actionsData').innerHTML = '<p class="status error">Failed to load product extras</p>';
-            }
+        async function getPreparationTimes() {
+            log('Preparation times analysis', 'info');
+            document.getElementById('performanceData').innerHTML = `
+                <p class="status info">Preparation times analysis</p>
+                <p>Available in Chef Analytics section</p>
+            `;
         }
 
-        async function toggleAvailability() {
-            const productId = document.getElementById('actionProductId').value;
-            const isAvailable = document.getElementById('productAvailable').value === 'true';
-            
-            if (!productId) {
-                log('Product ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/availability`, 'PATCH', {
-                    is_available: isAvailable
-                });
-                log(`Availability updated: ${data.message}`, 'success');
-            } catch (error) {
-                // Error already logged in apiCall
-            }
-        }
-
-        // ========== RAW MATERIALS FUNCTIONS ==========
-
-        async function getRawMaterialsDashboard() {
-            try {
-                const data = await apiCall('/inventory/materials_dashboard');
-                renderSummary(data.summary, 'rawDashboardData');
-            } catch (error) {
-                document.getElementById('rawDashboardData').innerHTML = '<p class="status error">Failed to load raw materials dashboard</p>';
-            }
-        }
-
-        async function getRawMaterialsLowStock() {
-            try {
-                const data = await apiCall('/inventory/reports/low-stock');
-                renderTable(data.alerts, 'rawDashboardData');
-            } catch (error) {
-                document.getElementById('rawDashboardData').innerHTML = '<p class="status error">Failed to load low stock report</p>';
-            }
-        }
-
-        async function createRawMaterial() {
-            const name = document.getElementById('rawMaterialName').value;
-            const sku = document.getElementById('rawMaterialSku').value || null;
-            const measurement_unit = document.getElementById('rawMaterialUnit').value;
-            const units_per_pack = parseInt(document.getElementById('rawMaterialUnitsPerPack').value) || null;
-            const supplier_id = document.getElementById('supplierSelect').value || null;
-            const initial_quantity = parseFloat(document.getElementById('rawMaterialInitialQty').value) || 0;
-            const purchase_price = parseFloat(document.getElementById('rawMaterialPrice').value) || null;
-            const notes = document.getElementById('rawMaterialNotes').value || null;
-            
-            if (!name || !measurement_unit) {
-                log('Name and measurement unit are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall('/inventory/create_raw-materials', 'POST', {
-                    name, sku, measurement_unit, units_per_pack, supplier_id, 
-                    initial_quantity, purchase_price, notes
-                });
-                log(`Raw material created: ${data.data.name}`, 'success');
-                getRawMaterials();
-                
-                // Clear form
-                document.getElementById('rawMaterialName').value = '';
-                document.getElementById('rawMaterialSku').value = '';
-                document.getElementById('rawMaterialUnit').value = 'kg';
-                document.getElementById('rawMaterialUnitsPerPack').value = '';
-                document.getElementById('supplierSelect').value = '';
-                document.getElementById('rawMaterialInitialQty').value = '';
-                document.getElementById('rawMaterialPrice').value = '';
-                document.getElementById('rawMaterialNotes').value = '';
-            } catch (error) {
-                // Error already logged in apiCall
-            }
-        }
-
-        async function getRawMaterials() {
-            try {
-                const data = await apiCall('/inventory/get_raw_materials');
-                renderTable(data, 'rawMaterialsData');
-            } catch (error) {
-                document.getElementById('rawMaterialsData').innerHTML = '<p class="status error">Failed to load raw materials</p>';
-            }
-        }
-
-        async function searchRawMaterials() {
-            const search = document.getElementById('rawMaterialSearch').value;
-            const measurement_unit = document.getElementById('rawMaterialFilterUnit').value;
-            const low_stock_only = document.getElementById('lowStockOnly').value === 'true';
-            
-            let url = '/inventory/get_raw_materials?';
-            if (search) url += `search=${encodeURIComponent(search)}&`;
-            if (measurement_unit) url += `measurement_unit=${measurement_unit}&`;
-            if (low_stock_only) url += `low_stock_only=true&`;
-            
-            try {
-                const data = await apiCall(url);
-                renderTable(data, 'rawMaterialsData');
-            } catch (error) {
-                document.getElementById('rawMaterialsData').innerHTML = '<p class="status error">Failed to search raw materials</p>';
-            }
-        }
-
-        async function createTransaction() {
-            const material_id = document.getElementById('transactionMaterialId').value;
-            const transaction_type = document.getElementById('transactionType').value;
-            const quantity = parseFloat(document.getElementById('transactionQuantity').value);
-            const cost = parseFloat(document.getElementById('transactionCost').value) || null;
-            const notes = document.getElementById('transactionNotes').value;
-            
-            if (!material_id || isNaN(quantity) || quantity <= 0) {
-                log('Material ID and valid quantity are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall('/inventory/transactions', 'POST', {
-                    material_id, transaction_type, quantity, cost, notes
-                });
-                log(`Transaction recorded: ${data.message}`, 'success');
-                renderSummary(data, 'transactionData');
-            } catch (error) {
-                // Error already logged in apiCall
-            }
-        }
-
-        async function getTransactionHistory() {
-            const materialId = document.getElementById('transactionMaterialId').value;
-            if (!materialId) {
-                log('Material ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/${materialId}/transactions`);
-                renderTable(data, 'transactionData');
-            } catch (error) {
-                document.getElementById('transactionData').innerHTML = '<p class="status error">Failed to load transaction history</p>';
-            }
-        }
-
-        async function getMaterialDetails() {
-            const materialId = document.getElementById('materialDetailId').value;
-            if (!materialId) {
-                log('Material ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/${materialId}`);
-                renderSummary(data, 'materialDetailsData');
-            } catch (error) {
-                document.getElementById('materialDetailsData').innerHTML = '<p class="status error">Failed to load material details</p>';
-            }
-        }
-
-        async function updateMaterial() {
-            const materialId = document.getElementById('materialDetailId').value;
-            const name = document.getElementById('updateMaterialName').value;
-            const sku = document.getElementById('updateMaterialSku').value;
-            const notes = document.getElementById('updateMaterialNotes').value;
-            
-            if (!materialId) {
-                log('Material ID is required', 'error');
-                return;
-            }
-            
-            const updates = {};
-            if (name) updates.name = name;
-            if (sku) updates.sku = sku;
-            if (notes) updates.notes = notes;
-            
-            if (Object.keys(updates).length === 0) {
-                log('At least one field to update is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/${materialId}`, 'PATCH', updates);
-                log(`Material updated: ${data.message}`, 'success');
-                getMaterialDetails();
-            } catch (error) {
-                // Error already logged in apiCall
-            }
-        }
-
-        async function getRawMaterialsUsageSummary() {
-            const dateFrom = document.getElementById('analyticsDateFrom').value;
-            const dateTo = document.getElementById('analyticsDateTo').value;
-            const materialId = document.getElementById('analyticsMaterialId').value;
-            
-            let url = '/inventory/analytics/usage-summary?';
-            if (dateFrom) url += `date_from=${dateFrom}&`;
-            if (dateTo) url += `date_to=${dateTo}&`;
-            if (materialId) url += `material_id=${materialId}&`;
-            
-            try {
-                const data = await apiCall(url);
-                renderSummary(data, 'rawAnalyticsData');
-            } catch (error) {
-                document.getElementById('rawAnalyticsData').innerHTML = '<p class="status error">Failed to load usage summary</p>';
-            }
-        }
-
-        async function getRawMaterialsCostAnalysis() {
-            const dateFrom = document.getElementById('analyticsDateFrom').value;
-            const dateTo = document.getElementById('analyticsDateTo').value;
-            
-            let url = '/inventory/analytics/cost-analysis?';
-            if (dateFrom) url += `date_from=${dateFrom}&`;
-            if (dateTo) url += `date_to=${dateTo}&`;
-            
-            try {
-                const data = await apiCall(url);
-                renderSummary(data, 'rawAnalyticsData');
-            } catch (error) {
-                document.getElementById('rawAnalyticsData').innerHTML = '<p class="status error">Failed to load cost analysis</p>';
-            }
-        }
-
-        // ========== IMAGES & BANNERS FUNCTIONS ==========
-
-        async function uploadImage() {
-            const fileInput = document.getElementById('imageFile');
-            const imageType = document.getElementById('imageType').value;
-            
-            if (!fileInput.files[0]) {
-                log('Please select a file to upload', 'error');
-                return;
-            }
-            
-            const file = fileInput.files[0];
-            
-            // Validate file type
-            const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-            if (!validTypes.includes(file.type)) {
-                log('Invalid file type. Please select a JPEG, PNG, or WebP image', 'error');
-                return;
-            }
-            
-            // Validate file size based on image type
-            const sizeLimit = {
-                'product': 5 * 1024 * 1024,   // 5MB
-                'category': 3 * 1024 * 1024,  // 3MB  
-                'banner': 10 * 1024 * 1024    // 10MB
-            };
-            
-            if (file.size > sizeLimit[imageType]) {
-                const maxMB = sizeLimit[imageType] / (1024 * 1024);
-                log(`File too large. Maximum ${maxMB}MB allowed for ${imageType} images`, 'error');
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('image_type', imageType);
-            
-            try {
-                const data = await uploadApiCall('/inventory/upload-image', formData);
-                log(`Image uploaded successfully: ${data.image_url}`, 'success');
-                document.getElementById('uploadResult').innerHTML = `
-                    <div class="status success">
-                        <p>Upload successful!</p>
-                        <p><strong>URL:</strong> ${data.image_url}</p>
-                        <p><strong>Filename:</strong> ${data.filename}</p>
-                        <p><strong>Type:</strong> ${data.type}</p>
-                    </div>
-                `;
-                
-                // Clear file input
-                fileInput.value = '';
-                document.getElementById('selectedFile').textContent = 'No file selected';
-            } catch (error) {
-                document.getElementById('uploadResult').innerHTML = `<p class="status error">Upload failed: ${error.message}</p>`;
-            }
-        }
-
-        async function getBanners() {
-            try {
-                const data = await apiCall('/inventory/banners?active_only=false');
-                renderTable(data, 'bannersData');
-            } catch (error) {
-                document.getElementById('bannersData').innerHTML = '<p class="status error">Failed to load banners</p>';
-            }
-        }
-
-        async function createBanner() {
-            const title = document.getElementById('bannerTitle').value;
-            const description = document.getElementById('bannerDescription').value;
-            const image_url = document.getElementById('bannerImageUrl').value;
-            const link_url = document.getElementById('bannerLinkUrl').value || null;
-            const is_active = document.getElementById('bannerActive').value === 'true';
-            const display_order = parseInt(document.getElementById('bannerDisplayOrder').value) || 0;
-            
-            if (!title || !image_url) {
-                log('Title and Image URL are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall('/inventory/banners', 'POST', {
-                    title, description, image_url, link_url, is_active, display_order
-                });
-                log(`Banner created: ${data.data.title}`, 'success');
-                getBanners();
-                
-                // Clear form
-                document.getElementById('bannerTitle').value = '';
-                document.getElementById('bannerDescription').value = '';
-                document.getElementById('bannerImageUrl').value = '';
-                document.getElementById('bannerLinkUrl').value = '';
-                document.getElementById('bannerActive').value = 'true';
-                document.getElementById('bannerDisplayOrder').value = '';
-            } catch (error) {
-                // Error already logged in apiCall
-            }
-        }
-
-        async function updateBanner() {
-            const bannerId = document.getElementById('bannerActionId').value;
-            const title = document.getElementById('updateBannerTitle').value;
-            const description = document.getElementById('updateBannerDescription').value;
-            const image_url = document.getElementById('updateBannerImageUrl').value;
-            const is_active = document.getElementById('updateBannerActive').value;
-            
-            if (!bannerId) {
-                log('Banner ID is required', 'error');
-                return;
-            }
-            
-            const updates = {};
-            if (title) updates.title = title;
-            if (description) updates.description = description;
-            if (image_url) updates.image_url = image_url;
-            if (is_active !== '') updates.is_active = is_active === 'true';
-            
-            if (Object.keys(updates).length === 0) {
-                log('At least one field to update is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/banners/${bannerId}`, 'PATCH', updates);
-                log(`Banner updated: ${data.message}`, 'success');
-                getBanners();
-                document.getElementById('bannerActionsData').innerHTML = `<p class="status success">${data.message}</p>`;
-            } catch (error) {
-                document.getElementById('bannerActionsData').innerHTML = `<p class="status error">Failed to update banner</p>`;
-            }
-        }
-
-        async function deleteBanner() {
-            const bannerId = document.getElementById('bannerActionId').value;
-            
-            if (!bannerId) {
-                log('Banner ID is required', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to delete this banner?')) {
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/banners/${bannerId}`, 'DELETE');
-                log(`Banner deleted: ${data.message}`, 'success');
-                getBanners();
-                document.getElementById('bannerActionsData').innerHTML = `<p class="status success">${data.message}</p>`;
-            } catch (error) {
-                document.getElementById('bannerActionsData').innerHTML = `<p class="status error">Failed to delete banner</p>`;
-            }
-        }
-
-        // ========== ANALYTICS FUNCTIONS ==========
-
-        async function getValuation() {
-            try {
-                const data = await apiCall('/inventory/analytics/valuation');
-                renderSummary(data, 'analyticsData');
-            } catch (error) {
-                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load valuation</p>';
-            }
-        }
-
-        async function getMovementTrends() {
-            const days = parseInt(document.getElementById('analyticsDays').value) || 30;
-            try {
-                const data = await apiCall(`/inventory/analytics/movement?days=${days}`);
-                renderTable(data.daily_movements, 'analyticsData');
-            } catch (error) {
-                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load movement trends</p>';
-            }
-        }
-
-        async function getReorderSuggestions() {
-            try {
-                const data = await apiCall('/inventory/reorder-suggestions');
-                renderTable(data.suggestions, 'analyticsData');
-            } catch (error) {
-                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load reorder suggestions</p>';
-            }
-        }
-
-        async function getPerformance() {
-            const days = parseInt(document.getElementById('analyticsDays').value) || 30;
-            try {
-                const data = await apiCall(`/inventory/performance?days=${days}`);
-                renderTable(data.top_performers.by_revenue, 'analyticsData');
-            } catch (error) {
-                document.getElementById('analyticsData').innerHTML = '<p class="status error">Failed to load performance data</p>';
-            }
-        }
-
-        async function getEnhancedAlerts() {
-            const includePredictions = document.getElementById('includePredictions').value === 'true';
-            try {
-                const data = await apiCall(`/inventory/alerts/enhanced?include_predictions=${includePredictions}`);
-                renderTable(data.predictions, 'alertsData');
-            } catch (error) {
-                document.getElementById('alertsData').innerHTML = '<p class="status error">Failed to load enhanced alerts</p>';
-            }
-        }
-
-        async function getCategoryComparison() {
-            const days = parseInt(document.getElementById('analyticsDays').value) || 30;
-            try {
-                const data = await apiCall(`/inventory/analytics/category-comparison?days=${days}`);
-                renderTable(data.category_comparison, 'alertsData');
-            } catch (error) {
-                document.getElementById('alertsData').innerHTML = '<p class="status error">Failed to load category comparison</p>';
-            }
-        }
-
-        async function getInventoryStaffAnalytics() {
-            const staffId = document.getElementById('staffAnalyticsId').value;
-            const days = parseInt(document.getElementById('staffAnalyticsDays').value) || 30;
-            
-            if (!staffId) {
-                log('Staff ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/analytics/staff/${staffId}?days=${days}`);
-                renderSummary(data, 'staffAnalyticsData');
-            } catch (error) {
-                document.getElementById('staffAnalyticsData').innerHTML = '<p class="status error">Failed to load staff analytics</p>';
-            }
-        }
-
-        async function getAllInventoryStaffAnalytics() {
-            const days = parseInt(document.getElementById('staffAnalyticsDays').value) || 30;
-            try {
-                const data = await apiCall(`/inventory/analytics/all-inventory-staff?days=${days}`);
-                renderTable(data.staff_analytics, 'staffAnalyticsData');
-            } catch (error) {
-                document.getElementById('staffAnalyticsData').innerHTML = '<p class="status error">Failed to load all staff analytics</p>';
-            }
-        }
-
-        async function getWastageAnalysis() {
-            const days = parseInt(document.getElementById('wastageDays').value) || 30;
-            try {
-                const data = await apiCall(`/inventory/analytics/wastage?days=${days}`);
-                renderSummary(data, 'wastageData');
-            } catch (error) {
-                document.getElementById('wastageData').innerHTML = '<p class="status error">Failed to load wastage analysis</p>';
-            }
-        }
-
-        async function getOptimization() {
-            try {
-                const data = await apiCall('/inventory/optimization');
-                renderSummary(data.summary, 'optimizationData');
-            } catch (error) {
-                document.getElementById('optimizationData').innerHTML = '<p class="status error">Failed to load optimization data</p>';
-            }
-        }
-
-        // ========== ADVANCED FUNCTIONS ==========
-
-        async function testBulkOperations() {
-            const testData = [
-                { product_id: "sample-id-1", quantity: 10, operation: "add", notes: "Test bulk add" },
-                { product_id: "sample-id-2", quantity: 5, operation: "remove", notes: "Test bulk remove" }
-            ];
-            
-            try {
-                const data = await apiCall('/inventory/bulk-operations', 'POST', testData);
-                renderSummary(data, 'bulkData');
-            } catch (error) {
-                document.getElementById('bulkData').innerHTML = '<p class="status error">Failed to test bulk operations</p>';
-            }
-        }
-
-        async function getSKUCodes() {
-            try {
-                const data = await apiCall('/inventory/sku-codes?active_only=false');
-                renderTable(data, 'skuData');
-            } catch (error) {
-                document.getElementById('skuData').innerHTML = '<p class="status error">Failed to load SKU codes</p>';
-            }
-        }
-
-        async function createSKUCode() {
-            const code = document.getElementById('skuCode').value;
-            const name = document.getElementById('skuName').value;
-            const description = document.getElementById('skuDescription').value || null;
-            const category_id = document.getElementById('skuCategoryId').value || null;
-            const supplier_id = document.getElementById('skuSupplierId').value || null;
-            const barcode = document.getElementById('skuBarcode').value || null;
-            const manufacturer_code = document.getElementById('skuManufacturerCode').value || null;
-            
-            if (!code || !name) {
-                log('SKU code and name are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall('/inventory/sku-codes', 'POST', {
-                    code, name, description, category_id, supplier_id, 
-                    barcode, manufacturer_code
-                });
-                log(`SKU code created: ${data.data.code}`, 'success');
-                getSKUCodes();
-                
-                // Clear form
-                document.getElementById('skuCode').value = '';
-                document.getElementById('skuName').value = '';
-                document.getElementById('skuDescription').value = '';
-                document.getElementById('skuCategoryId').value = '';
-                document.getElementById('skuSupplierId').value = '';
-                document.getElementById('skuBarcode').value = '';
-                document.getElementById('skuManufacturerCode').value = '';
-            } catch (error) {
-                // Error already logged in apiCall
-            }
-        }
-
-        async function mapSKUToProduct() {
-            const productId = document.getElementById('mapProductId').value;
-            const skuCodeId = document.getElementById('mapSKUId').value;
-            const isPrimary = document.getElementById('mapPrimary').value === 'true';
-            
-            if (!productId || !skuCodeId) {
-                log('Product ID and SKU Code ID are required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/map-sku`, 'POST', {
-                    sku_code_id: skuCodeId,
-                    is_primary: isPrimary
-                });
-                log(`SKU mapped to product: ${data.message}`, 'success');
-                document.getElementById('mappingData').innerHTML = `<p class="status success">${data.message}</p>`;
-            } catch (error) {
-                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to map SKU</p>';
-            }
-        }
-
-        async function getProductSKUs() {
-            const productId = document.getElementById('mapProductId').value;
-            if (!productId) {
-                log('Product ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/skus`);
-                renderTable(data, 'mappingData');
-            } catch (error) {
-                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to load product SKUs</p>';
-            }
-        }
-
-        async function unmapSKUFromProduct() {
-            const productId = document.getElementById('mapProductId').value;
-            const skuId = document.getElementById('mapSKUId').value;
-            
-            if (!productId || !skuId) {
-                log('Product ID and SKU ID are required', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to unmap this SKU?')) {
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/products/${productId}/unmap-sku/${skuId}`, 'DELETE');
-                log(`SKU unmapped: ${data.message}`, 'success');
-                document.getElementById('mappingData').innerHTML = `<p class="status success">${data.message}</p>`;
-            } catch (error) {
-                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to unmap SKU</p>';
-            }
-        }
-
-        async function getSKUProducts() {
-            const skuId = document.getElementById('mapSKUId').value;
-            if (!skuId) {
-                log('SKU ID is required', 'error');
-                return;
-            }
-            
-            try {
-                const data = await apiCall(`/inventory/sku-codes/${skuId}/products`);
-                renderTable(data, 'mappingData');
-            } catch (error) {
-                document.getElementById('mappingData').innerHTML = '<p class="status error">Failed to load SKU products</p>';
-            }
-        }
-
+        // System
         async function getSystemInfo() {
             try {
-                const data = await apiCall('/auth/debug/auth-test');
-                renderSummary(data, 'systemData');
+                const data = await apiCall('/orders/stats/today');
+                document.getElementById('systemData').innerHTML = `
+                    <p class="status success">API is responding</p>
+                    <p>Kitchen endpoints: Available</p>
+                    <p>Batch endpoints: Available</p>
+                    <p>History endpoints: Available</p>
+                    <p>Last response time: ${new Date().toLocaleTimeString()}</p>
+                `;
             } catch (error) {
-                document.getElementById('systemData').innerHTML = '<p class="status error">Failed to load system info</p>';
+                document.getElementById('systemData').innerHTML = '<p class="status error">System check failed</p>';
             }
         }
 
+        async function checkApiHealth() {
+            try {
+                await apiCall('/orders/queue/kitchen-batches');
+                await apiCall('/orders/queue/kitchen');
+                await apiCall('/orders/queue/history?limit=1');
+                document.getElementById('systemData').innerHTML = '<p class="status success">API Health: OK (Batch, Individual & History)</p>';
+                log('API health check passed (including batch and history endpoints)', 'success');
+            } catch (error) {
+                document.getElementById('systemData').innerHTML = '<p class="status error">API Health: FAILED</p>';
+                log('API health check failed', 'error');
+            }
+        }
+
+        // Auto-set today's date for filters
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date().toISOString().split('T')[0];
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            
+            document.getElementById('dateTo').value = today;
+            document.getElementById('dateFrom').value = sevenDaysAgo;
+        });
+
         // Initialize
-        log('Complete Inventory Test Interface loaded (Updated)', 'success');
-        
-        // Set default dates
-        const today = new Date().toISOString().split('T')[0];
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        document.getElementById('analyticsDateFrom').value = thirtyDaysAgo;
-        document.getElementById('analyticsDateTo').value = today;
+        log('Kitchen Management Test Interface with Batch Support and History loaded', 'success');
     </script>
 </body>
 </html>
-                

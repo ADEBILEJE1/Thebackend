@@ -965,7 +965,7 @@ async def recall_confirmed_order(
 
 @router.get("/batches")
 async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
-    """Get order batches waiting for kitchen push"""
+    """Get order batches waiting for kitchen push - only confirmed status"""
     result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "confirmed").not_.is_("batch_id", "null").order("batch_created_at").execute()
     
     # Group by batch_id
@@ -989,24 +989,41 @@ async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
     
     return list(batches.values())
 
+
 @router.get("/batches/{batch_id}/details")
 async def get_batch_details(
     batch_id: str,
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get detailed information about a specific batch"""
-    orders = supabase_admin.table("orders").select("*, order_items(*)").eq("batch_id", batch_id).execute()
+    orders = supabase_admin.table("orders").select("""
+        *, 
+        order_items(*),
+        customer_addresses(full_address, delivery_areas(name, estimated_time)),
+        website_customers(full_name, email, phone)
+    """).eq("batch_id", batch_id).execute()
     
     if not orders.data:
         raise HTTPException(status_code=404, detail="Batch not found")
     
-    # Calculate batch totals
+    # Extract comprehensive customer and delivery info
+    first_order = orders.data[0]
+    customer_info = {
+        "name": first_order.get("customer_name") or (first_order.get("website_customers", {}) or {}).get("full_name"),
+        "phone": first_order.get("customer_phone") or (first_order.get("website_customers", {}) or {}).get("phone"),
+        "email": first_order.get("customer_email") or (first_order.get("website_customers", {}) or {}).get("email")
+    }
+    
+    delivery_info = first_order.get("customer_addresses")
+    
     total_items = sum(len(order["order_items"]) for order in orders.data)
     total_amount = sum(float(order["total"]) for order in orders.data)
     
     return {
         "batch_id": batch_id,
         "orders": orders.data,
+        "customer_info": customer_info,
+        "delivery_info": delivery_info,
         "summary": {
             "order_count": len(orders.data),
             "total_items": total_items,
@@ -1015,6 +1032,8 @@ async def get_batch_details(
             "batch_created_at": orders.data[0]["batch_created_at"] if orders.data else None
         }
     }
+
+
 
 @router.post("/batches/{batch_id}/push-to-kitchen")
 async def push_batch_to_kitchen(
@@ -1055,3 +1074,42 @@ async def push_batch_to_kitchen(
     )
     
     return {"message": f"Batch {batch_id} pushed to kitchen", "orders_count": len(orders.data)}
+
+
+
+@router.get("/batches/history")
+async def get_batch_history(
+    current_user: dict = Depends(require_sales_staff),
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """Get processed batch history"""
+    result = supabase_admin.table("orders").select("""
+        *, 
+        order_items(*),
+        customer_addresses(full_address, delivery_areas(name)),
+        website_customers(full_name, email, phone)
+    """).not_.is_("batch_id", "null").in_("status", ["preparing", "completed"]).order("preparing_at", desc=True).range(offset, offset + limit - 1).execute()
+    
+    # Group by batch_id
+    batches = {}
+    for order in result.data:
+        batch_id = order["batch_id"]
+        if batch_id not in batches:
+            batches[batch_id] = {
+                "batch_id": batch_id,
+                "orders": [],
+                "total_items": 0,
+                "status": order["status"],
+                "pushed_at": order["preparing_at"],
+                "completed_at": order.get("completed_at"),
+                "customer_info": {
+                    "name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
+                    "phone": order.get("customer_phone") or (order.get("website_customers", {}) or {}).get("phone")
+                }
+            }
+        
+        batches[batch_id]["orders"].append(order)
+        batches[batch_id]["total_items"] += len(order["order_items"])
+    
+    return {"batches": list(batches.values())}
