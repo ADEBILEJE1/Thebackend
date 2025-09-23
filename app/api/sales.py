@@ -38,6 +38,7 @@ class OfflineOrderCreate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     payment_method: str = Field(..., pattern="^(cash|card|transfer)$")
+    order_type: str = Field(..., pattern="^(dine_in|takeout)$")
     notes: Optional[str] = None
 
 class OrderConfirm(BaseModel):
@@ -673,27 +674,36 @@ async def get_all_staff_analytics(
 
 
 
-@router.post("/orders/validate-cart")
-async def validate_sales_cart(
+@router.post("/orders/validate-stock")
+async def validate_stock_before_order(
     items: List[Dict[str, Any]],
     current_user: dict = Depends(require_sales_staff)
 ):
-    """Validate cart items for sales order"""
-    try:
-        # Use website cart validation logic
-        processed_items = await CartService.validate_cart_items(items)
-        totals = CartService.calculate_order_total(processed_items)
+    """Live stock validation before creating order"""
+    stock_issues = []
+    warnings = []
+    
+    for item in items:
+        product = supabase.table("products").select("name, units, status, low_stock_threshold").eq("id", item["product_id"]).execute()
         
-        return {
-            "items": processed_items,
-            "totals": {
-                "subtotal": float(totals["subtotal"]),
-                "vat": float(totals["vat"]),
-                "total": float(totals["total"])
-            }
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        if not product.data:
+            stock_issues.append(f"Product {item['product_id']} not found")
+            continue
+            
+        product_data = product.data[0]
+        
+        if product_data["status"] == "out_of_stock":
+            stock_issues.append(f"{product_data['name']} is out of stock")
+        elif product_data["units"] < item["quantity"]:
+            stock_issues.append(f"{product_data['name']} - only {product_data['units']} available, requested {item['quantity']}")
+        elif product_data["status"] == "low_stock":
+            warnings.append(f"{product_data['name']} is low stock ({product_data['units']} remaining)")
+    
+    return {
+        "valid": len(stock_issues) == 0,
+        "issues": stock_issues,
+        "warnings": warnings
+    }
 
 @router.post("/orders")
 async def create_offline_order(
@@ -712,10 +722,15 @@ async def create_offline_order(
 
     # Generate order number
     order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
+
+    display_number = SalesService.get_next_display_number()
     
     # Create order (pending status)
     order_entry = {
         "order_number": order_number,
+        "display_number": display_number,
+        "order_number": order_number,
+        "service_type": order_data.order_type,
         "order_type": "offline",
         "status": "pending",
         "payment_status": "pending",
