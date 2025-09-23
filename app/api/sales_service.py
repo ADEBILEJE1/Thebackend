@@ -830,6 +830,9 @@ class SalesService:
             
             # Calculate new stock
             new_units = current_units - item["quantity"]
+
+            if new_units < 0:
+                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {current_units}, Requested: {item['quantity']}")
             
             # Determine new status
             if new_units == 0:
@@ -848,13 +851,13 @@ class SalesService:
             }).eq("id", item["product_id"]).execute()
             
             # Log stock entry
-            supabase.table("stock_entries").insert({
-                "product_id": item["product_id"],
-                "quantity": item["quantity"],
-                "entry_type": "remove",
-                "notes": f"Offline order sale",
-                "entered_by": user_id
-            }).execute()
+            # supabase.table("stock_entries").insert({
+            #     "product_id": item["product_id"],
+            #     "quantity": item["quantity"],
+            #     "entry_type": "remove",
+            #     "notes": f"Offline order sale",
+            #     "entered_by": user_id
+            # }).execute()
         
         # Invalidate inventory caches for real-time updates
         redis_client.delete_pattern("products:list:*")

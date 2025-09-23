@@ -183,10 +183,33 @@ async def get_kitchen_queue(
 
 
 
+# @router.get("/queue/kitchen-batches")
+# async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
+#     """Get orders grouped by batches"""
+#     result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "preparing").not_.is_("batch_id", "null").order("preparing_at").execute()
+    
+#     # Group by batch_id
+#     batches = {}
+#     for order in result.data:
+#         batch_id = order["batch_id"]
+#         if batch_id not in batches:
+#             batches[batch_id] = {
+#                 "batch_id": batch_id,
+#                 "customer_name": order.get("customer_name"),
+#                 "orders": [],
+#                 "total_items": 0
+#             }
+        
+#         batches[batch_id]["orders"].append(order)
+#         batches[batch_id]["total_items"] += len(order["order_items"])
+    
+#     return {"batches": list(batches.values())}
+
+
 @router.get("/queue/kitchen-batches")
 async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
     """Get orders grouped by batches"""
-    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "preparing").not_.is_("batch_id", "null").order("preparing_at").execute()
+    result = supabase_admin.table("orders").select("*, order_items(*)").not_.is_("batch_id", "null").order("preparing_at").execute()
     
     # Group by batch_id
     batches = {}

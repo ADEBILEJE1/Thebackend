@@ -959,3 +959,99 @@ async def recall_confirmed_order(
     )
     
     return {"message": "Order recalled and stock restored"}
+
+
+
+
+@router.get("/batches")
+async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
+    """Get order batches waiting for kitchen push"""
+    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "confirmed").not_.is_("batch_id", "null").order("batch_created_at").execute()
+    
+    # Group by batch_id
+    batches = {}
+    for order in result.data:
+        batch_id = order["batch_id"]
+        if batch_id not in batches:
+            batches[batch_id] = {
+                "batch_id": batch_id,
+                "customer_name": order.get("customer_name"),
+                "customer_phone": order.get("customer_phone"),
+                "orders": [],
+                "total_items": 0,
+                "total_amount": 0,
+                "batch_created_at": order["batch_created_at"]
+            }
+        
+        batches[batch_id]["orders"].append(order)
+        batches[batch_id]["total_items"] += len(order["order_items"])
+        batches[batch_id]["total_amount"] += float(order["total"])
+    
+    return list(batches.values())
+
+@router.get("/batches/{batch_id}/details")
+async def get_batch_details(
+    batch_id: str,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Get detailed information about a specific batch"""
+    orders = supabase_admin.table("orders").select("*, order_items(*)").eq("batch_id", batch_id).execute()
+    
+    if not orders.data:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    # Calculate batch totals
+    total_items = sum(len(order["order_items"]) for order in orders.data)
+    total_amount = sum(float(order["total"]) for order in orders.data)
+    
+    return {
+        "batch_id": batch_id,
+        "orders": orders.data,
+        "summary": {
+            "order_count": len(orders.data),
+            "total_items": total_items,
+            "total_amount": total_amount,
+            "status": orders.data[0]["status"] if orders.data else None,
+            "batch_created_at": orders.data[0]["batch_created_at"] if orders.data else None
+        }
+    }
+
+@router.post("/batches/{batch_id}/push-to-kitchen")
+async def push_batch_to_kitchen(
+    batch_id: str,
+    request: Request,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Push entire batch to kitchen"""
+    orders = supabase_admin.table("orders").select("*, order_items(*)").eq("batch_id", batch_id).eq("status", "confirmed").execute()
+    
+    if not orders.data:
+        raise HTTPException(status_code=404, detail="No confirmed orders found for this batch")
+    
+    order_ids = [o["id"] for o in orders.data]
+    
+    # Update all orders to preparing
+    supabase.table("orders").update({
+        "status": "preparing",
+        "preparing_at": datetime.utcnow().isoformat()
+    }).in_("id", order_ids).execute()
+    
+    # Deduct stock for all items
+    all_items = []
+    for order in orders.data:
+        all_items.extend(order["order_items"])
+    
+    await SalesService.deduct_stock_immediately(all_items, current_user["id"])
+    
+    # Notify kitchen
+    # await notify_order_update(batch_id, "new_batch", {"batch_id": batch_id, "orders": orders.data})
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "push_batch_to_kitchen", "batch", None,  # Change batch_id to None here
+        {"order_count": len(orders.data)}, 
+        request,
+        batch_id=batch_id
+    )
+    
+    return {"message": f"Batch {batch_id} pushed to kitchen", "orders_count": len(orders.data)}

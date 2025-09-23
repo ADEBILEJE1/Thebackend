@@ -12,7 +12,8 @@ async def log_activity(
     resource: str,
     resource_id: Optional[str] = None,
     details: Optional[dict] = None,
-    request: Optional[Request] = None
+    request: Optional[Request] = None,
+    batch_id: Optional[str] = None
 ):
     """Log user activity"""
     activity = {
@@ -22,6 +23,7 @@ async def log_activity(
         "action": action,
         "resource": resource,
         "resource_id": resource_id,
+        "batch_id": batch_id,
         "details": details,
         "ip_address": request.client.host if request else None
     }
