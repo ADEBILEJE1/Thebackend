@@ -926,7 +926,7 @@ async def confirm_order_payment(
         raise HTTPException(status_code=400, detail="Payment must be confirmed")
     
     # Get order
-    order = supabase.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "pending").execute()
+    order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "pending").execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Pending order not found")
@@ -977,7 +977,7 @@ async def print_sales_receipt(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Generate printable sales receipt"""
-    order = supabase.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
+    order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -986,6 +986,7 @@ async def print_sales_receipt(
     
     receipt_data = {
         "order_number": order_data["order_number"],
+        "batch_id": order_data.get("batch_id"),
         "customer_name": order_data.get("customer_name", "Walk-in Customer"),
         "payment_method": order_data.get("payment_method"),
         "created_at": order_data["created_at"],
@@ -1023,7 +1024,7 @@ async def modify_pending_order(
 ):
     """Modify pending order items"""
     # Check order is pending
-    order = supabase.table("orders").select("*").eq("id", order_id).eq("status", "pending").execute()
+    order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("status", "pending").execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Pending order not found")
