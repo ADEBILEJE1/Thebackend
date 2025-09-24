@@ -920,3 +920,54 @@ class SalesService:
         next_num = (int(current) % 50) + 1
         redis_client.set(key, next_num, 86400)
         return next_num
+    
+
+    @staticmethod
+    async def validate_sales_cart_items(items: List[Dict]) -> List[Dict]:
+        """Validate sales cart items - handles nested extras structure"""
+        processed_items = []
+        all_items_flat = []
+        
+        # Flatten nested extras structure for sales
+        for item in items:
+            # Add main product
+            all_items_flat.append({
+                "product_id": item["product_id"],
+                "quantity": item["quantity"],
+                "notes": item.get("notes")
+            })
+            
+            # Add extras if present
+            if "extras" in item and item["extras"]:
+                for extra in item["extras"]:
+                    all_items_flat.append({
+                        "product_id": extra["id"],
+                        "quantity": extra["quantity"],
+                        "notes": extra.get("notes")
+                    })
+        
+        # Process all items
+        for item in all_items_flat:
+            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            
+            if not product.data:
+                raise ValueError(f"Product {item['product_id']} not found")
+            
+            product_data = product.data[0]
+            
+            if not product_data["is_available"] or product_data["status"] == "out_of_stock":
+                raise ValueError(f"{product_data['name']} is not available")
+            
+            if product_data["units"] < item["quantity"]:
+                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
+            
+            processed_items.append({
+                "product_id": item["product_id"],
+                "product_name": product_data["name"],
+                "quantity": item["quantity"],
+                "unit_price": Decimal(str(product_data["price"])),
+                "total_price": Decimal(str(product_data["price"])) * item["quantity"],
+                "notes": item.get("notes")
+            })
+        
+        return processed_items

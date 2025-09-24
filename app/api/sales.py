@@ -38,7 +38,6 @@ class OfflineOrderCreate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     payment_method: str = Field(..., pattern="^(cash|card|transfer)$")
-    order_type: str = Field(..., pattern="^(dine_in|takeout)$")
     notes: Optional[str] = None
 
 class OrderConfirm(BaseModel):
@@ -833,7 +832,7 @@ async def validate_sales_cart(
     stock_validation = await validate_stock_before_order(items, current_user)
     
     try:
-        processed_items = await CartService.validate_cart_items(items)
+        processed_items = await SalesService.validate_sales_cart_items(items)
         totals = CartService.calculate_order_total(processed_items)
         
         return {
@@ -866,7 +865,7 @@ async def create_offline_order(
             "issues": stock_validation["issues"]
         })
     
-    processed_items = await CartService.validate_cart_items(order_data.items)
+    processed_items = await SalesService.validate_sales_cart_items(order_data.items)
     totals = CartService.calculate_order_total(processed_items)
     
     batch_id = SalesService.generate_batch_id()
@@ -987,7 +986,6 @@ async def print_sales_receipt(
     
     receipt_data = {
         "order_number": order_data["order_number"],
-        "order_type": order_data["order_type"],
         "customer_name": order_data.get("customer_name", "Walk-in Customer"),
         "payment_method": order_data.get("payment_method"),
         "created_at": order_data["created_at"],
@@ -1031,7 +1029,7 @@ async def modify_pending_order(
         raise HTTPException(status_code=404, detail="Pending order not found")
     
     # Validate new items
-    processed_items = await CartService.validate_cart_items(items)
+    processed_items = await SalesService.validate_sales_cart_items(items)
     totals = CartService.calculate_order_total(processed_items)
     
     # Delete existing items
