@@ -1174,7 +1174,7 @@ async def get_batch_details(
     
     delivery_info = first_order.get("customer_addresses")
     
-    total_items = sum(len(order["order_items"]) for order in orders.data)
+    total_items = sum(len(order.get("order_items") or []) for order in orders.data)
     total_amount = sum(float(order["total"]) for order in orders.data)
     
     return {
