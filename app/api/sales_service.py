@@ -911,3 +911,12 @@ class SalesService:
     def generate_batch_id() -> str:
         """Generate unique batch ID for order grouping"""
         return f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
+    
+    @staticmethod
+    def get_next_display_number():
+        today = date.today().isoformat()
+        key = f"display_counter:{today}"
+        current = redis_client.get(key) or 0
+        next_num = (int(current) % 50) + 1
+        redis_client.set(key, next_num, 86400)
+        return next_num
