@@ -167,8 +167,7 @@ async def get_products_for_orders(
         return cached
     
     query = supabase.table("products").select("""
-        id, sku, variant_name, price, description, image_url, units, status, is_available,
-        product_templates(name),
+        id, sku, name, variant_name, price, description, image_url, units, status, is_available,
         categories(id, name)
     """).eq("is_available", True).eq("product_type", "main")
     
@@ -181,7 +180,7 @@ async def get_products_for_orders(
         query = query.eq("category_id", category_id)
     
     if search:
-        query = query.or_(f"product_templates.name.ilike.%{search}%,categories.name.ilike.%{search}%")
+        query = query.or_(f"name.ilike.%{search}%,categories.name.ilike.%{search}%")
     
     if min_price:
         query = query.gte("price", min_price)
@@ -193,16 +192,9 @@ async def get_products_for_orders(
     
     products = []
     for product in result.data:
-        template_name = ""
-        if product.get("product_templates") and product["product_templates"]:
-            template_name = product["product_templates"]["name"]
-        
-        display_name = template_name
+        display_name = product["name"]
         if product.get("variant_name"):
-            display_name += f" - {product['variant_name']}" if template_name else product["variant_name"]
-        
-        if not display_name:
-            display_name = f"Product {product['id'][:8]}"
+            display_name += f" - {product['variant_name']}"
         
         category = {"id": None, "name": "Uncategorized"}
         if product.get("categories") and product["categories"]:
