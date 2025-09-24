@@ -253,7 +253,7 @@ async def get_categories_for_orders(
     if cached:
         return cached
     
-    result = supabase.table("categories").select("*").eq("is_active", True).order("name").execute()
+    result = supabase_admin.table("categories").select("*").eq("is_active", True).order("name").execute()
     
     redis_client.set("sales:categories", result.data, 300)
     return result.data
