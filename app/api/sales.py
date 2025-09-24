@@ -1268,6 +1268,6 @@ async def get_batch_history(
             }
         
         batches[batch_id]["orders"].append(order)
-        batches[batch_id]["total_items"] += len(order["order_items"])
+        batches[batch_id]["total_items"] += len(order.get("order_items") or [])
     
     return {"batches": list(batches.values())}
