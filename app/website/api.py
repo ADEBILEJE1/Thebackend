@@ -225,13 +225,13 @@ async def get_products_for_website(
     offset = (page - 1) * limit
 
     # Optimized query with joins
-    query = supabase_admin.table("products").select("""
-        id, name, price, description, image_url, units, low_stock_threshold, variant_name,
-        categories(id, name),
-        extras:products!main_product_id(
-            id, name, price, description, image_url, units, low_stock_threshold, variant_name
-        )
-    """).eq("is_available", True).eq("product_type", "main")
+    # query = supabase_admin.table("products").select("""
+    #     id, name, price, description, image_url, units, low_stock_threshold, variant_name,
+    #     categories(id, name),
+    #     extras:products!main_product_id(
+    #         id, name, price, description, image_url, units, low_stock_threshold, variant_name
+    #     )
+    # """).eq("is_available", True).eq("product_type", "main")
 
     if category_id:
         query = query.eq("category_id", category_id)
