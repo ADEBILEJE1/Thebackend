@@ -38,8 +38,7 @@ async def get_products_for_website(
     if cached:
         return cached
     
-    # Get only main products first
-    # query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+
     query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
 
 
@@ -129,133 +128,59 @@ async def get_products_for_website(
 
 
 
-@router.get("/products")
-async def get_products_for_website(
-    category_id: Optional[str] = None,
-    search: Optional[str] = None,
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, le=100)
-):
-    
-    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{page}:{limit}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-    
-    # Single optimized query with joins
-    query = supabase_admin.table("products").select("""
-        id, name, price, description, image_url, units, low_stock_threshold, variant_name,
-        categories(id, name),
-        extras:products!main_product_id(id, name, price, description, image_url, units, low_stock_threshold, variant_name)
-    """).eq("is_available", True).eq("product_type", "main")
-
-# 
-
-    # Apply filters at database level
-    if category_id:
-        query = query.eq("category_id", category_id)
-    if min_price:
-        query = query.gte("price", min_price)
-    if max_price:
-        query = query.lte("price", max_price)
-    if search:
-        query = query.or_(f"name.ilike.%{search}%,categories.name.ilike.%{search}%")
-    
-    # Pagination
-    offset = (page - 1) * limit
-    products_result = query.range(offset, offset + limit - 1).execute()
-    
-    # Format response (no additional queries)
-    products = []
-    for product in products_result.data:
-        display_name = product["name"]
-        if product.get("variant_name"):
-            display_name += f" - {product['variant_name']}"
-        
-        category = product.get("categories", {"id": None, "name": "Uncategorized"})
-        
-        formatted_extras = []
-        for extra in product.get("extras", []):
-            extra_display_name = extra["name"]
-            if extra.get("variant_name"):
-                extra_display_name += f" - {extra['variant_name']}"
-            
-            formatted_extras.append({
-                "id": extra["id"],
-                "name": extra_display_name,
-                "price": float(extra["price"]),
-                "description": extra["description"],
-                "image_url": extra["image_url"],
-                "available_stock": extra["units"],
-                "low_stock_threshold": extra["low_stock_threshold"]
-            })
-        
-        products.append({
-            "id": product["id"],
-            "name": display_name,
-            "price": float(product["price"]),
-            "description": product["description"],
-            "image_url": product["image_url"],
-            "available_stock": product["units"],
-            "low_stock_threshold": product["low_stock_threshold"],
-            "extras": formatted_extras,
-            "category": category
-        })
-    
-    redis_client.set(cache_key, products, 600)
-    return products
-
-
-
 # @router.get("/products")
 # async def get_products_for_website(
 #     category_id: Optional[str] = None,
+#     search: Optional[str] = None,
 #     min_price: Optional[float] = None,
 #     max_price: Optional[float] = None,
 #     page: int = Query(1, ge=1),
 #     limit: int = Query(50, le=100)
 # ):
-#     cache_key = f"website:products:{category_id}:{min_price}:{max_price}:{page}:{limit}"
+    
+#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{page}:{limit}"
 #     cached = redis_client.get(cache_key)
 #     if cached:
 #         return cached
-
-#     offset = (page - 1) * limit
-
-#     # Optimized query with joins
+    
+#     # Single optimized query with joins
 #     query = supabase_admin.table("products").select("""
 #         id, name, price, description, image_url, units, low_stock_threshold, variant_name,
 #         categories(id, name),
-#         extras:products!main_product_id(
-#             id, name, price, description, image_url, units, low_stock_threshold, variant_name
-#         )
+#         extras:products!main_product_id(id, name, price, description, image_url, units, low_stock_threshold, variant_name)
 #     """).eq("is_available", True).eq("product_type", "main")
 
+# # 
+
+#     # Apply filters at database level
 #     if category_id:
 #         query = query.eq("category_id", category_id)
 #     if min_price:
 #         query = query.gte("price", min_price)
 #     if max_price:
 #         query = query.lte("price", max_price)
-
+#     if search:
+#         query = query.or_(f"name.ilike.%{search}%,categories.name.ilike.%{search}%")
+    
+#     # Pagination
+#     offset = (page - 1) * limit
 #     products_result = query.range(offset, offset + limit - 1).execute()
-
+    
+#     # Format response (no additional queries)
 #     products = []
 #     for product in products_result.data:
 #         display_name = product["name"]
 #         if product.get("variant_name"):
 #             display_name += f" - {product['variant_name']}"
-
-#         category = product.get("categories") or {"id": None, "name": "Uncategorized"}
-
+        
+#         category = product.get("categories", {"id": None, "name": "Uncategorized"})
+        
 #         formatted_extras = []
 #         for extra in product.get("extras", []):
 #             extra_display_name = extra["name"]
 #             if extra.get("variant_name"):
 #                 extra_display_name += f" - {extra['variant_name']}"
-
+            
 #             formatted_extras.append({
 #                 "id": extra["id"],
 #                 "name": extra_display_name,
@@ -265,7 +190,7 @@ async def get_products_for_website(
 #                 "available_stock": extra["units"],
 #                 "low_stock_threshold": extra["low_stock_threshold"]
 #             })
-
+        
 #         products.append({
 #             "id": product["id"],
 #             "name": display_name,
@@ -277,9 +202,96 @@ async def get_products_for_website(
 #             "extras": formatted_extras,
 #             "category": category
 #         })
-
+    
 #     redis_client.set(cache_key, products, 600)
 #     return products
+
+
+
+@router.get("/products")
+async def get_products_for_website(
+    category_id: Optional[str] = None,
+    search: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None
+):
+    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+
+    # Single query with joins
+    query = """
+    SELECT 
+        p.*,
+        c.id as category_id, c.name as category_name,
+        e.id as extra_id, e.name as extra_name, e.price as extra_price,
+        e.description as extra_description, e.image_url as extra_image_url,
+        e.units as extra_units, e.low_stock_threshold as extra_low_stock_threshold,
+        e.variant_name as extra_variant_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN products e ON p.id = e.main_product_id AND e.is_available = true
+    WHERE p.is_available = true AND p.product_type = 'main'
+    """
+    
+    filters = []
+    params = []
+    
+    if category_id:
+        filters.append("p.category_id = %s")
+        params.append(category_id)
+    if min_price:
+        filters.append("p.price >= %s")
+        params.append(min_price)
+    if max_price:
+        filters.append("p.price <= %s")
+        params.append(max_price)
+    if search:
+        filters.append("(LOWER(p.name) LIKE %s OR LOWER(c.name) LIKE %s)")
+        params.extend([f"%{search.lower()}%", f"%{search.lower()}%"])
+    
+    if filters:
+        query += " AND " + " AND ".join(filters)
+    
+    query += " ORDER BY c.name, p.name"
+    
+    result = supabase_admin.rpc('execute_sql', {'query': query, 'params': params}).execute()
+    
+    # Group results
+    products_dict = {}
+    for row in result.data:
+        product_id = row['id']
+        if product_id not in products_dict:
+            products_dict[product_id] = {
+                "id": product_id,
+                "name": row['name'] + (f" - {row['variant_name']}" if row['variant_name'] else ""),
+                "price": float(row['price']),
+                "description": row['description'],
+                "image_url": row['image_url'],
+                "available_stock": row['units'],
+                "low_stock_threshold": row['low_stock_threshold'],
+                "category": {
+                    "id": row['category_id'],
+                    "name": row['category_name'] or "Uncategorized"
+                },
+                "extras": []
+            }
+        
+        if row['extra_id']:
+            products_dict[product_id]['extras'].append({
+                "id": row['extra_id'],
+                "name": row['extra_name'] + (f" - {row['extra_variant_name']}" if row['extra_variant_name'] else ""),
+                "price": float(row['extra_price']),
+                "description": row['extra_description'],
+                "image_url": row['extra_image_url'],
+                "available_stock": row['extra_units'],
+                "low_stock_threshold": row['extra_low_stock_threshold']
+            })
+    
+    sorted_data = list(products_dict.values())
+    redis_client.set(cache_key, sorted_data, 300)
+    return sorted_data
 
 
 
