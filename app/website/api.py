@@ -212,71 +212,38 @@ router = APIRouter(prefix="/website", tags=["Website"])
 @router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
-    search: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(50, le=100)
 ):
-    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{page}:{limit}"
+    cache_key = f"website:products:{category_id}:{min_price}:{max_price}:{page}:{limit}"
     cached = redis_client.get(cache_key)
     if cached:
         return cached
 
     offset = (page - 1) * limit
 
-    try:
-        # Try optimized query with joins
-        query = supabase_admin.table("products").select("""
-            id, name, price, description, image_url, units, low_stock_threshold, variant_name,
-            categories(id, name),
-            extras:products!main_product_id(id, name, price, description, image_url, units, low_stock_threshold, variant_name)
-        """).eq("is_available", True).eq("product_type", "main")
+    # Optimized query with joins
+    query = supabase_admin.table("products").select("""
+        id, name, price, description, image_url, units, low_stock_threshold, variant_name,
+        categories(id, name),
+        extras:products!main_product_id(
+            id, name, price, description, image_url, units, low_stock_threshold, variant_name
+        )
+    """).eq("is_available", True).eq("product_type", "main")
 
-        if category_id:
-            query = query.eq("category_id", category_id)
-        if min_price:
-            query = query.gte("price", min_price)
-        if max_price:
-            query = query.lte("price", max_price)
-        if search:
-            # safer: only search on product name first
-            query = query.or_(f"name.ilike.%{search}%")
+    if category_id:
+        query = query.eq("category_id", category_id)
+    if min_price:
+        query = query.gte("price", min_price)
+    if max_price:
+        query = query.lte("price", max_price)
 
-        products_result = query.range(offset, offset + limit - 1).execute()
-        data = products_result.data
+    products_result = query.range(offset, offset + limit - 1).execute()
 
-        # If query returns empty but we expected results, fallback
-        if not data and (category_id or search or min_price or max_price):
-            raise Exception("No results with joins, fallback needed")
-
-    except Exception as e:
-        # Fallback to manual queries like your first endpoint
-        query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
-        if category_id:
-            query = query.eq("category_id", category_id)
-        if min_price:
-            query = query.gte("price", min_price)
-        if max_price:
-            query = query.lte("price", max_price)
-        products_result = query.range(offset, offset + limit - 1).execute()
-
-        # Manually fetch categories + extras
-        for product in products_result.data:
-            if product["category_id"]:
-                category = supabase_admin.table("categories").select("id, name").eq("id", product["category_id"]).execute()
-                product["categories"] = category.data[0] if category.data else None
-            else:
-                product["categories"] = {"id": None, "name": "Uncategorized"}
-
-            extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-            product["extras"] = extras.data
-
-        data = products_result.data
-
-    # Format response
     products = []
-    for product in data:
+    for product in products_result.data:
         display_name = product["name"]
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
@@ -313,6 +280,7 @@ async def get_products_for_website(
 
     redis_client.set(cache_key, products, 600)
     return products
+
 
 
 
