@@ -215,16 +215,11 @@ async def get_products_for_website(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None
 ):
-    # Test 1: Basic query
-    result = supabase_admin.table("products").select("*").eq("product_type", "main").limit(5).execute()
-    print(f"Test 1 - Basic query count: {len(result.data)}")
+    # Test with main products only
+    result = supabase_admin.table("products").select("*, categories(*)").eq("product_type", "main").limit(5).execute()
+    print(f"Main products count: {len(result.data)}")
     
-    # Test 2: With join
-    result2 = supabase_admin.table("products").select("*, categories(*)").limit(1).execute()
-    print(f"Test 2 - Join result: {result2.data}")
-    
-    # Return test results
-    return {"test1_count": len(result.data), "test2_sample": result2.data}
+    return {"main_products": result.data}
 
 
 
