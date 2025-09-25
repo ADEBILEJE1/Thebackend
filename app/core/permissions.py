@@ -12,26 +12,22 @@ from ..database import supabase, supabase_admin
 security = HTTPBearer()
 
 async def get_current_user(token = Depends(security)):
-    # Check Redis session first
     user_id = session_manager.validate_token(token.credentials)
     
     if user_id:
-        # Get cached user profile
         cache_key = CacheKeys.USER_PROFILE.format(user_id=user_id)
-        user_data = session_manager.get_session(user_id, token.credentials)
+        user_data = redis_client.get(cache_key)  # Use redis_client.get, not session_manager.get_session
         
-        if user_data:
+        if user_data and isinstance(user_data, dict) and "id" in user_data:
             return user_data
         
-        # Fallback to database - handle missing profile
+        # Get from DB and cache properly
         try:
-            user_data = supabase_admin.table("profiles").select("*").eq("id", user_id).single().execute()
-            if user_data.data:
-                # Cache for 5 minutes
-                redis_client.set(cache_key, user_data.data, 300)
-                return user_data.data
+            user_result = supabase_admin.table("profiles").select("*").eq("id", user_id).single().execute()
+            if user_result.data:
+                redis_client.set(cache_key, user_result.data, 300)
+                return user_result.data
         except:
-            # Profile not found in DB, clear invalid session
             session_manager.destroy_session(user_id, token.credentials)
     
     # Fallback to Supabase auth validation

@@ -27,16 +27,15 @@ class SessionManager:
     
     @staticmethod
     def get_session(user_id: str, token: str) -> Optional[Dict]:
-        """Get session data"""
         session_key = f"session:{user_id}:{token[:8]}"
         session = redis_client.hgetall(session_key)
         
-        if session:
-            # Update last activity
+        if session and "user_id" in session:
+            # Convert Redis strings back to proper format
             redis_client.hset(session_key, {"last_activity": datetime.utcnow().isoformat()})
-            redis_client.expire(session_key, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+            return session
         
-        return session
+        return None
     
     @staticmethod
     def validate_token(token: str) -> Optional[str]:
