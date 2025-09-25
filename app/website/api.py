@@ -13,7 +13,7 @@ from ..database import supabase_admin
 from ..services.redis import redis_client
 from .services import MonnifyService
 from .services import CartService
-from .services import SalesService
+from ..api.sales_service import SalesService
 
 router = APIRouter(prefix="/website", tags=["Website"])
 
