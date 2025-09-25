@@ -129,25 +129,31 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
-#@router.get("/products")
+@router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
     search: Optional[str] = None,
     min_price: Optional[float] = None,
-    max_price: Optional[float] = None
+    max_price: Optional[float] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, le=100)
 ):
-    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+    
+    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{page}:{limit}"
     cached = redis_client.get(cache_key)
     if cached:
         return cached
     
-    # Single query with joins - no loops
+    # Single optimized query with joins
     query = supabase_admin.table("products").select("""
         id, name, price, description, image_url, units, low_stock_threshold, variant_name,
         categories(id, name),
         extras:products!main_product_id(id, name, price, description, image_url, units, low_stock_threshold, variant_name)
-    """).eq("is_available", True).eq("product_type", "main")
+    """).eq("product_type", "main")
 
+# .eq("is_available", True)
+
+    # Apply filters at database level
     if category_id:
         query = query.eq("category_id", category_id)
     if min_price:
@@ -155,18 +161,20 @@ async def get_products_for_website(
     if max_price:
         query = query.lte("price", max_price)
     if search:
-        query = query.or_(f"name.ilike.%{search}%")
+        query = query.or_(f"name.ilike.%{search}%,categories.name.ilike.%{search}%")
     
-    products_result = query.execute()
+    # Pagination
+    offset = (page - 1) * limit
+    products_result = query.range(offset, offset + limit - 1).execute()
     
-    # Format response
+    # Format response (no additional queries)
     products = []
     for product in products_result.data:
         display_name = product["name"]
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
         
-        category = product.get("categories") or {"id": None, "name": "Uncategorized"}
+        category = product.get("categories", {"id": None, "name": "Uncategorized"})
         
         formatted_extras = []
         for extra in product.get("extras", []):
@@ -198,6 +206,10 @@ async def get_products_for_website(
     
     redis_client.set(cache_key, products, 600)
     return products
+
+
+
+
 
 
 
