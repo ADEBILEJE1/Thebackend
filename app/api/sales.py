@@ -688,8 +688,6 @@ async def push_order_to_kitchen(
         "preparing_at": datetime.utcnow().isoformat()
     }).eq("id", order_id).execute()
     
-    from .kitchen import deduct_stock
-    await deduct_stock(order.data[0]["order_items"])
     
     from ..api.websocket import notify_order_update
     await notify_order_update(order_id, "new_order", order.data[0])
@@ -1218,7 +1216,6 @@ async def push_batch_to_kitchen(
     for order in orders.data:
         all_items.extend(order["order_items"])
     
-    await SalesService.deduct_stock_immediately(all_items, current_user["id"])
     
     # Notify kitchen
     # await notify_order_update(batch_id, "new_batch", {"batch_id": batch_id, "orders": orders.data})

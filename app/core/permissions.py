@@ -18,7 +18,7 @@ async def get_current_user(token = Depends(security)):
     if user_id:
         # Get cached user profile
         cache_key = CacheKeys.USER_PROFILE.format(user_id=user_id)
-        user_data = redis_client.get(cache_key)
+        user_data = session_manager.get_session(user_id, token.credentials)
         
         if user_data:
             return user_data

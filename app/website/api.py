@@ -13,6 +13,8 @@ from ..database import supabase_admin
 from ..services.redis import redis_client
 from .services import MonnifyService
 from .services import CartService
+from .services import SalesService
+
 router = APIRouter(prefix="/website", tags=["Website"])
 
 
@@ -23,71 +25,156 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
+# @router.get("/products")
+# async def get_products_for_website(
+#     category_id: Optional[str] = None,
+#     search: Optional[str] = None,
+#     min_price: Optional[float] = None,
+#     max_price: Optional[float] = None
+# ):
+#     """Get products for website display"""
+#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     # Get only main products first
+#     # query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
+#     query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
+
+
+#     if category_id:
+#         query = query.eq("category_id", category_id)
+#     if min_price:
+#         query = query.gte("price", min_price)
+#     if max_price:
+#         query = query.lte("price", max_price)
+    
+#     products_result = query.execute()
+    
+#     # Fetch categories and extras for each main product
+#     for product in products_result.data:
+#         # Fetch category
+#         if product["category_id"]:
+#             category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+#             product["categories"] = category.data[0] if category.data else None
+#         else:
+#             product["categories"] = None
+        
+       
+
+
+#         # Fetch extras for this main product
+#         extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
+#         product["extras"] = extras.data
+    
+#     # Apply search filter after fetching related data
+#     if search:
+#         products_result.data = [
+#             p for p in products_result.data 
+#             if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
+#                 (search.lower() in p["name"].lower())    
+#         ]
+    
+#     # Format response
+#     products = []
+#     for product in products_result.data:
+#         display_name = product["name"]
+#         if product.get("variant_name"):
+#             display_name += f" - {product['variant_name']}"
+        
+#         category = {"id": None, "name": "Uncategorized"}
+#         if product.get("categories") and product["categories"]:
+#             category = product["categories"]
+        
+#         # Format extras
+#         formatted_extras = []
+#         for extra in product["extras"]:
+#             extra_display_name = extra["name"]
+#             if extra.get("variant_name"):
+#                 extra_display_name += f" - {extra['variant_name']}"
+            
+#             formatted_extras.append({
+#                 "id": extra["id"],
+#                 "name": extra_display_name,
+#                 "price": float(extra["price"]),
+#                 "description": extra["description"],
+#                 "image_url": extra["image_url"],
+#                 "available_stock": extra["units"],
+#                 "low_stock_threshold": extra["low_stock_threshold"]
+#             })
+        
+#         products.append({
+#             "id": product["id"],
+#             "name": display_name,
+#             "price": float(product["price"]),
+#             "description": product["description"],
+#             "image_url": product["image_url"],
+#             "available_stock": product["units"],
+#             "low_stock_threshold": product["low_stock_threshold"],
+#             "extras": formatted_extras,
+#             "category": category
+#         })
+    
+#     # Sort by category then name
+#     sorted_data = sorted(products, key=lambda x: (
+#         x.get("category", {}).get("name", ""), 
+#         x.get("name", "")
+#     ))
+    
+#     redis_client.set(cache_key, sorted_data, 300)
+#     return sorted_data
+
+
+
+
+
 @router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
     search: Optional[str] = None,
     min_price: Optional[float] = None,
-    max_price: Optional[float] = None
+    max_price: Optional[float] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, le=100)
 ):
-    """Get products for website display"""
-    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{page}:{limit}"
     cached = redis_client.get(cache_key)
     if cached:
         return cached
     
-    # Get only main products first
-    # query = supabase_admin.table("products").select("*").eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main")
-    query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
+    # Single optimized query with joins
+    query = supabase_admin.table("products").select("""
+        id, name, price, description, image_url, units, low_stock_threshold, variant_name,
+        categories!inner(id, name),
+        extras:products!main_product_id(id, name, price, description, image_url, units, low_stock_threshold, variant_name)
+    """).eq("is_available", True).eq("product_type", "main")
 
-
+    # Apply filters at database level
     if category_id:
         query = query.eq("category_id", category_id)
     if min_price:
         query = query.gte("price", min_price)
     if max_price:
         query = query.lte("price", max_price)
-    
-    products_result = query.execute()
-    
-    # Fetch categories and extras for each main product
-    for product in products_result.data:
-        # Fetch category
-        if product["category_id"]:
-            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-            product["categories"] = category.data[0] if category.data else None
-        else:
-            product["categories"] = None
-        
-       
-
-
-        # Fetch extras for this main product
-        extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-        product["extras"] = extras.data
-    
-    # Apply search filter after fetching related data
     if search:
-        products_result.data = [
-            p for p in products_result.data 
-            if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
-                (search.lower() in p["name"].lower())    
-        ]
+        query = query.or_(f"name.ilike.%{search}%,categories.name.ilike.%{search}%")
     
-    # Format response
+    # Pagination
+    offset = (page - 1) * limit
+    products_result = query.range(offset, offset + limit - 1).execute()
+    
+    # Format response (no additional queries)
     products = []
     for product in products_result.data:
         display_name = product["name"]
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
         
-        category = {"id": None, "name": "Uncategorized"}
-        if product.get("categories") and product["categories"]:
-            category = product["categories"]
+        category = product.get("categories", {"id": None, "name": "Uncategorized"})
         
-        # Format extras
         formatted_extras = []
-        for extra in product["extras"]:
+        for extra in product.get("extras", []):
             extra_display_name = extra["name"]
             if extra.get("variant_name"):
                 extra_display_name += f" - {extra['variant_name']}"
@@ -114,15 +201,8 @@ async def get_products_for_website(
             "category": category
         })
     
-    # Sort by category then name
-    sorted_data = sorted(products, key=lambda x: (
-        x.get("category", {}).get("name", ""), 
-        x.get("name", "")
-    ))
-    
-    redis_client.set(cache_key, sorted_data, 300)
-    return sorted_data
-
+    redis_client.set(cache_key, products, 600)
+    return products
 
 
 
@@ -470,77 +550,91 @@ async def create_payment_account(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 # @router.get("/payment/verify/{payment_reference}")
 # async def verify_payment(payment_reference: str):
-#    """Verify payment status"""
-#    try:
-#        payment_session = redis_client.get(f"payment:{payment_reference}")
-#        if not payment_session:
-#            raise HTTPException(status_code=404, detail="Payment session not found")
+#     """Verify payment status"""
+#     try:
+#         payment_session = redis_client.get(f"payment:{payment_reference}")
+#         if not payment_session:
+#             raise HTTPException(status_code=404, detail="Payment session not found")
        
-#        payment_data = await MonnifyService.verify_payment(payment_reference)
+#         payment_data = await MonnifyService.verify_payment(payment_reference)
        
-#        if payment_data["paymentStatus"] == "PAID":
-#            created_orders = []
+#         if payment_data["paymentStatus"] == "PAID":
+#             created_orders = []
+#             all_items = []
            
-#            for order_data in payment_session["orders"]:
-#                processed_items = await CartService.validate_cart_items(order_data["items"])
-#                totals = CartService.calculate_order_total(processed_items)
+#             for order_data in payment_session["orders"]:
+#                 processed_items = await CartService.validate_cart_items(order_data["items"])
+#                 totals = CartService.calculate_order_total(processed_items)
+#                 all_items.extend(processed_items)
+
+#                 # Get delivery fee from address area
+#                 address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
+#                 delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
                
-#                order_entry = {
-#                    "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
-#                    "order_type": "online",
-#                    "status": "confirmed",
-#                    "payment_status": "paid",
-#                    "payment_reference": payment_reference,
-#                    "subtotal": float(totals["subtotal"]),
-#                    "tax": float(totals["vat"]),
-#                    "total": float(totals["total"]),
-#                    "website_customer_id": payment_session["customer_id"],
-#                    "confirmed_at": datetime.utcnow().isoformat()
-#                }
+#                 order_entry = {
+#                     "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+#                     "order_type": "online",
+#                     "status": "confirmed",
+#                     "payment_status": "paid",
+#                     "payment_reference": payment_reference,
+#                     "subtotal": float(totals["subtotal"]),
+#                     "tax": float(totals["vat"]),
+#                     "delivery_fee": delivery_fee,
+#                     "total": float(totals["total"]) + delivery_fee,
+#                     "website_customer_id": payment_session["customer_id"],
+#                     "delivery_address_id": order_data["delivery_address_id"],
+#                     "confirmed_at": datetime.utcnow().isoformat()
+#                 }
                
-#                created_order = supabase_admin.table("orders").insert(order_entry).execute()
-#                order_id = created_order.data[0]["id"]
+#                 created_order = supabase_admin.table("orders").insert(order_entry).execute()
+#                 order_id = created_order.data[0]["id"]
                
-#                for item in processed_items:
-#                    item_data = {
-#                        "order_id": order_id,
-#                        "product_id": item["product_id"],
-#                        "product_name": item["product_name"],
-#                        "quantity": item["quantity"],
-#                        "unit_price": float(item["unit_price"]),
-#                        "total_price": float(item["total_price"])
-#                    }
-#                    supabase_admin.table("order_items").insert(item_data).execute()
+#                 for item in processed_items:
+#                     item_data = {
+#                         "order_id": order_id,
+#                         "product_id": item["product_id"],
+#                         "product_name": item["product_name"],
+#                         "quantity": item["quantity"],
+#                         "unit_price": float(item["unit_price"]),
+#                         "total_price": float(item["total_price"])
+#                     }
+#                     supabase_admin.table("order_items").insert(item_data).execute()
                
-#                created_orders.append(created_order.data[0])
+#                 created_orders.append(created_order.data[0])
+
+#             # Deduct stock immediately after payment confirmation
+#             from .services import SalesService
+#             await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
            
-#            payment_session["status"] = "completed"
-#            payment_session["orders_created"] = [o["id"] for o in created_orders]
-#            redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
+#             payment_session["status"] = "completed"
+#             payment_session["orders_created"] = [o["id"] for o in created_orders]
+#             redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
            
-#            return {
-#                "payment_status": "success",
-#                "orders": created_orders,
-#                "payment_details": payment_data
-#            }
+#             return {
+#                 "payment_status": "success",
+#                 "orders": created_orders,
+#                 "payment_details": payment_data
+#             }
        
-#        elif payment_data["paymentStatus"] == "PENDING":
-#            return {
-#                "payment_status": "pending",
-#                "message": "Payment is still pending"
-#            }
+#         elif payment_data["paymentStatus"] == "PENDING":
+#             return {
+#                 "payment_status": "pending",
+#                 "message": "Payment is still pending"
+#             }
        
-#        else:
-#            return {
-#                "payment_status": "failed",
-#                "message": "Payment failed or expired"
-#            }
+#         else:
+#             return {
+#                 "payment_status": "failed",
+#                 "message": "Payment failed or expired"
+#             }
            
-#    except Exception as e:
-#        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 
@@ -617,6 +711,13 @@ async def bypass_payment_create(
             supabase_admin.table("order_items").insert(item_data).execute()
 
         created_orders.append(updated_order.data[0])
+
+        all_items = []
+        for order_data in payment_data.orders:
+            processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
+            all_items.extend(processed_items)
+
+        await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
 
     return {
         "payment_status": "success",
