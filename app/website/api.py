@@ -9,7 +9,7 @@ from datetime import datetime
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService
 # from ..database import supabase
-from ..database import supabase_admin
+from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
 from .services import MonnifyService
 from .services import CartService
@@ -225,13 +225,13 @@ async def get_products_for_website(
     offset = (page - 1) * limit
 
     # Optimized query with joins
-    # query = supabase_admin.table("products").select("""
-    #     id, name, price, description, image_url, units, low_stock_threshold, variant_name,
-    #     categories(id, name),
-    #     extras:products!main_product_id(
-    #         id, name, price, description, image_url, units, low_stock_threshold, variant_name
-    #     )
-    # """).eq("is_available", True).eq("product_type", "main")
+    query = supabase.table("products").select("""
+        id, name, price, description, image_url, units, low_stock_threshold, variant_name,
+        categories(id, name),
+        extras:products!main_product_id(
+            id, name, price, description, image_url, units, low_stock_threshold, variant_name
+        )
+    """).eq("is_available", True).eq("product_type", "main")
 
     if category_id:
         query = query.eq("category_id", category_id)
