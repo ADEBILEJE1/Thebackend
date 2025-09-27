@@ -51,7 +51,7 @@ class AdminService:
         critical_alerts = []
         
         # Low stock alerts
-        low_stock_items = supabase.table("products").select("name, units").eq("status", StockStatus.LOW_STOCK).execute()
+        low_stock_items = supabase.table("products").select("name, units").eq("status", "low_stock").execute()
         if low_stock_items.data:
             critical_alerts.append({
                 "type": "inventory",
@@ -61,7 +61,7 @@ class AdminService:
             })
         
         # Out of stock alerts
-        out_of_stock = supabase.table("products").select("name").eq("status", StockStatus.OUT_OF_STOCK).execute()
+        out_of_stock = supabase.table("products").select("name").eq("status", "out_of_stock").execute()
         if out_of_stock.data:
             critical_alerts.append({
                 "type": "inventory",
@@ -71,7 +71,7 @@ class AdminService:
             })
         
         # Failed order alerts (pending too long)
-        old_pending = supabase.table("orders").select("order_number").eq("status", OrderStatus.PENDING).lt("created_at", (datetime.utcnow() - timedelta(hours=1)).isoformat()).execute()
+        old_pending = supabase.table("orders").select("order_number").eq("status", "pending").lt("created_at", (datetime.utcnow() - timedelta(hours=1)).isoformat()).execute()
         if old_pending.data:
             critical_alerts.append({
                 "type": "orders",

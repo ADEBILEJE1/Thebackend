@@ -3,24 +3,17 @@ import json
 from typing import Optional, Any, List
 from datetime import timedelta
 from ..config import settings
+from datetime import timedelta, date, datetime
 
 class RedisClient:
     def __init__(self):
         self.client = redis.from_url(settings.REDIS_URL, decode_responses=True)
         
-    # Basic operations
-    def get(self, key: str) -> Optional[Any]:
-        value = self.client.get(key)
-        if value:
-            try:
-                return json.loads(value)
-            except:
-                return value
-        return None
+    
     
     def set(self, key: str, value: Any, expire: Optional[int] = None):
         if isinstance(value, (dict, list)):
-            value = json.dumps(value)
+            value = json.dumps(value, default=str)  # Add default=str
         if expire:
             self.client.setex(key, expire, value)
         else:
