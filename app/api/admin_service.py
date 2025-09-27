@@ -591,7 +591,7 @@ class AdminService:
                 "inactive_users": [
                     u for u in user_details 
                     if not u["last_activity"] or 
-                    datetime.fromisoformat(u["last_activity"]) < datetime.utcnow() - timedelta(days=7)
+                    datetime.fromisoformat(u["last_activity"]).replace(tzinfo=None) < datetime.utcnow() - timedelta(days=7)
                 ]
             }
         }
