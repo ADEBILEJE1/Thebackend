@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks, Query
 from typing import List, Optional
 from decimal import Decimal
 from datetime import datetime, date, timedelta
@@ -36,6 +36,43 @@ class DataExportRequest(BaseModel):
             raise ValueError(f"Invalid data types: {invalid}")
         return v
 
+class StaffSalaryCreate(BaseModel):
+    staff_id: Optional[str] = None  # None for manual entries
+    staff_name: str = Field(max_length=255)
+    staff_role: Optional[str] = Field(None, max_length=100)
+    salary_amount: Decimal = Field(gt=0)
+    effective_date: date = Field(default_factory=date.today)
+    is_system_staff: bool = False
+
+class StaffSalaryUpdate(BaseModel):
+    salary_amount: Optional[Decimal] = Field(None, gt=0)
+    change_reason: Optional[str] = Field(None, max_length=500)
+    is_active: Optional[bool] = None
+
+class ExpenditureCategoryCreate(BaseModel):
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+
+class ExpenditureCategoryUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ExpenditureCreate(BaseModel):
+    category_id: str
+    amount: Decimal = Field(gt=0)
+    description: str = Field(max_length=500)
+    notes: Optional[str] = None
+    receipt_url: Optional[str] = None
+    expense_date: date = Field(default_factory=date.today)
+
+class ExpenditureUpdate(BaseModel):
+    amount: Optional[Decimal] = Field(None, gt=0)
+    description: Optional[str] = Field(None, max_length=500)
+    notes: Optional[str] = None
+    receipt_url: Optional[str] = None
+    expense_date: Optional[date] = None
+
 
 router = APIRouter(prefix="/admin", tags=["Administration"])
 
@@ -59,16 +96,77 @@ async def get_admin_dashboard(
     
     return dashboard_data
 
-# System Health Monitoring (Super Admin only)
-@router.get("/system/health")
-async def get_system_health(
+
+@router.get("/analytics/revenue")
+async def get_revenue_analytics(
     request: Request,
-    current_user: dict = Depends(require_super_admin)
+    period: str = Query("daily", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_manager_up)
 ):
-    """Get detailed system health and performance metrics"""
-    health_data = await AdminService.get_system_health()
+    """Get comprehensive revenue analytics"""
+    revenue_data = await AdminService.get_revenue_analytics(period, date_from, date_to)
+    return revenue_data
+
+
+@router.get("/analytics/costs")
+async def get_cost_analytics(
+    request: Request,
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get comprehensive cost analytics including packaging, refunds, and other expenses"""
+    cost_data = await AdminService.get_cost_analytics(period, date_from, date_to)
+    return cost_data
+
+
+
+@router.get("/analytics/profit")
+async def get_profit_analytics(
+    request: Request,
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get comprehensive profit analytics (Revenue - Costs)"""
+    profit_data = await AdminService.get_profit_analytics(period, date_from, date_to)
     
-    return health_data
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "view", "profit_analytics", None, 
+        {"period": period, "date_from": str(date_from), "date_to": str(date_to)}, 
+        request
+    )
+    
+    return profit_data
+
+
+
+@router.get("/analytics/payments")
+async def get_payment_analytics(
+    request: Request,
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get comprehensive payment method analytics"""
+    payment_data = await AdminService.get_payment_analytics(period, date_from, date_to)
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "view", "payment_analytics", None, 
+        {"period": period, "date_from": str(date_from), "date_to": str(date_to)}, 
+        request
+    )
+    
+    return payment_data
+
+
 
 # Comprehensive Business Analytics
 @router.get("/analytics/comprehensive")
@@ -276,7 +374,7 @@ async def get_critical_alerts(
         })
     
     # Failed activities (potential issues)
-    failed_activities = supabase.table("activity_logs").select("resource, action, user_email").ilike("notes", "%error%").gte("created_at", (datetime.utcnow() - timedelta(hours=24)).isoformat()).execute()
+    failed_activities = supabase.table("activity_logs").select("resource, action, user_email").gte("created_at", (datetime.utcnow() - timedelta(hours=24)).isoformat()).execute()
     if failed_activities.data and len(failed_activities.data) > 10:
         alerts.append({
             "type": "system",
@@ -483,54 +581,6 @@ async def bulk_user_action(
         }
     }
 
-# Data Export (Super Admin only)
-@router.post("/export/data")
-async def export_system_data(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    data_types: List[str],  # ["users", "orders", "products", "activities"]
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    current_user: dict = Depends(require_super_admin)
-):
-    """Export system data for backup or analysis"""
-    valid_types = ["users", "orders", "products", "activities", "inventory"]
-    invalid_types = [t for t in data_types if t not in valid_types]
-    
-    if invalid_types:
-        raise HTTPException(status_code=400, detail=f"Invalid data types: {invalid_types}")
-    
-    if not date_from:
-        date_from = date.today() - timedelta(days=90)
-    if not date_to:
-        date_to = date.today()
-    
-    # Queue export task (would implement with Celery)
-    export_id = f"export_{int(datetime.utcnow().timestamp())}"
-    
-    # For now, just return export request confirmation
-    # In production, this would trigger a background job
-    
-    await log_activity(
-        current_user["id"], current_user["email"], current_user["role"],
-        "export", "system_data", None,
-        {
-            "export_id": export_id,
-            "data_types": data_types,
-            "date_from": str(date_from),
-            "date_to": str(date_to)
-        },
-        request
-    )
-    
-    return {
-        "message": "Data export initiated",
-        "export_id": export_id,
-        "data_types": data_types,
-        "date_range": {"from": date_from, "to": date_to},
-        "status": "processing",
-        "note": "You will receive an email when the export is ready"
-    }
 
 
 # User Management (move from management.py to admin.py)
@@ -635,7 +685,7 @@ async def get_user_activities(
     if not target_user.data:
         raise HTTPException(status_code=404, detail="User not found")
     
-    if current_user["role"] == UserRole.MANAGER and target_user.data[0]["role"] == UserRole.SUPER_ADMIN:
+    if current_user["role"] == UserRole.MANAGER and target_user.data[0]["role"] == "super_admin":
         raise HTTPException(status_code=403, detail="Cannot view this user's activities")
     
     result = supabase.table("activity_logs").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
@@ -690,3 +740,437 @@ async def get_team_performance(
         "period": {"from": date_from, "to": date_to},
         "team_performance": performance
     }
+
+
+@router.get("/analytics/raw-materials")
+async def get_raw_materials_analytics(
+    request: Request,
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get comprehensive raw materials analytics"""
+    raw_materials_data = await AdminService.get_raw_materials_analytics(period, date_from, date_to)
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "view", "raw_materials_analytics", None, 
+        {"period": period, "date_from": str(date_from), "date_to": str(date_to)}, 
+        request
+    )
+    
+    return raw_materials_data
+
+
+
+@router.post("/payroll/staff")
+async def create_staff_salary(
+    staff_data: StaffSalaryCreate,
+    request: Request,
+    current_user: dict = Depends(require_super_admin)
+):
+    """Create or update staff salary entry"""
+    
+    # Validate staff exists if staff_id provided
+    if staff_data.staff_id:
+        staff = supabase.table("profiles").select("*").eq("id", staff_data.staff_id).execute()
+        if not staff.data:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        
+        # Auto-populate from profile if system staff
+        staff_profile = staff.data[0]
+        actual_name = staff_profile["email"].split("@")[0].replace(".", " ").title()
+        actual_role = staff_profile["role"]
+        is_system = True
+    else:
+        # Manual entry
+        actual_name = staff_data.staff_name
+        actual_role = staff_data.staff_role
+        is_system = False
+    
+    # Check if salary entry already exists for this effective date
+    if staff_data.staff_id:
+        existing = supabase.table("staff_salaries").select("*").eq("staff_id", staff_data.staff_id).eq("effective_date", staff_data.effective_date.isoformat()).execute()
+    else:
+        existing = supabase.table("staff_salaries").select("*").eq("staff_name", staff_data.staff_name).eq("effective_date", staff_data.effective_date.isoformat()).execute()
+    if existing.data:
+        raise HTTPException(status_code=400, detail="Salary entry already exists for this date")
+    
+    salary_entry = {
+        "staff_id": staff_data.staff_id,
+        "staff_name": actual_name,
+        "staff_role": actual_role,
+        "salary_amount": float(staff_data.salary_amount),
+        "effective_date": staff_data.effective_date.isoformat(),
+        "is_system_staff": is_system,
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("staff_salaries").insert(salary_entry).execute()
+    
+    # Log initial salary in history
+    history_entry = {
+        "staff_id": staff_data.staff_id,
+        "old_salary": None,
+        "new_salary": float(staff_data.salary_amount),
+        "change_reason": "Initial salary entry",
+        "change_type": "initial",
+        "changed_by": current_user["id"]
+    }
+    
+    supabase.table("salary_history").insert(history_entry).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "create", "staff_salary", result.data[0]["id"],
+        {"staff_name": actual_name, "salary": float(staff_data.salary_amount)},
+        request
+    )
+    
+    return {"message": "Staff salary created", "data": result.data[0]}
+
+@router.get("/payroll/staff")
+async def get_staff_salaries(
+    request: Request,
+    active_only: bool = True,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get all staff salary entries"""
+    query = supabase.table("staff_salaries").select("*")
+    
+    if active_only:
+        query = query.eq("is_active", True)
+    
+    result = query.order("staff_name").execute()
+    
+    return result.data
+
+@router.patch("/payroll/staff/{salary_id}")
+async def update_staff_salary(
+    salary_id: str,
+    update_data: StaffSalaryUpdate,
+    request: Request,
+    current_user: dict = Depends(require_super_admin)
+):
+    """Update staff salary - creates history record for salary changes"""
+    
+    # Get current salary entry
+    current_salary = supabase.table("staff_salaries").select("*").eq("id", salary_id).execute()
+    
+    if not current_salary.data:
+        raise HTTPException(status_code=404, detail="Salary entry not found")
+    
+    current_data = current_salary.data[0]
+    updates = {}
+    
+    # Handle salary change
+    if update_data.salary_amount is not None:
+        old_salary = float(current_data["salary_amount"])
+        new_salary = float(update_data.salary_amount)
+        
+        if old_salary != new_salary:
+            # Determine change type
+            change_type = "increase" if new_salary > old_salary else "decrease"
+            
+            # Create history record
+            history_entry = {
+                "staff_id": current_data["staff_id"],
+                "old_salary": old_salary,
+                "new_salary": new_salary,
+                "change_reason": update_data.change_reason or f"Salary {change_type}",
+                "change_type": change_type,
+                "changed_by": current_user["id"]
+            }
+            
+            supabase.table("salary_history").insert(history_entry).execute()
+            
+            updates["salary_amount"] = new_salary
+    
+    # Handle activation/deactivation
+    if update_data.is_active is not None:
+        updates["is_active"] = update_data.is_active
+    
+    if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        result = supabase.table("staff_salaries").update(updates).eq("id", salary_id).execute()
+        
+        await log_activity(
+            current_user["id"], current_user["email"], current_user["role"],
+            "update", "staff_salary", salary_id,
+            {"changes": updates, "staff_name": current_data["staff_name"]},
+            request
+        )
+    
+    return {"message": "Staff salary updated"}
+
+@router.get("/payroll/staff/{staff_id}/history")
+async def get_staff_salary_history(
+    staff_id: str,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get salary change history for specific staff"""
+    
+    history = supabase.table("salary_history").select(
+        "*, profiles(email)"
+    ).eq("staff_id", staff_id).order("change_date", desc=True).execute()
+    
+    return history.data
+
+@router.delete("/payroll/staff/{salary_id}")
+async def delete_staff_salary(
+    salary_id: str,
+    request: Request,
+    current_user: dict = Depends(require_super_admin)
+):
+    """Soft delete staff salary entry (deactivate)"""
+    
+    result = supabase.table("staff_salaries").update({
+        "is_active": False,
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("id", salary_id).execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Salary entry not found")
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "deactivate", "staff_salary", salary_id, None, request
+    )
+    
+    return {"message": "Staff salary deactivated"}
+
+# Auto-populate system staff
+@router.post("/payroll/sync-system-staff")
+async def sync_system_staff(
+    request: Request,
+    current_user: dict = Depends(require_super_admin)
+):
+    """Auto-populate salary entries for all active system staff without salaries"""
+    
+    # Get all active profiles that don't have salary entries
+    profiles = supabase.table("profiles").select("*").eq("is_active", True).execute()
+    existing_salaries = supabase.table("staff_salaries").select("staff_id").eq("is_system_staff", True).execute()
+    
+    existing_staff_ids = {s["staff_id"] for s in existing_salaries.data if s["staff_id"]}
+    
+    new_entries = []
+    for profile in profiles.data:
+        if profile["id"] not in existing_staff_ids:
+            entry = {
+                "staff_id": profile["id"],
+                "staff_name": profile["email"].split("@")[0].replace(".", " ").title(),
+                "staff_role": profile["role"],
+                "salary_amount": 0.00,  # Default to 0, admin can update
+                "is_system_staff": True,
+                "created_by": current_user["id"]
+            }
+            new_entries.append(entry)
+    
+    if new_entries:
+        result = supabase.table("staff_salaries").insert(new_entries).execute()
+        
+        await log_activity(
+            current_user["id"], current_user["email"], current_user["role"],
+            "sync", "system_staff_salaries", None,
+            {"new_entries": len(new_entries)},
+            request
+        )
+        
+        return {"message": f"Synced {len(new_entries)} system staff members", "created": len(new_entries)}
+    
+    return {"message": "All system staff already have salary entries", "created": 0}
+
+# Expenditure Categories Management
+@router.post("/expenditures/categories")
+async def create_expenditure_category(
+    category_data: ExpenditureCategoryCreate,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Create expenditure category"""
+    
+    # Check unique name
+    existing = supabase.table("expenditure_categories").select("id").eq("name", category_data.name).execute()
+    
+    if existing.data:
+        raise HTTPException(status_code=400, detail="Category name already exists")
+    
+    category_entry = {
+        **category_data.dict(),
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("expenditure_categories").insert(category_entry).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "create", "expenditure_category", result.data[0]["id"],
+        {"category_name": category_data.name},
+        request
+    )
+    
+    return {"message": "Expenditure category created", "data": result.data[0]}
+
+@router.get("/expenditures/categories")
+async def get_expenditure_categories(
+    active_only: bool = True,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get expenditure categories"""
+    
+    query = supabase.table("expenditure_categories").select("*")
+    
+    if active_only:
+        query = query.eq("is_active", True)
+    
+    result = query.order("name").execute()
+    return result.data
+
+@router.patch("/expenditures/categories/{category_id}")
+async def update_expenditure_category(
+    category_id: str,
+    update_data: ExpenditureCategoryUpdate,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Update expenditure category"""
+    
+    updates = {k: v for k, v in update_data.dict().items() if v is not None}
+    
+    if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        result = supabase.table("expenditure_categories").update(updates).eq("id", category_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Category not found")
+        
+        await log_activity(
+            current_user["id"], current_user["email"], current_user["role"],
+            "update", "expenditure_category", category_id, updates, request
+        )
+    
+    return {"message": "Category updated"}
+
+# Expenditure Logging
+@router.post("/expenditures")
+async def create_expenditure(
+    expenditure_data: ExpenditureCreate,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Log expenditure"""
+    
+    # Verify category exists
+    category = supabase.table("expenditure_categories").select("name").eq("id", expenditure_data.category_id).eq("is_active", True).execute()
+    
+    if not category.data:
+        raise HTTPException(status_code=404, detail="Expenditure category not found")
+    
+    expenditure_entry = {
+        **expenditure_data.dict(),
+        "amount": float(expenditure_data.amount),
+        "expense_date": expenditure_data.expense_date.isoformat(),
+        "logged_by": current_user["id"]
+    }
+    
+    result = supabase.table("expenditures").insert(expenditure_entry).execute()
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "create", "expenditure", result.data[0]["id"],
+        {
+            "category": category.data[0]["name"],
+            "amount": float(expenditure_data.amount),
+            "description": expenditure_data.description
+        },
+        request
+    )
+    
+    return {"message": "Expenditure logged", "data": result.data[0]}
+
+@router.get("/expenditures")
+async def get_expenditures(
+    request: Request,
+    category_id: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get expenditures with filtering"""
+    
+    query = supabase.table("expenditures").select(
+        "*, expenditure_categories(name), profiles(email)"
+    )
+    
+    if category_id:
+        query = query.eq("category_id", category_id)
+    
+    if date_from:
+        query = query.gte("expense_date", date_from.isoformat())
+    
+    if date_to:
+        query = query.lte("expense_date", date_to.isoformat())
+    
+    result = query.order("logged_at", desc=True).range(offset, offset + limit - 1).execute()
+    
+    return {
+        "expenditures": result.data,
+        "limit": limit,
+        "offset": offset
+    }
+
+@router.patch("/expenditures/{expenditure_id}")
+async def update_expenditure(
+    expenditure_id: str,
+    update_data: ExpenditureUpdate,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Update expenditure (manager+ only)"""
+    
+    updates = {}
+    for k, v in update_data.dict().items():
+        if v is not None:
+            if k == "amount":
+                updates[k] = float(v)
+            elif k == "expense_date":
+                updates[k] = v.isoformat()
+            else:
+                updates[k] = v
+    
+    if updates:
+        result = supabase.table("expenditures").update(updates).eq("id", expenditure_id).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Expenditure not found")
+        
+        await log_activity(
+            current_user["id"], current_user["email"], current_user["role"],
+            "update", "expenditure", expenditure_id, updates, request
+        )
+    
+    return {"message": "Expenditure updated"}
+
+@router.delete("/expenditures/{expenditure_id}")
+async def delete_expenditure(
+    expenditure_id: str,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Delete expenditure (manager+ only)"""
+    
+    result = supabase.table("expenditures").delete().eq("id", expenditure_id).execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Expenditure not found")
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "delete", "expenditure", expenditure_id, None, request
+    )
+    
+    return {"message": "Expenditure deleted"}

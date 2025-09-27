@@ -13,6 +13,88 @@ from ..models.user import UserRole
 class SalesService:
     """Service class for sales dashboard operations"""
     
+    # @staticmethod
+    # async def get_sales_dashboard_overview(user_role: str) -> Dict[str, Any]:
+    #     """Get comprehensive sales dashboard overview - unified for all sales staff"""
+    #     cache_key = f"sales:dashboard:overview:unified"
+    #     cached = redis_client.get(cache_key)
+    #     if cached:
+    #         return cached
+        
+    #     today = date.today()
+    #     start_of_day = datetime.combine(today, datetime.min.time())
+        
+    #     # Get ALL orders - no user filtering
+    #     orders_result = supabase.table("orders").select("*, order_items(*)").gte("created_at", start_of_day.isoformat()).execute()
+    #     orders = orders_result.data
+        
+    #     # Calculate key metrics
+    #     total_orders = len(orders)
+    #     completed_orders = [o for o in orders if o["status"] == OrderStatus.COMPLETED]
+    #     pending_orders = [o for o in orders if o["status"] == OrderStatus.PENDING]
+    #     preparing_orders = [o for o in orders if o["status"] == OrderStatus.PREPARING]
+    #     cancelled_orders = [o for o in orders if o["status"] == OrderStatus.CANCELLED]
+        
+    #     total_revenue = sum(float(o["total"]) for o in completed_orders)
+    #     average_order_value = total_revenue / len(completed_orders) if completed_orders else 0
+        
+    #     # Order type breakdown
+    #     online_orders = [o for o in orders if o["order_type"] == OrderType.ONLINE]
+    #     offline_orders = [o for o in orders if o["order_type"] == OrderType.OFFLINE]
+        
+    #     # Top products today
+    #     product_sales = defaultdict(lambda: {"quantity": 0, "revenue": 0, "orders": 0})
+        
+    #     for order in completed_orders:
+    #         for item in order["order_items"]:
+    #             product_name = item["product_name"]
+    #             product_sales[product_name]["quantity"] += item["quantity"]
+    #             product_sales[product_name]["revenue"] += float(item["total_price"])
+    #             product_sales[product_name]["orders"] += 1
+        
+    #     top_products = sorted(
+    #         [{"name": k, **v} for k, v in product_sales.items()],
+    #         key=lambda x: x["revenue"],
+    #         reverse=True
+    #     )[:5]
+        
+    #     # Hourly breakdown
+    #     hourly_sales = defaultdict(lambda: {"orders": 0, "revenue": 0})
+    #     for order in orders:
+    #         hour = datetime.fromisoformat(order["created_at"]).hour
+    #         hourly_sales[hour]["orders"] += 1
+    #         if order["status"] == OrderStatus.COMPLETED:
+    #             hourly_sales[hour]["revenue"] += float(order["total"])
+        
+    #     dashboard_data = {
+    #         "summary": {
+    #             "total_orders": total_orders,
+    #             "completed_orders": len(completed_orders),
+    #             "pending_orders": len(pending_orders),
+    #             "preparing_orders": len(preparing_orders),
+    #             "cancelled_orders": len(cancelled_orders),
+    #             "total_revenue": round(total_revenue, 2),
+    #             "average_order_value": round(average_order_value, 2)
+    #         },
+    #         "order_breakdown": {
+    #             "online_orders": len(online_orders),
+    #             "offline_orders": len(offline_orders),
+    #             "completion_rate": round((len(completed_orders) / total_orders * 100), 2) if total_orders > 0 else 0
+    #         },
+    #         "top_products_today": top_products,
+    #         "hourly_breakdown": [
+    #             {"hour": hour, **data} 
+    #             for hour, data in sorted(hourly_sales.items())
+    #         ],
+    #         "timestamp": datetime.utcnow().isoformat()
+    #     }
+        
+    #     # Cache for 30 seconds
+    #     redis_client.set(cache_key, dashboard_data, 30)
+        
+    #     return dashboard_data
+
+
     @staticmethod
     async def get_sales_dashboard_overview(user_role: str) -> Dict[str, Any]:
         """Get comprehensive sales dashboard overview - unified for all sales staff"""
@@ -21,50 +103,67 @@ class SalesService:
         if cached:
             return cached
         
-        today = date.today()
-        start_of_day = datetime.combine(today, datetime.min.time())
+        # Use Nigeria timezone (Lagos)
+        import pytz
+        from decimal import Decimal
         
-        # Get ALL orders - no user filtering
-        orders_result = supabase.table("orders").select("*, order_items(*)").gte("created_at", start_of_day.isoformat()).execute()
+        nigeria_tz = pytz.timezone('Africa/Lagos')
+        today_nigeria = datetime.now(nigeria_tz).date()
+        start_of_day = datetime.combine(today_nigeria, datetime.min.time())
+        start_of_day_utc = nigeria_tz.localize(start_of_day).astimezone(pytz.UTC)
+        
+        # Get ALL orders from start of Nigerian business day
+        orders_result = supabase.table("orders").select("*, order_items(*)").gte("created_at", start_of_day_utc.isoformat()).execute()
         orders = orders_result.data
         
-        # Calculate key metrics
-        total_orders = len(orders)
-        completed_orders = [o for o in orders if o["status"] == OrderStatus.COMPLETED]
-        pending_orders = [o for o in orders if o["status"] == OrderStatus.PENDING]
-        preparing_orders = [o for o in orders if o["status"] == OrderStatus.PREPARING]
-        cancelled_orders = [o for o in orders if o["status"] == OrderStatus.CANCELLED]
+        # Count all non-cancelled orders (both online and offline)
+        non_cancelled_orders = [o for o in orders if o["status"] != "cancelled"]
+        total_orders = len(non_cancelled_orders)
         
-        total_revenue = sum(float(o["total"]) for o in completed_orders)
-        average_order_value = total_revenue / len(completed_orders) if completed_orders else 0
+        # Revenue from paid orders (completed + confirmed with payment)
+        paid_orders = [
+            o for o in orders 
+            if o["status"] == "completed" or 
+            (o["status"] == "confirmed" and o["payment_status"] == "paid")
+        ]
         
-        # Order type breakdown
-        online_orders = [o for o in orders if o["order_type"] == OrderType.ONLINE]
-        offline_orders = [o for o in orders if o["order_type"] == OrderType.OFFLINE]
+        # Use Decimal for precise money calculations
+        total_revenue = sum(Decimal(str(o["total"])) for o in paid_orders)
+        average_order_value = total_revenue / len(paid_orders) if paid_orders else Decimal('0')
         
-        # Top products today
-        product_sales = defaultdict(lambda: {"quantity": 0, "revenue": 0, "orders": 0})
+        # Order status breakdown
+        completed_orders = [o for o in orders if o["status"] == "completed"]
+        pending_orders = [o for o in orders if o["status"] == "pending"]
+        preparing_orders = [o for o in orders if o["status"] == "preparing"]
+        cancelled_orders = [o for o in orders if o["status"] == "cancelled"]
+        
+        # Order type breakdown (from non-cancelled orders)
+        online_orders = [o for o in non_cancelled_orders if o["order_type"] == "online"]
+        offline_orders = [o for o in non_cancelled_orders if o["order_type"] == "online"]
+        
+        # Top products today (from completed orders only)
+        product_sales = defaultdict(lambda: {"quantity": 0, "revenue": Decimal('0'), "orders": 0})
         
         for order in completed_orders:
             for item in order["order_items"]:
                 product_name = item["product_name"]
                 product_sales[product_name]["quantity"] += item["quantity"]
-                product_sales[product_name]["revenue"] += float(item["total_price"])
+                product_sales[product_name]["revenue"] += Decimal(str(item["total_price"]))
                 product_sales[product_name]["orders"] += 1
         
         top_products = sorted(
-            [{"name": k, **v} for k, v in product_sales.items()],
+            [{"name": k, "quantity": v["quantity"], "revenue": float(v["revenue"]), "orders": v["orders"]} for k, v in product_sales.items()],
             key=lambda x: x["revenue"],
             reverse=True
         )[:5]
         
         # Hourly breakdown
-        hourly_sales = defaultdict(lambda: {"orders": 0, "revenue": 0})
+        hourly_sales = defaultdict(lambda: {"orders": 0, "revenue": Decimal('0')})
         for order in orders:
             hour = datetime.fromisoformat(order["created_at"]).hour
             hourly_sales[hour]["orders"] += 1
-            if order["status"] == OrderStatus.COMPLETED:
-                hourly_sales[hour]["revenue"] += float(order["total"])
+            if order["status"] == "completed":
+                hourly_sales[hour]["revenue"] += Decimal(str(order["total"]))
         
         dashboard_data = {
             "summary": {
@@ -73,8 +172,8 @@ class SalesService:
                 "pending_orders": len(pending_orders),
                 "preparing_orders": len(preparing_orders),
                 "cancelled_orders": len(cancelled_orders),
-                "total_revenue": round(total_revenue, 2),
-                "average_order_value": round(average_order_value, 2)
+                "total_revenue": float(total_revenue),
+                "average_order_value": float(average_order_value)
             },
             "order_breakdown": {
                 "online_orders": len(online_orders),
@@ -83,7 +182,7 @@ class SalesService:
             },
             "top_products_today": top_products,
             "hourly_breakdown": [
-                {"hour": hour, **data} 
+                {"hour": hour, "orders": data["orders"], "revenue": float(data["revenue"])} 
                 for hour, data in sorted(hourly_sales.items())
             ],
             "timestamp": datetime.utcnow().isoformat()
@@ -93,6 +192,8 @@ class SalesService:
         redis_client.set(cache_key, dashboard_data, 30)
         
         return dashboard_data
+
+
     
     @staticmethod
     async def get_revenue_analytics(days: int = 30) -> Dict[str, Any]:
@@ -123,12 +224,12 @@ class SalesService:
             
             daily_revenue[order_date]["orders"] += 1
             
-            if order["status"] != OrderStatus.CANCELLED:
+            if order["status"] != "cancelled":
                 daily_revenue[order_date]["revenue"] += revenue
                 total_revenue += revenue
                 completed_orders += 1
                 
-                if order["order_type"] == OrderType.ONLINE:
+                if order["order_type"] == "online":
                     daily_revenue[order_date]["online_revenue"] += revenue
                 else:
                     daily_revenue[order_date]["offline_revenue"] += revenue
@@ -142,14 +243,14 @@ class SalesService:
             
             this_week_revenue = sum(
                 float(o["total"]) for o in orders 
-                if o["status"] != OrderStatus.CANCELLED 
+                if o["status"] != "cancelled" 
                 and o.get("created_at")
                 and o["created_at"] >= this_week_start.isoformat()
             )
             
             last_week_revenue = sum(
                 float(o["total"]) for o in orders 
-                if o["status"] != OrderStatus.CANCELLED 
+                if o["status"] != "cancelled" 
                 and o.get("created_at")
                 and last_week_start.isoformat() <= o["created_at"] < this_week_start.isoformat()
             )
@@ -190,7 +291,7 @@ class SalesService:
         start_date = end_date - timedelta(days=days)
         
         # Get all sales staff
-        staff_query = supabase.table("profiles").select("*").eq("role", UserRole.SALES).eq("is_active", True)
+        staff_query = supabase.table("profiles").select("*").eq("role", "sales").eq("is_active", True)
         
         # If specific user requested, filter
         if user_id:
@@ -206,8 +307,8 @@ class SalesService:
             orders_result = supabase.table("orders").select("*").eq("created_by", staff["id"]).gte("created_at", start_date.isoformat()).execute()
             
             orders = orders_result.data
-            completed_orders = [o for o in orders if o["status"] == OrderStatus.COMPLETED]
-            cancelled_orders = [o for o in orders if o["status"] == OrderStatus.CANCELLED]
+            completed_orders = [o for o in orders if o["status"] == "completed"]
+            cancelled_orders = [o for o in orders if o["status"] == "cancelled"]
             
             total_revenue = sum(float(o["total"]) for o in completed_orders)
             total_orders = len(orders)
@@ -260,7 +361,7 @@ class SalesService:
         start_date = end_date - timedelta(days=days)
         
         # Get orders with customer info
-        orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).neq("status", OrderStatus.CANCELLED).execute()
+        orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).neq("status", "cancelled").execute()
         
         orders = orders_result.data
         
@@ -601,17 +702,17 @@ class SalesService:
         ]
         
         # Calculate velocity
-        current_revenue = sum(float(o["total"]) for o in current_hour_orders if o["status"] != OrderStatus.CANCELLED)
-        last_hour_revenue = sum(float(o["total"]) for o in last_hour_orders if o["status"] != OrderStatus.CANCELLED)
+        current_revenue = sum(float(o["total"]) for o in current_hour_orders if o["status"] != "cancelled")
+        last_hour_revenue = sum(float(o["total"]) for o in last_hour_orders if o["status"] != "cancelled")
         
         # Active orders (pending/preparing)
-        active_orders = [o for o in orders if o["status"] in [OrderStatus.PENDING, OrderStatus.PREPARING]]
+        active_orders = [o for o in orders if o["status"] in ["pending", "preparing"]]
         
         live_data = {
             "current_time": datetime.utcnow().isoformat(),
             "today_summary": {
                 "total_orders": len(orders),
-                "total_revenue": sum(float(o["total"]) for o in orders if o["status"] != OrderStatus.CANCELLED),
+                "total_revenue": sum(float(o["total"]) for o in orders if o["status"] != "cancelled"),
                 "active_orders": len(active_orders)
             },
             "current_hour": {
@@ -620,8 +721,8 @@ class SalesService:
                 "vs_last_hour": round(((current_revenue - last_hour_revenue) / last_hour_revenue * 100) if last_hour_revenue > 0 else 0, 2)
             },
             "queue_status": {
-                "pending_orders": len([o for o in active_orders if o["status"] == OrderStatus.PENDING]),
-                "preparing_orders": len([o for o in active_orders if o["status"] == OrderStatus.PREPARING]),
+                "pending_orders": len([o for o in active_orders if o["status"] == "pending"]),
+                "preparing_orders": len([o for o in active_orders if o["status"] == "preparing"]),
                 "average_wait_time": "5-10 min"  # Could calculate based on historical data
             }
         }
@@ -638,8 +739,8 @@ class SalesService:
         orders_result = supabase.table("orders").select("*, order_items(*)").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").execute()
         
         orders = orders_result.data
-        completed_orders = [o for o in orders if o["status"] == OrderStatus.COMPLETED]
-        cancelled_orders = [o for o in orders if o["status"] == OrderStatus.CANCELLED]
+        completed_orders = [o for o in orders if o["status"] == "completed"]
+        cancelled_orders = [o for o in orders if o["status"] == "cancelled"]
         
         # Revenue calculations
         gross_revenue = sum(float(o["total"]) for o in completed_orders)
@@ -655,7 +756,7 @@ class SalesService:
         for order in completed_orders:
             order_total = float(order["total"])
             
-            if order["order_type"] == OrderType.OFFLINE:
+            if order["order_type"] == "offline":
                 # Use actual payment method from order
                 payment_method = order.get("payment_method", "cash")  # Default to cash for legacy data
                 payment_breakdown[payment_method] += order_total
@@ -684,7 +785,7 @@ class SalesService:
             daily_breakdown[order_date]["tax"] += order_tax
             
             # Track payment methods per day
-            if order["order_type"] == OrderType.OFFLINE:
+            if order["order_type"] == "offline":
                 payment_method = order.get("payment_method", "cash")
                 daily_breakdown[order_date]["payment_methods"][payment_method] += order_total
             else:
@@ -702,8 +803,8 @@ class SalesService:
             })
         
         # Order type breakdown with payment insights
-        offline_orders = [o for o in completed_orders if o["order_type"] == OrderType.OFFLINE]
-        online_orders = [o for o in completed_orders if o["order_type"] == OrderType.ONLINE]
+        offline_orders = [o for o in completed_orders if o["order_type"] == "offline"]
+        online_orders = [o for o in completed_orders if o["order_type"] == "online"]
         
         # Payment method statistics for offline orders
         offline_payment_stats = defaultdict(int)
@@ -922,9 +1023,11 @@ class SalesService:
         return next_num
     
 
+    
+
     @staticmethod
     async def validate_sales_cart_items(items: List[Dict]) -> List[Dict]:
-        """Validate sales cart items - handles nested extras structure"""
+        """Validate sales cart items - handles nested extras structure with new tax system"""
         processed_items = []
         all_items_flat = []
         
@@ -966,7 +1069,9 @@ class SalesService:
                 "product_name": product_data["name"],
                 "quantity": item["quantity"],
                 "unit_price": Decimal(str(product_data["price"])),
+                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),  # New field
                 "total_price": Decimal(str(product_data["price"])) * item["quantity"],
+                "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),  # New field
                 "notes": item.get("notes")
             })
         

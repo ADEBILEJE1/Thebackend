@@ -714,3 +714,56 @@ class InventoryService:
                 "actions_per_day": round(len(activities.data) / days, 2)
             }
         }
+    
+    @staticmethod
+    async def get_packaging_analytics(period: str, date_from: Optional[date] = None, date_to: Optional[date] = None) -> Dict[str, Any]:
+        """Calculate packaging costs based on order volume"""
+        
+        # Set date range
+        if not date_from or not date_to:
+            end_date = date.today()
+            if period == "daily":
+                start_date = end_date
+            elif period == "weekly":
+                start_date = end_date - timedelta(days=7)
+            elif period == "monthly":
+                start_date = end_date - timedelta(days=30)
+            elif period == "quarterly":
+                start_date = end_date - timedelta(days=90)
+            else:  # yearly
+                start_date = end_date - timedelta(days=365)
+        else:
+            start_date = date_from
+            end_date = date_to
+        
+        # Get current packaging cost
+        packaging_result = supabase.table("packaging_costs").select("*").order("created_at", desc=True).limit(1).execute()
+        cost_per_order = Decimal(str(packaging_result.data[0]["cost_per_order"])) if packaging_result.data else Decimal('0')
+        
+        # Get orders in period
+        orders = supabase.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
+        
+        # Calculate costs by channel
+        online_orders = len([o for o in orders.data if o["order_type"] == "online"])
+        offline_orders = len([o for o in orders.data if o["order_type"] == "offline"])
+        total_orders = online_orders + offline_orders
+        
+        total_packaging_cost = cost_per_order * total_orders
+        online_packaging_cost = cost_per_order * online_orders
+        offline_packaging_cost = cost_per_order * offline_orders
+        
+        return {
+            "period": {"start": start_date, "end": end_date, "type": period},
+            "packaging_cost_per_order": float(cost_per_order),
+            "order_breakdown": {
+                "total_orders": total_orders,
+                "online_orders": online_orders,
+                "offline_orders": offline_orders
+            },
+            "cost_breakdown": {
+                "total_packaging_cost": float(total_packaging_cost),
+                "online_packaging_cost": float(online_packaging_cost),
+                "offline_packaging_cost": float(offline_packaging_cost)
+            },
+            "daily_average_cost": float(total_packaging_cost / ((end_date - start_date).days + 1))
+        }

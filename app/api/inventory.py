@@ -44,6 +44,8 @@ class ProductCreate(BaseModel):
     variant_name: Optional[str] = None
     category_id: str
     price: Decimal = Field(gt=0)
+    tax_per_unit: Decimal = Field(ge=0, default=0)  
+    preparation_time_minutes: int = Field(ge=1, le=300, default=15)
     description: Optional[str] = None
     image_url: Optional[str] = None
     units: int = Field(ge=0, default=0)
@@ -58,14 +60,20 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     low_stock_threshold: Optional[int] = Field(gt=0, default=None)
+    price: Optional[Decimal] = Field(gt=0, default=None) 
+    tax_per_unit: Optional[Decimal] = Field(ge=0, default=None) 
+    preparation_time_minutes: Optional[int] = Field(ge=1, le=300, default=None) 
     product_type: Optional[str] = Field(pattern="^(main|extra)$", default=None)
     main_product_id: Optional[str] = None
+    change_reason: Optional[str] = None  
 
 class StockUpdate(BaseModel):
     quantity: int = Field(gt=0)
     operation: str = Field(pattern="^(add|remove)$")
     price: Optional[Decimal] = Field(gt=0, default=None)
+    tax_per_unit: Optional[Decimal] = Field(ge=0, default=None) 
     notes: Optional[str] = None
+    change_reason: Optional[str] = None 
 
 class ProductAvailability(BaseModel):
     is_available: bool
@@ -216,6 +224,11 @@ class AreaUpdate(BaseModel):
     estimated_time: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
 
+
+class PackagingCostCreate(BaseModel):
+    cost_per_order: Decimal = Field(..., gt=0)
+    notes: Optional[str] = None
+
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 # Categories
@@ -279,13 +292,91 @@ async def update_category(
 
 
 
+# @router.post("/products", response_model=dict)
+# async def create_product(
+#    product: ProductCreate,
+#    current_user: dict = Depends(require_inventory_staff)
+# ):
+   
+
+#    # Verify category exists
+#    category = supabase_admin.table("categories").select("id").eq("id", product.category_id).execute()
+#    if not category.data:
+#        raise HTTPException(status_code=404, detail="Category not found")
+   
+#    # Verify supplier exists if provided
+#    if product.supplier_id:
+#        supplier = supabase.table("suppliers").select("id").eq("id", product.supplier_id).execute()
+#        if not supplier.data:
+#            raise HTTPException(status_code=404, detail="Supplier not found")
+   
+#    # Validate product type and main product relationship
+#    if product.product_type == "extra":
+#        if not product.main_product_id:
+#            raise HTTPException(status_code=400, detail="Extra products must have a main product")
+       
+#        main_product = supabase.table("products").select("id, product_type").eq("id", product.main_product_id).execute()
+#        if not main_product.data:
+#            raise HTTPException(status_code=404, detail="Main product not found")
+       
+#        if main_product.data[0]["product_type"] != "main":
+#            raise HTTPException(status_code=400, detail="Can only link to main products")
+   
+#    elif product.product_type == "main" and product.main_product_id:
+#        raise HTTPException(status_code=400, detail="Main products cannot have a main product reference")
+   
+#    # Check SKU uniqueness if provided
+#    if product.sku and product.supplier_id:
+#        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
+#        if existing_sku.data:
+#            raise HTTPException(status_code=400, detail="SKU already exists for this supplier")
+   
+#    # Determine stock status
+#    status = StockStatus.OUT_OF_STOCK
+#    if product.units > product.low_stock_threshold:
+#        status = StockStatus.IN_STOCK
+#    elif product.units > 0:
+#        status = StockStatus.LOW_STOCK
+   
+#    product_dict = product.dict()
+#    product_dict["price"] = float(product_dict["price"])
+   
+#    # Use template description if no description provided
+#    final_description = product.description
+   
+#    product_data = {
+#        **product_dict,
+#        "name": product.name,
+#        "description": product.description,
+#        "status": status,
+#        "created_by": current_user["id"],
+#        "updated_by": current_user["id"]
+#    }
+   
+#    result = supabase.table("products").insert(product_data).execute()
+   
+#    # Log initial stock if units > 0
+#    if product.units > 0:
+#        stock_entry = {
+#            "product_id": result.data[0]["id"],
+#            "quantity": product.units,
+#            "entry_type": "add",
+#            "notes": "Initial stock",
+#            "entered_by": current_user["id"]
+#        }
+#        supabase_admin.table("stock_entries").insert(stock_entry).execute()
+   
+#    return {"message": "Product created", "data": result.data[0]}
+
+
+
+
+
 @router.post("/products", response_model=dict)
 async def create_product(
    product: ProductCreate,
    current_user: dict = Depends(require_inventory_staff)
 ):
-   
-
    # Verify category exists
    category = supabase_admin.table("categories").select("id").eq("id", product.category_id).execute()
    if not category.data:
@@ -327,9 +418,7 @@ async def create_product(
    
    product_dict = product.dict()
    product_dict["price"] = float(product_dict["price"])
-   
-   # Use template description if no description provided
-   final_description = product.description
+   product_dict["tax_per_unit"] = float(product_dict["tax_per_unit"])
    
    product_data = {
        **product_dict,
@@ -354,8 +443,6 @@ async def create_product(
        supabase_admin.table("stock_entries").insert(stock_entry).execute()
    
    return {"message": "Product created", "data": result.data[0]}
-
-
 
 
 @router.get("/products", response_model=List[dict])
@@ -412,17 +499,59 @@ async def get_product(
     
     return result.data[0]
 
+# @router.patch("/products/{product_id}")
+# async def update_product(
+#     product_id: str,
+#     update: ProductUpdate,
+#     current_user: dict = Depends(require_inventory_staff)
+# ):
+#     updates = {}
+#     for k, v in update.dict().items():
+#         if v is not None:
+#             if k == "price":
+#                 updates[k] = float(v)
+#             else:
+#                 updates[k] = v
+    
+#     if updates:
+#         updates["updated_by"] = current_user["id"]
+#         updates["updated_at"] = datetime.utcnow().isoformat()
+        
+#         result = supabase.table("products").update(updates).eq("id", product_id).execute()
+#         if not result.data:
+#             raise HTTPException(status_code=404, detail="Product not found")
+    
+#     return {"message": "Product updated"}
+
+
+
 @router.patch("/products/{product_id}")
 async def update_product(
     product_id: str,
     update: ProductUpdate,
     current_user: dict = Depends(require_inventory_staff)
 ):
+    # Get current product for audit trail
+    current_product = supabase.table("products").select("*").eq("id", product_id).execute()
+    if not current_product.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    current_data = current_product.data[0]
+    
     updates = {}
+    price_changed = False
+    tax_changed = False
+    
     for k, v in update.dict().items():
-        if v is not None:
+        if v is not None and k != "change_reason":
             if k == "price":
                 updates[k] = float(v)
+                if float(v) != float(current_data["price"]):
+                    price_changed = True
+            elif k == "tax_per_unit":
+                updates[k] = float(v)
+                if float(v) != float(current_data.get("tax_per_unit", 0)):
+                    tax_changed = True
             else:
                 updates[k] = v
     
@@ -430,13 +559,28 @@ async def update_product(
         updates["updated_by"] = current_user["id"]
         updates["updated_at"] = datetime.utcnow().isoformat()
         
+        # Create audit record if price or tax changed
+        if price_changed or tax_changed:
+            audit_data = {
+                "product_id": product_id,
+                "old_price": float(current_data["price"]),
+                "new_price": float(updates.get("price", current_data["price"])),
+                "old_tax_per_unit": float(current_data.get("tax_per_unit", 0)),
+                "new_tax_per_unit": float(updates.get("tax_per_unit", current_data.get("tax_per_unit", 0))),
+                "changed_by": current_user["id"],
+                "change_reason": update.change_reason or "Product update"
+            }
+            supabase_admin.table("product_price_history").insert(audit_data).execute()
+        
         result = supabase.table("products").update(updates).eq("id", product_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Product not found")
     
     return {"message": "Product updated"}
 
-# Stock Management
+
+
+
 # @router.post("/products/{product_id}/stock")
 # async def update_stock(
 #    product_id: str,
@@ -452,6 +596,7 @@ async def update_product(
 #    current_units = product.data[0]["units"]
 #    low_threshold = product.data[0]["low_stock_threshold"]
 #    product_name = product.data[0]["name"]
+#    current_price = float(product.data[0]["price"])
    
 #    # Calculate new units
 #    if stock.operation == "add":
@@ -480,6 +625,10 @@ async def update_product(
 #        "updated_at": datetime.utcnow().isoformat()
 #    }
    
+#    # Add price update if provided
+#    if stock.price:
+#        product_update["price"] = float(stock.price)
+   
 #    supabase.table("products").update(product_update).eq("id", product_id).execute()
    
 #    # Log stock entry
@@ -501,26 +650,39 @@ async def update_product(
 #        redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
    
 #    # Enhanced activity logging
+#    log_data = {
+#        "product_name": product_name,
+#        "quantity": stock.quantity,
+#        "previous_units": current_units,
+#        "new_units": new_units,
+#        "new_status": new_status,
+#        "notes": stock.notes,
+#        "operation": stock.operation
+#    }
+   
+#    if stock.price:
+#        log_data["previous_price"] = current_price
+#        log_data["new_price"] = float(stock.price)
+#        log_data["price_change"] = float(stock.price) - current_price
+   
 #    await log_activity(
 #        current_user["id"], current_user["email"], current_user["role"],
 #        f"stock_{stock.operation}", "product", product_id,
-#        {
-#            "product_name": product_name,
-#            "quantity": stock.quantity,
-#            "previous_units": current_units,
-#            "new_units": new_units,
-#            "new_status": new_status,
-#            "notes": stock.notes,
-#            "operation": stock.operation
-#        },
+#        log_data,
 #        request
 #    )
    
-#    return {
+#    # Prepare return data
+#    return_data = {
 #        "message": f"Stock {stock.operation}ed successfully",
 #        "current_units": new_units,
 #        "status": new_status
 #    }
+   
+#    if stock.price:
+#        return_data["new_price"] = float(stock.price)
+   
+#    return return_data
 
 
 @router.post("/products/{product_id}/stock")
@@ -539,6 +701,7 @@ async def update_stock(
    low_threshold = product.data[0]["low_stock_threshold"]
    product_name = product.data[0]["name"]
    current_price = float(product.data[0]["price"])
+   current_tax = float(product.data[0].get("tax_per_unit", 0))
    
    # Calculate new units
    if stock.operation == "add":
@@ -567,9 +730,32 @@ async def update_stock(
        "updated_at": datetime.utcnow().isoformat()
    }
    
-   # Add price update if provided
+   # Track price/tax changes
+   price_changed = False
+   tax_changed = False
+   
    if stock.price:
        product_update["price"] = float(stock.price)
+       if float(stock.price) != current_price:
+           price_changed = True
+   
+   if stock.tax_per_unit is not None:
+       product_update["tax_per_unit"] = float(stock.tax_per_unit)
+       if float(stock.tax_per_unit) != current_tax:
+           tax_changed = True
+   
+   # Create audit record if needed
+   if price_changed or tax_changed:
+       audit_data = {
+           "product_id": product_id,
+           "old_price": current_price,
+           "new_price": float(stock.price) if stock.price else current_price,
+           "old_tax_per_unit": current_tax,
+           "new_tax_per_unit": float(stock.tax_per_unit) if stock.tax_per_unit is not None else current_tax,
+           "changed_by": current_user["id"],
+           "change_reason": stock.change_reason or f"Stock {stock.operation} operation"
+       }
+       supabase_admin.table("product_price_history").insert(audit_data).execute()
    
    supabase.table("products").update(product_update).eq("id", product_id).execute()
    
@@ -607,6 +793,11 @@ async def update_stock(
        log_data["new_price"] = float(stock.price)
        log_data["price_change"] = float(stock.price) - current_price
    
+   if stock.tax_per_unit is not None:
+       log_data["previous_tax"] = current_tax
+       log_data["new_tax"] = float(stock.tax_per_unit)
+       log_data["tax_change"] = float(stock.tax_per_unit) - current_tax
+   
    await log_activity(
        current_user["id"], current_user["email"], current_user["role"],
        f"stock_{stock.operation}", "product", product_id,
@@ -624,7 +815,12 @@ async def update_stock(
    if stock.price:
        return_data["new_price"] = float(stock.price)
    
+   if stock.tax_per_unit is not None:
+       return_data["new_tax_per_unit"] = float(stock.tax_per_unit)
+   
    return return_data
+
+
 
 
 # Availability Toggle (for Sales staff)
@@ -2041,3 +2237,42 @@ async def delete_area(
     return {"message": "Area deleted"}
 
 
+@router.get("/packaging/costs")
+async def get_packaging_costs(
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Get current packaging cost per order"""
+    result = supabase.table("packaging_costs").select("*").order("created_at", desc=True).limit(1).execute()
+    
+    if not result.data:
+        return {"cost_per_order": 0.00, "notes": "No packaging cost set"}
+    
+    return result.data[0]
+
+@router.post("/packaging/costs")
+async def set_packaging_costs(
+    cost_data: PackagingCostCreate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Set or update packaging cost per order"""
+    
+    cost_entry = {
+        "cost_per_order": float(cost_data.cost_per_order),
+        "notes": cost_data.notes,
+        "created_by": current_user["id"]
+    }
+    
+    result = supabase.table("packaging_costs").insert(cost_entry).execute()
+    return {"message": "Packaging cost updated", "data": result.data[0]}
+
+@router.get("/packaging/analytics")
+async def get_packaging_analytics(
+    request: Request,
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Get packaging cost analytics"""
+    analytics_data = await InventoryService.get_packaging_analytics(period, date_from, date_to)
+    return analytics_data

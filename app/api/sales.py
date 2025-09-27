@@ -43,6 +43,12 @@ class OfflineOrderCreate(BaseModel):
 class OrderConfirm(BaseModel):
     payment_confirmed: bool
 
+class RefundRequest(BaseModel):
+    order_id: str
+    items: List[Dict[str, Any]] 
+    refund_reason: str
+    notes: Optional[str] = None
+
 
 
 router = APIRouter(prefix="/sales", tags=["Sales Dashboard"])
@@ -157,7 +163,7 @@ async def get_products_for_orders(
     include_low_stock: bool = True,
     current_user: dict = Depends(require_sales_staff)
 ):
-    """Get products for sales order creation"""
+    """Get products for sales order creation with tax information"""
     await default_limiter.check_rate_limit(request, current_user["id"])
     
     cache_key = f"sales:products:{category_id}:{search}:{min_price}:{max_price}:{include_low_stock}"
@@ -166,7 +172,8 @@ async def get_products_for_orders(
         return cached
     
     query = supabase.table("products").select("""
-        id, sku, name, variant_name, price, description, image_url, units, status, is_available,
+        id, sku, name, variant_name, price, tax_per_unit, preparation_time_minutes, 
+        description, image_url, units, status, is_available,
         categories(id, name)
     """).eq("is_available", True).eq("product_type", "main")
     
@@ -212,6 +219,8 @@ async def get_products_for_orders(
                 "id": extra["id"],
                 "name": extra_display_name,
                 "price": float(extra["price"]),
+                "tax_per_unit": float(extra.get("tax_per_unit", 0)),  # New field
+                "preparation_time_minutes": extra.get("preparation_time_minutes", 15),  # New field
                 "description": extra["description"],
                 "image_url": extra["image_url"],
                 "available_stock": extra["units"],
@@ -222,6 +231,8 @@ async def get_products_for_orders(
             "id": product["id"],
             "name": display_name,
             "price": float(product["price"]),
+            "tax_per_unit": float(product.get("tax_per_unit", 0)),  # New field
+            "preparation_time_minutes": product.get("preparation_time_minutes", 15),  # New field
             "description": product["description"],
             "image_url": product["image_url"],
             "available_stock": product["units"],
@@ -837,7 +848,7 @@ async def validate_sales_cart(
             "items": processed_items,
             "totals": {
                 "subtotal": float(totals["subtotal"]),
-                "vat": float(totals["vat"]),
+                "tax": float(totals["tax"]),
                 "total": float(totals["total"])
             },
             "stock_warnings": stock_validation["warnings"],
@@ -849,13 +860,15 @@ async def validate_sales_cart(
     
 
 
+# In sales.py - Update create_offline_order endpoint
+
 @router.post("/orders")
 async def create_offline_order(
     order_data: OfflineOrderCreate,
     request: Request,
     current_user: dict = Depends(require_sales_staff)
 ):
-    """Create offline order (pending payment)"""
+    """Create offline order with new tax system"""
     stock_validation = await validate_stock_before_order(order_data.items, current_user)
     if not stock_validation["valid"]:
         raise HTTPException(status_code=400, detail={
@@ -865,6 +878,12 @@ async def create_offline_order(
     
     processed_items = await SalesService.validate_sales_cart_items(order_data.items)
     totals = CartService.calculate_order_total(processed_items)
+    
+    # Calculate total preparation time
+    total_prep_time = sum(
+        item["preparation_time_minutes"] * item["quantity"] 
+        for item in processed_items
+    )
     
     batch_id = SalesService.generate_batch_id()
     batch_created_at = datetime.utcnow().isoformat()
@@ -880,8 +899,9 @@ async def create_offline_order(
         "customer_name": order_data.customer_name,
         "customer_phone": order_data.customer_phone,
         "subtotal": float(totals["subtotal"]),
-        "tax": float(totals["vat"]),
+        "tax": float(totals["tax"]),  # Changed from "tax" to use new calculation
         "total": float(totals["total"]),
+        "estimated_prep_time_minutes": total_prep_time,  # New field
         "notes": order_data.notes,
         "created_by": current_user["id"],
         "batch_id": batch_id,
@@ -898,7 +918,9 @@ async def create_offline_order(
             "product_name": item["product_name"],
             "quantity": item["quantity"],
             "unit_price": float(item["unit_price"]),
+            "tax_per_unit": float(item["tax_per_unit"]),  # New field
             "total_price": float(item["total_price"]),
+            "preparation_time_minutes": item["preparation_time_minutes"],  # New field
             "notes": item.get("notes")
         }
         supabase_admin.table("order_items").insert(item_data).execute()
@@ -906,7 +928,11 @@ async def create_offline_order(
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "create", "offline_order", order_id, 
-        {"order_number": order_number, "total": float(totals["total"])}, 
+        {
+            "order_number": order_number, 
+            "total": float(totals["total"]),
+            "prep_time_minutes": total_prep_time
+        }, 
         request
     )
     
@@ -968,19 +994,27 @@ async def confirm_order_payment(
 
 
 
+
+
 @router.get("/orders/{order_id}/print")
 async def print_sales_receipt(
     order_id: str,
     request: Request,
     current_user: dict = Depends(require_sales_staff)
 ):
-    """Generate printable sales receipt"""
+    """Generate printable sales receipt with tax breakdown"""
     order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found")
     
     order_data = order.data[0]
+    
+    # Calculate tax breakdown for receipt
+    total_tax = sum(
+        float(item.get("tax_per_unit", 0)) * item["quantity"] 
+        for item in order_data["order_items"]
+    )
     
     receipt_data = {
         "order_number": order_data["order_number"],
@@ -990,8 +1024,9 @@ async def print_sales_receipt(
         "created_at": order_data["created_at"],
         "items": order_data["order_items"],
         "subtotal": order_data["subtotal"],
-        "tax": order_data["tax"],
-        "total": order_data["total"]
+        "tax": order_data.get("tax", total_tax),  # Use calculated tax if not stored
+        "total": order_data["total"],
+        "estimated_prep_time": order_data.get("estimated_prep_time_minutes", 0)
     }
     
     await log_activity(
@@ -1268,3 +1303,169 @@ async def get_batch_history(
         batches[batch_id]["total_items"] += len(order.get("order_items") or [])
     
     return {"batches": list(batches.values())}
+
+
+@router.post("/orders/{order_id}/refund")
+async def process_refund(
+    order_id: str,
+    refund_data: RefundRequest,
+    request: Request,
+    current_user: dict = Depends(require_manager_up)  # Manager+ only for refunds
+):
+    """Process partial or full refund and restore inventory"""
+    
+    # Get original order
+    order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "completed").execute()
+    
+    if not order.data:
+        raise HTTPException(status_code=404, detail="Completed order not found")
+    
+    order_data = order.data[0]
+    original_items = {item["product_id"]: item for item in order_data["order_items"]}
+    
+    # Validate refund items
+    refund_amount = Decimal('0')
+    processed_refunds = []
+    
+    for refund_item in refund_data.items:
+        product_id = refund_item["product_id"]
+        refund_qty = refund_item["quantity"]
+        
+        if product_id not in original_items:
+            raise HTTPException(status_code=400, detail=f"Product {product_id} not in original order")
+        
+        original_item = original_items[product_id]
+        if refund_qty > original_item["quantity"]:
+            raise HTTPException(status_code=400, detail=f"Cannot refund {refund_qty} of {original_item['product_name']}, only {original_item['quantity']} ordered")
+        
+        # Calculate refund amount
+        unit_price = Decimal(str(original_item["unit_price"]))
+        item_refund = unit_price * refund_qty
+        refund_amount += item_refund
+        
+        processed_refunds.append({
+            "product_id": product_id,
+            "product_name": original_item["product_name"],
+            "quantity": refund_qty,
+            "unit_price": unit_price,
+            "refund_amount": item_refund,
+            "reason": refund_item.get("reason", "")
+        })
+    
+    # Create refund record
+    refund_record = {
+        "order_id": order_id,
+        "refund_amount": float(refund_amount),
+        "refund_reason": refund_data.refund_reason,
+        "notes": refund_data.notes,
+        "processed_by": current_user["id"],
+        "refund_items": processed_refunds
+    }
+    
+    refund_result = supabase_admin.table("refunds").insert(refund_record).execute()
+    refund_id = refund_result.data[0]["id"]
+    
+    # Restore inventory
+    for refund_item in processed_refunds:
+        product = supabase.table("products").select("*").eq("id", refund_item["product_id"]).execute()
+        
+        if product.data:
+            current_units = product.data[0]["units"]
+            low_threshold = product.data[0]["low_stock_threshold"]
+            new_units = current_units + refund_item["quantity"]
+            
+            # Update status based on new stock
+            if new_units > low_threshold:
+                new_status = "in_stock"
+            elif new_units > 0:
+                new_status = "low_stock"
+            else:
+                new_status = "out_of_stock"
+            
+            supabase.table("products").update({
+                "units": new_units,
+                "status": new_status,
+                "updated_by": current_user["id"],
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", refund_item["product_id"]).execute()
+            
+            # Log stock restoration
+            supabase_admin.table("stock_entries").insert({
+                "product_id": refund_item["product_id"],
+                "quantity": refund_item["quantity"],
+                "entry_type": "add",
+                "notes": f"Refund restoration - Refund ID: {refund_id}",
+                "entered_by": current_user["id"]
+            }).execute()
+    
+    # Clear inventory caches
+    redis_client.delete_pattern("products:list:*")
+    redis_client.delete_pattern("inventory:dashboard:*")
+    redis_client.delete_pattern("sales:products:*")
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "process_refund", "order", order_id,
+        {
+            "refund_amount": float(refund_amount),
+            "items_count": len(processed_refunds),
+            "refund_reason": refund_data.refund_reason
+        },
+        request
+    )
+    
+    return {
+        "message": "Refund processed successfully",
+        "refund_id": refund_id,
+        "refund_amount": float(refund_amount),
+        "items_refunded": processed_refunds
+    }
+
+@router.get("/orders/{order_id}/refund-history")
+async def get_refund_history(
+    order_id: str,
+    current_user: dict = Depends(require_sales_staff)
+):
+    """Get refund history for an order"""
+    
+    refunds = supabase_admin.table("refunds").select("*, profiles(email)").eq("order_id", order_id).order("created_at", desc=True).execute()
+    
+    return refunds.data
+
+@router.get("/refunds/summary")
+async def get_refunds_summary(
+    request: Request,
+    days: int = 30,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get refunds summary and analytics"""
+    
+    end_date = datetime.utcnow()
+    start_date = end_date - timedelta(days=days)
+    
+    refunds = supabase_admin.table("refunds").select("*").gte("created_at", start_date.isoformat()).execute()
+    
+    total_refunds = len(refunds.data)
+    total_refund_amount = sum(float(r["refund_amount"]) for r in refunds.data)
+    
+    # Group by reason
+    refund_reasons = {}
+    for refund in refunds.data:
+        reason = refund["refund_reason"]
+        if reason not in refund_reasons:
+            refund_reasons[reason] = {"count": 0, "amount": 0}
+        refund_reasons[reason]["count"] += 1
+        refund_reasons[reason]["amount"] += float(refund["refund_amount"])
+    
+    return {
+        "period": {"start": start_date.date(), "end": end_date.date(), "days": days},
+        "summary": {
+            "total_refunds": total_refunds,
+            "total_refund_amount": round(total_refund_amount, 2),
+            "average_refund": round(total_refund_amount / total_refunds, 2) if total_refunds > 0 else 0
+        },
+        "refund_reasons": [
+            {"reason": k, **v, "amount": round(v["amount"], 2)}
+            for k, v in refund_reasons.items()
+        ]
+    }

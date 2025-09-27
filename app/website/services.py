@@ -200,7 +200,7 @@ class CartService:
 
     @staticmethod
     async def validate_cart_items(items: List[Dict]) -> List[Dict]:
-        """Validate cart items and return processed data"""
+        """Validate cart items and return processed data with tax info"""
         processed_items = []
         main_products_in_cart = set()
         extra_products_in_cart = []
@@ -247,7 +247,9 @@ class CartService:
                 "product_name": product_data["name"],
                 "quantity": item["quantity"],
                 "unit_price": Decimal(str(product_data["price"])),
+                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),  # New field
                 "total_price": Decimal(str(product_data["price"])) * item["quantity"],
+                "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),  # New field
                 "notes": item.get("notes")
             })
         
@@ -313,14 +315,19 @@ class CartService:
     
     @staticmethod
     def calculate_order_total(items: List[Dict]) -> Dict[str, Decimal]:
-        """Calculate order totals"""
+        """Calculate order totals using per-product tax rates"""
         subtotal = sum(item["total_price"] for item in items)
-        vat = subtotal * Decimal("0.075")  # 7.5% VAT
+        
+        # Calculate tax based on individual product tax rates
+        total_tax = sum(
+            Decimal(str(item["tax_per_unit"])) * item["quantity"] 
+            for item in items
+        )
         
         return {
             "subtotal": subtotal,
-            "vat": vat,
-            "total": subtotal + vat
+            "tax": total_tax,  # Changed from "vat" to "tax"
+            "total": subtotal + total_tax
         }
     
     @staticmethod
