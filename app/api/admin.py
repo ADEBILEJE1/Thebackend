@@ -811,6 +811,7 @@ async def create_staff_salary(
     
     # Log initial salary in history
     history_entry = {
+        "salary_entry_id": result.data[0]["id"],
         "staff_id": staff_data.staff_id,
         "old_salary": None,
         "new_salary": float(staff_data.salary_amount),
@@ -855,7 +856,6 @@ async def update_staff_salary(
 ):
     """Update staff salary - creates history record for salary changes"""
     
-    # Get current salary entry
     current_salary = supabase.table("staff_salaries").select("*").eq("id", salary_id).execute()
     
     if not current_salary.data:
@@ -864,17 +864,15 @@ async def update_staff_salary(
     current_data = current_salary.data[0]
     updates = {}
     
-    # Handle salary change
     if update_data.salary_amount is not None:
         old_salary = float(current_data["salary_amount"])
         new_salary = float(update_data.salary_amount)
         
         if old_salary != new_salary:
-            # Determine change type
             change_type = "increase" if new_salary > old_salary else "decrease"
             
-            # Create history record
             history_entry = {
+                "salary_entry_id": salary_id,  # NEW
                 "staff_id": current_data["staff_id"],
                 "old_salary": old_salary,
                 "new_salary": new_salary,
@@ -884,16 +882,14 @@ async def update_staff_salary(
             }
             
             supabase.table("salary_history").insert(history_entry).execute()
-            
             updates["salary_amount"] = new_salary
     
-    # Handle activation/deactivation
     if update_data.is_active is not None:
         updates["is_active"] = update_data.is_active
     
     if updates:
         updates["updated_at"] = datetime.utcnow().isoformat()
-        result = supabase.table("staff_salaries").update(updates).eq("id", salary_id).execute()
+        supabase.table("staff_salaries").update(updates).eq("id", salary_id).execute()
         
         await log_activity(
             current_user["id"], current_user["email"], current_user["role"],
@@ -904,17 +900,26 @@ async def update_staff_salary(
     
     return {"message": "Staff salary updated"}
 
-@router.get("/payroll/staff/{staff_id}/history")
+
+
+@router.get("/payroll/staff/{salary_id}/history")
 async def get_staff_salary_history(
-    staff_id: str,
+    salary_id: str,
     request: Request,
     current_user: dict = Depends(require_manager_up)
 ):
-    """Get salary change history for specific staff"""
+    """Get salary change history for specific salary entry"""
     
+    # Verify salary exists
+    salary = supabase.table("staff_salaries").select("*").eq("id", salary_id).execute()
+    
+    if not salary.data:
+        raise HTTPException(status_code=404, detail="Salary entry not found")
+    
+    # Get history using salary_entry_id
     history = supabase.table("salary_history").select(
         "*, profiles!salary_history_changed_by_fkey(email)"
-    ).eq("staff_id", staff_id).order("change_date", desc=True).execute()
+    ).eq("salary_entry_id", salary_id).order("change_date", desc=True).execute()
     
     return history.data
 
