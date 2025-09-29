@@ -52,6 +52,7 @@ class ProductCreate(BaseModel):
     low_stock_threshold: int = Field(gt=0, default=10)
     product_type: str = Field(default="main", pattern="^(main|extra)$")
     main_product_id: Optional[str] = None
+    has_options: bool = False
 
 class ProductUpdate(BaseModel):
     category_id: Optional[str] = None
@@ -65,7 +66,8 @@ class ProductUpdate(BaseModel):
     preparation_time_minutes: Optional[int] = Field(ge=1, le=300, default=None) 
     product_type: Optional[str] = Field(pattern="^(main|extra)$", default=None)
     main_product_id: Optional[str] = None
-    change_reason: Optional[str] = None  
+    has_options: Optional[bool] = None
+    change_reason: Optional[str] = None
 
 class StockUpdate(BaseModel):
     quantity: int = Field(gt=0)
@@ -225,6 +227,15 @@ class AreaUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class ProductOptionCreate(BaseModel):
+    name: str = Field(max_length=100)
+    display_order: int = Field(default=0, ge=0)
+
+class ProductOptionUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    display_order: Optional[int] = Field(None, ge=0)
+
+
 class PackagingCostCreate(BaseModel):
     cost_per_order: Decimal = Field(..., gt=0)
     notes: Optional[str] = None
@@ -372,7 +383,7 @@ async def update_category(
 
 
 
-@router.post("/products", response_model=dict)
+# @router.post("/products", response_model=dict)
 async def create_product(
    product: ProductCreate,
    current_user: dict = Depends(require_inventory_staff)
@@ -425,6 +436,7 @@ async def create_product(
        "name": product.name,
        "description": product.description,
        "status": status,
+       "has_options": product.has_options,
        "created_by": current_user["id"],
        "updated_by": current_user["id"]
    }
@@ -445,18 +457,52 @@ async def create_product(
    return {"message": "Product created", "data": result.data[0]}
 
 
+# @router.get("/products", response_model=List[dict])
+# async def get_products(
+#     request: Request,
+#     category_id: Optional[str] = None,
+#     available_only: bool = False,
+#     include_out_of_stock: bool = True,
+#     current_user: dict = Depends(require_staff)  # Changed from require_inventory_staff
+# ):
+#     # Rate limiting
+#     await default_limiter.check_rate_limit(request, current_user["id"])
+    
+#     # Check cache
+#     cache_key = f"products:list:{category_id}:{available_only}:{include_out_of_stock}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     query = supabase.table("products").select("*, categories(*), suppliers(name)")
+    
+#     if category_id:
+#         query = query.eq("category_id", category_id)
+#     if available_only:
+#         query = query.eq("is_available", True)
+#     if not include_out_of_stock:
+#         query = query.neq("status", StockStatus.OUT_OF_STOCK)
+    
+#     result = query.order("name").execute()
+    
+#     # Cache for 1 minute
+#     redis_client.set(cache_key, result.data, 60)
+    
+#     return result.data
+
+
+
+
 @router.get("/products", response_model=List[dict])
 async def get_products(
     request: Request,
     category_id: Optional[str] = None,
     available_only: bool = False,
     include_out_of_stock: bool = True,
-    current_user: dict = Depends(require_staff)  # Changed from require_inventory_staff
+    current_user: dict = Depends(require_staff)
 ):
-    # Rate limiting
     await default_limiter.check_rate_limit(request, current_user["id"])
     
-    # Check cache
     cache_key = f"products:list:{category_id}:{available_only}:{include_out_of_stock}"
     cached = redis_client.get(cache_key)
     if cached:
@@ -473,55 +519,73 @@ async def get_products(
     
     result = query.order("name").execute()
     
-    # Cache for 1 minute
-    redis_client.set(cache_key, result.data, 60)
+    # Add options to products that have them
+    for product in result.data:
+        if product.get("has_options"):
+            options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order", "name").execute()
+            product["options"] = options.data
+        else:
+            product["options"] = []
     
+    redis_client.set(cache_key, result.data, 60)
     return result.data
 
-@router.get("/products/{product_id}")
-async def get_product(
+
+@router.patch("/products/{product_id}")
+async def update_product(
     product_id: str,
-    request: Request,
-    current_user: dict = Depends(get_current_user)
+    update: ProductUpdate,
+    current_user: dict = Depends(require_inventory_staff)
 ):
-    # Check cache
-    cache_key = CacheKeys.PRODUCT_DETAIL.format(product_id=product_id)
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-    
-    result = supabase.table("products").select("*, categories(*)").eq("id", product_id).execute()
-    if not result.data:
+    # Get current product for audit trail
+    current_product = supabase.table("products").select("*").eq("id", product_id).execute()
+    if not current_product.data:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    # Cache for 5 minutes
-    redis_client.set(cache_key, result.data[0], 300)
+    current_data = current_product.data[0]
     
-    return result.data[0]
-
-# @router.patch("/products/{product_id}")
-# async def update_product(
-#     product_id: str,
-#     update: ProductUpdate,
-#     current_user: dict = Depends(require_inventory_staff)
-# ):
-#     updates = {}
-#     for k, v in update.dict().items():
-#         if v is not None:
-#             if k == "price":
-#                 updates[k] = float(v)
-#             else:
-#                 updates[k] = v
+    updates = {}
+    price_changed = False
+    tax_changed = False
     
-#     if updates:
-#         updates["updated_by"] = current_user["id"]
-#         updates["updated_at"] = datetime.utcnow().isoformat()
+    for k, v in update.dict().items():
+        if v is not None and k != "change_reason":
+            if k == "price":
+                updates[k] = float(v)
+                if float(v) != float(current_data["price"]):
+                    price_changed = True
+            elif k == "tax_per_unit":
+                updates[k] = float(v)
+                if float(v) != float(current_data.get("tax_per_unit", 0)):
+                    tax_changed = True
+            elif k == "has_options":
+                updates[k] = v
+            else:
+                updates[k] = v
+    
+    if updates:
+        updates["updated_by"] = current_user["id"]
+        updates["updated_at"] = datetime.utcnow().isoformat()
         
-#         result = supabase.table("products").update(updates).eq("id", product_id).execute()
-#         if not result.data:
-#             raise HTTPException(status_code=404, detail="Product not found")
+        # Create audit record if price or tax changed
+        if price_changed or tax_changed:
+            audit_data = {
+                "product_id": product_id,
+                "old_price": float(current_data["price"]),
+                "new_price": float(updates.get("price", current_data["price"])),
+                "old_tax_per_unit": float(current_data.get("tax_per_unit", 0)),
+                "new_tax_per_unit": float(updates.get("tax_per_unit", current_data.get("tax_per_unit", 0))),
+                "changed_by": current_user["id"],
+                "change_reason": update.change_reason or "Product update"
+            }
+            supabase_admin.table("product_price_history").insert(audit_data).execute()
+        
+        result = supabase.table("products").update(updates).eq("id", product_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Product not found")
     
-#     return {"message": "Product updated"}
+    return {"message": "Product updated"}
+
 
 
 

@@ -200,7 +200,6 @@ class CartService:
 
     @staticmethod
     async def validate_cart_items(items: List[Dict]) -> List[Dict]:
-        """Validate cart items and return processed data with tax info"""
         processed_items = []
         main_products_in_cart = set()
         extra_products_in_cart = []
@@ -231,7 +230,7 @@ class CartService:
                 main_name = main_product.data[0]["name"] if main_product.data else "Unknown"
                 raise ValueError(f"Cannot add extra '{extra_info['product_data']['name']}' without adding main product '{main_name}' to cart")
         
-        # Second pass: process all items (validation passed)
+        # Second pass: process all items
         for item in items:
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             product_data = product.data[0]
@@ -242,76 +241,39 @@ class CartService:
             if product_data["units"] < item["quantity"]:
                 raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
             
+            # Handle options validation
+            option_data = None
+            if product_data.get("has_options"):
+                if not item.get("option_id"):
+                    raise ValueError(f"{product_data['name']} requires option selection")
+                
+                option = supabase.table("product_options").select("*").eq("id", item["option_id"]).eq("product_id", item["product_id"]).execute()
+                if not option.data:
+                    raise ValueError(f"Invalid option for {product_data['name']}")
+                
+                option_data = option.data[0]
+                final_price = Decimal(str(product_data["price"])) 
+            else:
+                if item.get("option_id"):
+                    raise ValueError(f"{product_data['name']} does not support options")
+                final_price = Decimal(str(product_data["price"]))
+            
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
+                "option_id": item.get("option_id"),
+                "option_name": option_data["name"] if option_data else None,
                 "quantity": item["quantity"],
-                "unit_price": Decimal(str(product_data["price"])),
-                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),  # New field
-                "total_price": Decimal(str(product_data["price"])) * item["quantity"],
-                "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),  # New field
+                "unit_price": final_price,
+                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
+                "total_price": final_price * item["quantity"],
+                "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes")
             })
         
         return processed_items
 
-    # @staticmethod
-    # async def validate_cart_items(items: List[Dict]) -> List[Dict]:
-    #     """Validate cart items and return processed data"""
-    #     processed_items = []
-    #     main_products_in_cart = set()
-    #     extra_products_in_cart = []
-        
-    #     # First pass: identify main products and collect extras
-    #     for item in items:
-    #         product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
-            
-    #         if not product.data:
-    #             raise ValueError(f"Product {item['product_id']} not found")
-            
-    #         product_data = product.data[0]
-            
-    #         if product_data["product_type"] == "main":
-    #             main_products_in_cart.add(item["product_id"])
-    #         elif product_data["product_type"] == "extra":
-    #             extra_products_in_cart.append({
-    #                 "item": item,
-    #                 "product_data": product_data,
-    #                 "main_product_id": product_data["main_product_id"]
-    #             })
-        
-    #     # Validate extras have corresponding main products
-    #     for extra_info in extra_products_in_cart:
-    #         main_product_id = extra_info["main_product_id"]
-    #         if main_product_id not in main_products_in_cart:
-    #             main_product = supabase.table("products").select("name").eq("id", main_product_id).execute()
-    #             main_name = main_product.data[0]["name"] if main_product.data else "Unknown"
-    #             raise ValueError(f"Cannot add extra '{extra_info['product_data']['name']}' without adding main product '{main_name}' to cart")
-        
-    #     # Second pass: process all items (validation passed)
-    #     for item in items:
-    #         product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
-    #         product_data = product.data[0]
-            
-    #         if not product_data["is_available"] or product_data["status"] == "out_of_stock":
-    #             raise ValueError(f"{product_data['name']} is not available")
-            
-    #         if product_data["units"] < item["quantity"]:
-    #             raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
-            
-    #         if not product_data["is_available"] or product_data["status"] == "out_of_stock":
-    #             raise ValueError(f"{product_data['name']} is currently out of stock")
-            
-    #         processed_items.append({
-    #             "product_id": item["product_id"],
-    #             "product_name": product_data["name"],
-    #             "quantity": item["quantity"],
-    #             "unit_price": Decimal(str(product_data["price"])),
-    #             "total_price": Decimal(str(product_data["price"])) * item["quantity"],
-    #             "notes": item.get("notes")
-    #         })
-        
-    #     return processed_items
+    
     
     @staticmethod
     def calculate_order_total(items: List[Dict]) -> Dict[str, Decimal]:

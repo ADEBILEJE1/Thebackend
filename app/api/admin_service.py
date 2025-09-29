@@ -207,10 +207,12 @@ class AdminService:
             end_date = date_to
         
         # Get orders with items and categories
-        orders = supabase.table("orders").select("""
-            *, 
-            order_items(*, products(categories(name)))
-        """).gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
+        orders = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
+
+        # Fetch order_items separately
+        for order in orders.data:
+            items = supabase_admin.table("order_items").select("*, products(categories(name))").eq("order_id", order["id"]).execute()
+            order["order_items"] = items.data
         
         # Revenue calculations with separate components
         product_revenue_online = Decimal('0')
@@ -760,16 +762,16 @@ class AdminService:
                     # Same month
                     days_in_month = (period_end - period_start).days + 1
                     days_total_month = 30  # Approximate
-                    staff_cost = monthly_salary * (days_in_month / days_total_month)
+                    staff_cost = monthly_salary * Decimal(str(days_in_month)) / Decimal(str(days_total_month))
                 else:
                     # Full month calculation
                     staff_cost = monthly_salary
             elif period == "quarterly":
                 # 3 months
-                staff_cost = monthly_salary * 3
+                staff_cost = monthly_salary * Decimal('3')
             else:  # yearly
                 # 12 months
-                staff_cost = monthly_salary * 12
+                staff_cost = monthly_salary * Decimal('12')
             
             total_salary_cost += staff_cost
             
@@ -1185,10 +1187,11 @@ class AdminService:
         
         # Cost impact analysis
         cost_impact = {
-            "salary_impact_on_profit": float((cost_data["cost_summary"]["total_salary_cost"] / total_revenue * 100)) if total_revenue > 0 else 0,
-            "expenditure_impact_on_profit": float((cost_data["cost_summary"]["total_expenditure_cost"] / total_revenue * 100)) if total_revenue > 0 else 0,
-            "packaging_impact_on_profit": float((cost_data["cost_summary"]["total_packaging_cost"] / total_revenue * 100)) if total_revenue > 0 else 0,
-            "refund_impact_on_profit": float((cost_data["cost_summary"]["total_refund_cost"] / total_revenue * 100)) if total_revenue > 0 else 0
+            "salary_impact_on_profit": float((cost_data["cost_summary"]["total_salary_cost"] / float(total_revenue) * 100)) if total_revenue > 0 else 0,
+            "expenditure_impact_on_profit": float((cost_data["cost_summary"]["total_expenditure_cost"] / float(total_revenue) * 100)) if total_revenue > 0 else 0,
+            "packaging_impact_on_profit": float((cost_data["cost_summary"]["total_packaging_cost"] / float(total_revenue) * 100)) if total_revenue > 0 else 0,
+            "raw_material_impact_on_profit": float((cost_data["cost_summary"]["total_raw_material_cost"] / float(total_revenue) * 100)) if total_revenue > 0 else 0,
+            "refund_impact_on_profit": float((cost_data["cost_summary"]["total_refund_cost"] / float(total_revenue) * 100)) if total_revenue > 0 else 0
         }
         
         # Recommendations based on profit analysis
@@ -1230,7 +1233,7 @@ class AdminService:
                 "cost_per_day": float(total_costs / days_in_period) if days_in_period > 0 else 0,
                 "profit_per_day": float(gross_profit / days_in_period) if days_in_period > 0 else 0,
                 "break_even_revenue_needed": float(total_costs),
-                "revenue_growth_needed_for_target_margin": float(total_costs / 0.8 - total_revenue) if total_revenue > 0 else 0  # Assuming 20% target margin
+                "revenue_growth_needed_for_target_margin": float(total_costs / Decimal('0.8') - total_revenue) if total_revenue > 0 else 0  # Assuming 20% target margin
             }
         }
     

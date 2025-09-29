@@ -13,86 +13,6 @@ from ..models.user import UserRole
 class SalesService:
     """Service class for sales dashboard operations"""
     
-    # @staticmethod
-    # async def get_sales_dashboard_overview(user_role: str) -> Dict[str, Any]:
-    #     """Get comprehensive sales dashboard overview - unified for all sales staff"""
-    #     cache_key = f"sales:dashboard:overview:unified"
-    #     cached = redis_client.get(cache_key)
-    #     if cached:
-    #         return cached
-        
-    #     today = date.today()
-    #     start_of_day = datetime.combine(today, datetime.min.time())
-        
-    #     # Get ALL orders - no user filtering
-    #     orders_result = supabase.table("orders").select("*, order_items(*)").gte("created_at", start_of_day.isoformat()).execute()
-    #     orders = orders_result.data
-        
-    #     # Calculate key metrics
-    #     total_orders = len(orders)
-    #     completed_orders = [o for o in orders if o["status"] == OrderStatus.COMPLETED]
-    #     pending_orders = [o for o in orders if o["status"] == OrderStatus.PENDING]
-    #     preparing_orders = [o for o in orders if o["status"] == OrderStatus.PREPARING]
-    #     cancelled_orders = [o for o in orders if o["status"] == OrderStatus.CANCELLED]
-        
-    #     total_revenue = sum(float(o["total"]) for o in completed_orders)
-    #     average_order_value = total_revenue / len(completed_orders) if completed_orders else 0
-        
-    #     # Order type breakdown
-    #     online_orders = [o for o in orders if o["order_type"] == OrderType.ONLINE]
-    #     offline_orders = [o for o in orders if o["order_type"] == OrderType.OFFLINE]
-        
-    #     # Top products today
-    #     product_sales = defaultdict(lambda: {"quantity": 0, "revenue": 0, "orders": 0})
-        
-    #     for order in completed_orders:
-    #         for item in order["order_items"]:
-    #             product_name = item["product_name"]
-    #             product_sales[product_name]["quantity"] += item["quantity"]
-    #             product_sales[product_name]["revenue"] += float(item["total_price"])
-    #             product_sales[product_name]["orders"] += 1
-        
-    #     top_products = sorted(
-    #         [{"name": k, **v} for k, v in product_sales.items()],
-    #         key=lambda x: x["revenue"],
-    #         reverse=True
-    #     )[:5]
-        
-    #     # Hourly breakdown
-    #     hourly_sales = defaultdict(lambda: {"orders": 0, "revenue": 0})
-    #     for order in orders:
-    #         hour = datetime.fromisoformat(order["created_at"]).hour
-    #         hourly_sales[hour]["orders"] += 1
-    #         if order["status"] == OrderStatus.COMPLETED:
-    #             hourly_sales[hour]["revenue"] += float(order["total"])
-        
-    #     dashboard_data = {
-    #         "summary": {
-    #             "total_orders": total_orders,
-    #             "completed_orders": len(completed_orders),
-    #             "pending_orders": len(pending_orders),
-    #             "preparing_orders": len(preparing_orders),
-    #             "cancelled_orders": len(cancelled_orders),
-    #             "total_revenue": round(total_revenue, 2),
-    #             "average_order_value": round(average_order_value, 2)
-    #         },
-    #         "order_breakdown": {
-    #             "online_orders": len(online_orders),
-    #             "offline_orders": len(offline_orders),
-    #             "completion_rate": round((len(completed_orders) / total_orders * 100), 2) if total_orders > 0 else 0
-    #         },
-    #         "top_products_today": top_products,
-    #         "hourly_breakdown": [
-    #             {"hour": hour, **data} 
-    #             for hour, data in sorted(hourly_sales.items())
-    #         ],
-    #         "timestamp": datetime.utcnow().isoformat()
-    #     }
-        
-    #     # Cache for 30 seconds
-    #     redis_client.set(cache_key, dashboard_data, 30)
-        
-    #     return dashboard_data
 
 
     @staticmethod
@@ -437,96 +357,6 @@ class SalesService:
                 "mixed_preference": len([c for c in customer_data.values() if c["order_types"]["online"] > 0 and c["order_types"]["offline"] > 0])
             }
         }
-    
-    # @staticmethod
-    # async def get_product_sales_analysis(days: int = 30) -> Dict[str, Any]:
-    #     """Analyze product sales performance"""
-    #     end_date = datetime.utcnow()
-    #     start_date = end_date - timedelta(days=days)
-        
-    #     # Get order items with product details
-    #     order_items_result = supabase.table("order_items").select(
-    #         "*, orders!inner(created_at, status), products!inner(name, price, categories(name))"
-    #     ).gte("orders.created_at", start_date.isoformat()).neq("orders.status", "cancelled").execute()
-        
-    #     order_items = order_items_result.data
-        
-    #     # Product performance analysis
-    #     product_performance = defaultdict(lambda: {
-    #         "quantity_sold": 0,
-    #         "revenue": 0,
-    #         "orders": set(),
-    #         "category": "",
-    #         "unit_price": 0
-    #     })
-        
-    #     category_performance = defaultdict(lambda: {"quantity": 0, "revenue": 0, "products": set()})
-        
-    #     for item in order_items:
-    #         product_name = item["products"]["name"]
-    #         category_name = item["products"]["categories"]["name"]
-    #         quantity = item["quantity"]
-    #         revenue = float(item["total_price"])
-    #         order_id = item["order_id"]
-            
-    #         product_performance[product_name]["quantity_sold"] += quantity
-    #         product_performance[product_name]["revenue"] += revenue
-    #         product_performance[product_name]["orders"].add(order_id)
-    #         product_performance[product_name]["category"] = category_name
-    #         product_performance[product_name]["unit_price"] = float(item["products"]["price"])
-            
-    #         category_performance[category_name]["quantity"] += quantity
-    #         category_performance[category_name]["revenue"] += revenue
-    #         category_performance[category_name]["products"].add(product_name)
-        
-    #     # Convert to lists and calculate metrics
-    #     product_list = []
-    #     for product_name, data in product_performance.items():
-    #         order_frequency = len(data["orders"])
-    #         avg_quantity_per_order = data["quantity_sold"] / order_frequency if order_frequency > 0 else 0
-            
-    #         product_list.append({
-    #             "product_name": product_name,
-    #             "category": data["category"],
-    #             "quantity_sold": data["quantity_sold"],
-    #             "revenue": round(data["revenue"], 2),
-    #             "order_frequency": order_frequency,
-    #             "average_quantity_per_order": round(avg_quantity_per_order, 2),
-    #             "revenue_per_unit": round(data["revenue"] / data["quantity_sold"], 2) if data["quantity_sold"] > 0 else 0,
-    #             "daily_average_sales": round(data["quantity_sold"] / days, 2)
-    #         })
-        
-    #     category_list = [
-    #         {
-    #             "category": k,
-    #             "quantity_sold": v["quantity"],
-    #             "revenue": round(v["revenue"], 2),
-    #             "product_count": len(v["products"]),
-    #             "average_revenue_per_product": round(v["revenue"] / len(v["products"]), 2) if v["products"] else 0
-    #         }
-    #         for k, v in category_performance.items()
-    #     ]
-        
-    #     # Sort by different metrics
-    #     top_by_quantity = sorted(product_list, key=lambda x: x["quantity_sold"], reverse=True)[:10]
-    #     top_by_revenue = sorted(product_list, key=lambda x: x["revenue"], reverse=True)[:10]
-    #     top_by_frequency = sorted(product_list, key=lambda x: x["order_frequency"], reverse=True)[:10]
-        
-    #     return {
-    #         "period": {"start": start_date.date(), "end": end_date.date(), "days": days},
-    #         "top_products": {
-    #             "by_quantity": top_by_quantity,
-    #             "by_revenue": top_by_revenue,
-    #             "by_frequency": top_by_frequency
-    #         },
-    #         "category_performance": sorted(category_list, key=lambda x: x["revenue"], reverse=True),
-    #         "summary": {
-    #             "total_products_sold": len(product_list),
-    #             "total_quantity_sold": sum(p["quantity_sold"] for p in product_list),
-    #             "total_revenue": sum(p["revenue"] for p in product_list),
-    #             "average_items_per_order": sum(p["quantity_sold"] for p in product_list) / len(set().union(*[list(data["orders"]) for data in product_performance.values()])) if product_performance else 0
-    #         }
-    #     }
     
 
 
@@ -1027,7 +857,6 @@ class SalesService:
 
     @staticmethod
     async def validate_sales_cart_items(items: List[Dict]) -> List[Dict]:
-        """Validate sales cart items - handles nested extras structure with new tax system"""
         processed_items = []
         all_items_flat = []
         
@@ -1037,6 +866,7 @@ class SalesService:
             all_items_flat.append({
                 "product_id": item["product_id"],
                 "quantity": item["quantity"],
+                "option_id": item.get("option_id"),
                 "notes": item.get("notes")
             })
             
@@ -1064,14 +894,33 @@ class SalesService:
             if product_data["units"] < item["quantity"]:
                 raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
             
+            # Handle options validation
+            option_data = None
+            if product_data.get("has_options"):
+                if not item.get("option_id"):
+                    raise ValueError(f"{product_data['name']} requires option selection")
+                
+                option = supabase.table("product_options").select("*").eq("id", item["option_id"]).eq("product_id", item["product_id"]).execute()
+                if not option.data:
+                    raise ValueError(f"Invalid option for {product_data['name']}")
+                
+                option_data = option.data[0]
+                final_price = Decimal(str(product_data["price"])) 
+            else:
+                if item.get("option_id"):
+                    raise ValueError(f"{product_data['name']} does not support options")
+                final_price = Decimal(str(product_data["price"]))
+            
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
+                "option_id": item.get("option_id"),
+                "option_name": option_data["name"] if option_data else None,
                 "quantity": item["quantity"],
-                "unit_price": Decimal(str(product_data["price"])),
-                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),  # New field
-                "total_price": Decimal(str(product_data["price"])) * item["quantity"],
-                "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),  # New field
+                "unit_price": final_price,
+                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
+                "total_price": final_price * item["quantity"],
+                "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes")
             })
         

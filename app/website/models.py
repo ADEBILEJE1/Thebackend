@@ -31,6 +31,7 @@ class AddressUpdate(BaseModel):
 class CartItem(BaseModel):
     product_id: str
     quantity: int = Field(gt=0)
+    option_id: Optional[str] = None
     notes: Optional[str] = None
 
 class WebsiteOrder(BaseModel):

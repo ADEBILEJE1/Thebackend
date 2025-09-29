@@ -19,10 +19,10 @@ class Category(BaseModel):
 
 class Product(BaseModel):
     id: Optional[str] = None
-    product_template_id: str  # Required reference to template
+    product_template_id: str  
     supplier_id: Optional[str] = None
-    sku: Optional[str] = None  # Unique identifier
-    variant_name: Optional[str] = None  # e.g., "Large", "Red", "500ml"
+    sku: Optional[str] = None  
+    variant_name: Optional[str] = None  
     category_id: str
     price: Decimal
     description: Optional[str] = None
