@@ -138,7 +138,6 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
-
 @router.get("/products")
 async def get_products_for_website(
     category_id: Optional[str] = None,
@@ -151,90 +150,93 @@ async def get_products_for_website(
     if cached:
         return cached
 
-    # Single query with joins including options
-    query = """
-    SELECT 
-        p.*,
-        c.id as category_id, c.name as category_name,
-        e.id as extra_id, e.name as extra_name, e.price as extra_price,
-        e.description as extra_description, e.image_url as extra_image_url,
-        e.units as extra_units, e.low_stock_threshold as extra_low_stock_threshold,
-        e.variant_name as extra_variant_name,
-        o.id as option_id, o.name as option_name, o.display_order as option_order
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    LEFT JOIN products e ON p.id = e.main_product_id AND e.is_available = true
-    LEFT JOIN product_options o ON p.id = o.product_id
-    WHERE p.is_available = true AND p.product_type = 'main'
-    """
-    
-    filters = []
-    params = []
-    
+    # Build base query with all joins in one call
+    query = supabase_admin.table("products").select("""
+        *,
+        categories(id, name),
+        extras:products!main_product_id(
+            id, name, variant_name, price, description, 
+            image_url, units, low_stock_threshold
+        ),
+        product_options(id, name, price_modifier, display_order)
+    """).eq("is_available", True).eq("product_type", "main")
+
+    # Apply filters
     if category_id:
-        filters.append("p.category_id = %s")
-        params.append(category_id)
+        query = query.eq("category_id", category_id)
     if min_price:
-        filters.append("p.price >= %s")
-        params.append(min_price)
+        query = query.gte("price", min_price)
     if max_price:
-        filters.append("p.price <= %s")
-        params.append(max_price)
+        query = query.lte("price", max_price)
+    
+    products_result = query.execute()
+    
+    # Apply search filter if needed
     if search:
-        filters.append("(LOWER(p.name) LIKE %s OR LOWER(c.name) LIKE %s)")
-        params.extend([f"%{search.lower()}%", f"%{search.lower()}%"])
+        search_lower = search.lower()
+        products_result.data = [
+            p for p in products_result.data 
+            if search_lower in p["name"].lower() or
+               (p.get("categories") and search_lower in p["categories"]["name"].lower())
+        ]
     
-    if filters:
-        query += " AND " + " AND ".join(filters)
-    
-    query += " ORDER BY c.name, p.name, o.display_order, o.name"
-    
-    result = supabase_admin.rpc('execute_sql', {'query': query, 'params': params}).execute()
-    
-    # Group results
-    products_dict = {}
-    for row in result.data:
-        product_id = row['id']
-        if product_id not in products_dict:
-            products_dict[product_id] = {
-                "id": product_id,
-                "name": row['name'] + (f" - {row['variant_name']}" if row['variant_name'] else ""),
-                "price": float(row['price']),
-                "description": row['description'],
-                "image_url": row['image_url'],
-                "available_stock": row['units'],
-                "low_stock_threshold": row['low_stock_threshold'],
-                "has_options": row['has_options'] or False,
-                "category": {
-                    "id": row['category_id'],
-                    "name": row['category_name'] or "Uncategorized"
-                },
-                "extras": [],
-                "options": []
-            }
+    # Format response
+    products = []
+    for product in products_result.data:
+        display_name = product["name"]
+        if product.get("variant_name"):
+            display_name += f" - {product['variant_name']}"
         
-        if row['extra_id']:
-            products_dict[product_id]['extras'].append({
-                "id": row['extra_id'],
-                "name": row['extra_name'] + (f" - {row['extra_variant_name']}" if row['extra_variant_name'] else ""),
-                "price": float(row['extra_price']),
-                "description": row['extra_description'],
-                "image_url": row['extra_image_url'],
-                "available_stock": row['extra_units'],
-                "low_stock_threshold": row['extra_low_stock_threshold']
+        category = product.get("categories") or {"id": None, "name": "Uncategorized"}
+        
+        # Format extras (already loaded)
+        formatted_extras = []
+        for extra in product.get("extras", []):
+            extra_display_name = extra["name"]
+            if extra.get("variant_name"):
+                extra_display_name += f" - {extra['variant_name']}"
+            
+            formatted_extras.append({
+                "id": extra["id"],
+                "name": extra_display_name,
+                "price": float(extra["price"]),
+                "description": extra["description"],
+                "image_url": extra["image_url"],
+                "available_stock": extra["units"],
+                "low_stock_threshold": extra["low_stock_threshold"]
+            })
+
+        # Format options (already loaded)
+        formatted_options = []
+        for option in sorted(product.get("product_options", []), 
+                            key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
+            formatted_options.append({
+                "id": option["id"],
+                "name": option["name"],
+                "price_modifier": float(option.get("price_modifier", 0))
             })
         
-        if row['option_id']:
-            products_dict[product_id]['options'].append({
-                "id": row['option_id'],
-                "name": row['option_name']
-            })
+        products.append({
+            "id": product["id"],
+            "name": display_name,
+            "price": float(product["price"]),
+            "description": product["description"],
+            "image_url": product["image_url"],
+            "available_stock": product["units"],
+            "low_stock_threshold": product["low_stock_threshold"],
+            "has_options": product.get("has_options", False),
+            "options": formatted_options,
+            "extras": formatted_extras,
+            "category": category
+        })
     
-    sorted_data = list(products_dict.values())
+    sorted_data = sorted(products, key=lambda x: (
+        x.get("category", {}).get("name", ""), 
+        x.get("name", "")
+    ))
+    
     redis_client.set(cache_key, sorted_data, 300)
     return sorted_data
-
-
 
 
 
@@ -495,16 +497,16 @@ async def complete_checkout(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-
-
     batch_id = CartService.generate_batch_id()
     batch_created_at = datetime.utcnow().isoformat()
     
     created_orders = []
+    all_items = []  # Collect all items for stock deduction
     
     for order in checkout_data.orders:
         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
         totals = CartService.calculate_order_total(processed_items)
+        all_items.extend(processed_items)  # Add to collection
         
         # Get delivery fee from address area
         address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
@@ -521,7 +523,9 @@ async def complete_checkout(
             "delivery_fee": delivery_fee,
             "total": float(totals["total"]) + delivery_fee,
             "website_customer_id": session_data["customer_id"],
-            "delivery_address_id": order.delivery_address_id
+            "delivery_address_id": order.delivery_address_id,
+            "batch_id": batch_id,
+            "batch_created_at": batch_created_at
         }
         
         created_order = supabase_admin.table("orders").insert(order_data).execute()
@@ -541,6 +545,9 @@ async def complete_checkout(
             supabase_admin.table("order_items").insert(item_data).execute()
         
         created_orders.append(created_order.data[0])
+    
+    # Deduct stock once for all orders
+    await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
     
     return {
         "message": "Orders created successfully",
@@ -692,15 +699,16 @@ async def bypass_payment_create(
         session_data = json.loads(session_data.decode("utf-8"))
 
     payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
-
     batch_id = CartService.generate_batch_id()
     batch_created_at = datetime.utcnow().isoformat()
 
     created_orders = []
+    all_items = []  # Collect all items outside loop
 
     for order_data in payment_data.orders:
         processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
         totals = CartService.calculate_order_total(processed_items)
+        all_items.extend(processed_items)  # Collect items
 
         # Get delivery fee from address area
         address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data.delivery_address_id).execute()
@@ -749,12 +757,8 @@ async def bypass_payment_create(
 
         created_orders.append(updated_order.data[0])
 
-        all_items = []
-        for order_data in payment_data.orders:
-            processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
-            all_items.extend(processed_items)
-
-        await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
+    # Deduct stock once after all orders created
+    await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
 
     return {
         "payment_status": "success",
