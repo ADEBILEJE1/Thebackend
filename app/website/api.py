@@ -150,18 +150,13 @@ async def get_products_for_website(
     if cached:
         return cached
 
-    # Build base query with all joins in one call
     query = supabase_admin.table("products").select("""
         *,
-        categories(id, name),
-        extras:products!main_product_id(
-            id, name, variant_name, price, description, 
-            image_url, units, low_stock_threshold
-        ),
-        product_options(id, name, price_modifier, display_order)
+        categories(*),
+        extras:products!main_product_id(*),
+        product_options(*)
     """).eq("is_available", True).eq("product_type", "main")
 
-    # Apply filters
     if category_id:
         query = query.eq("category_id", category_id)
     if min_price:
@@ -171,7 +166,6 @@ async def get_products_for_website(
     
     products_result = query.execute()
     
-    # Apply search filter if needed
     if search:
         search_lower = search.lower()
         products_result.data = [
@@ -180,7 +174,6 @@ async def get_products_for_website(
                (p.get("categories") and search_lower in p["categories"]["name"].lower())
         ]
     
-    # Format response
     products = []
     for product in products_result.data:
         display_name = product["name"]
@@ -189,31 +182,30 @@ async def get_products_for_website(
         
         category = product.get("categories") or {"id": None, "name": "Uncategorized"}
         
-        # Format extras (already loaded)
         formatted_extras = []
         for extra in product.get("extras", []):
-            extra_display_name = extra["name"]
+            if not extra.get("is_available"):
+                continue
+            extra_name = extra["name"]
             if extra.get("variant_name"):
-                extra_display_name += f" - {extra['variant_name']}"
-            
+                extra_name += f" - {extra['variant_name']}"
             formatted_extras.append({
                 "id": extra["id"],
-                "name": extra_display_name,
+                "name": extra_name,
                 "price": float(extra["price"]),
                 "description": extra["description"],
                 "image_url": extra["image_url"],
                 "available_stock": extra["units"],
                 "low_stock_threshold": extra["low_stock_threshold"]
             })
-
-        # Format options (already loaded)
+        
         formatted_options = []
-        for option in sorted(product.get("product_options", []), 
-                            key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
+        for opt in sorted(product.get("product_options", []), 
+                         key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
             formatted_options.append({
-                "id": option["id"],
-                "name": option["name"],
-                "price_modifier": float(option.get("price_modifier", 0))
+                "id": opt["id"],
+                "name": opt["name"],
+                "price_modifier": float(opt.get("price_modifier", 0))
             })
         
         products.append({
@@ -230,10 +222,7 @@ async def get_products_for_website(
             "category": category
         })
     
-    sorted_data = sorted(products, key=lambda x: (
-        x.get("category", {}).get("name", ""), 
-        x.get("name", "")
-    ))
+    sorted_data = sorted(products, key=lambda x: (x["category"]["name"], x["name"]))
     
     redis_client.set(cache_key, sorted_data, 300)
     return sorted_data
