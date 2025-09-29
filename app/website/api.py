@@ -1035,3 +1035,26 @@ async def set_default_address(
         return updated_address
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+
+
+@router.get("/products/debug")
+async def debug_products():
+    # Test 1: Raw query
+    raw = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main").limit(3).execute()
+    
+    # Test 2: With joins
+    joined = supabase_admin.table("products").select("""
+        *,
+        categories(*),
+        extras:products!main_product_id(*),
+        product_options(*)
+    """).eq("is_available", True).eq("product_type", "main").limit(3).execute()
+    
+    return {
+        "raw_count": len(raw.data),
+        "raw_sample": raw.data[0] if raw.data else None,
+        "joined_count": len(joined.data),
+        "joined_sample": joined.data[0] if joined.data else None
+    }

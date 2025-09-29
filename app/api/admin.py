@@ -913,7 +913,7 @@ async def get_staff_salary_history(
     """Get salary change history for specific staff"""
     
     history = supabase.table("salary_history").select(
-        "*, profiles(email)"
+        "*, profiles!salary_history_changed_by_fkey(email)"
     ).eq("staff_id", staff_id).order("change_date", desc=True).execute()
     
     return history.data
