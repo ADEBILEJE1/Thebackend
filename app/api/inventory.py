@@ -240,6 +240,21 @@ class PackagingCostCreate(BaseModel):
     cost_per_order: Decimal = Field(..., gt=0)
     notes: Optional[str] = None
 
+
+
+class WastageType(str, Enum):
+    RAW_MATERIAL = "raw_material"
+    FINISHED_PRODUCT = "finished_product"
+
+class WastageCreate(BaseModel):
+    wastage_type: WastageType
+    item_id: str  # raw_material_id or product_id
+    quantity: Decimal = Field(..., gt=0)
+    value: Optional[Decimal] = Field(None, ge=0)
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+    wastage_date: Optional[datetime] = None
+
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 # Categories
@@ -383,7 +398,7 @@ async def update_category(
 
 
 
-# @router.post("/products", response_model=dict)
+@router.post("/products", response_model=dict)
 async def create_product(
    product: ProductCreate,
    current_user: dict = Depends(require_inventory_staff)
@@ -2340,3 +2355,136 @@ async def get_packaging_analytics(
     """Get packaging cost analytics"""
     analytics_data = await InventoryService.get_packaging_analytics(period, date_from, date_to)
     return analytics_data
+
+
+@router.post("/wastage")
+async def record_wastage(
+    wastage: WastageCreate,
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Record wastage for raw materials or finished products with optional backdating"""
+    
+    # Validate and set timestamp
+    wastage_timestamp = wastage.wastage_date or datetime.utcnow()
+    if wastage_timestamp > datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Cannot set future wastage date")
+    
+    if wastage.wastage_type == WastageType.RAW_MATERIAL:
+        # Get raw material
+        material = supabase.table("raw_materials").select("*").eq("id", wastage.item_id).execute()
+        if not material.data:
+            raise HTTPException(status_code=404, detail="Raw material not found")
+        
+        current_qty = Decimal(str(material.data[0]["current_quantity"]))
+        if wastage.quantity > current_qty:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot waste {wastage.quantity} {material.data[0]['measurement_unit']}. Only {current_qty} available"
+            )
+        
+        # Deduct quantity
+        new_qty = current_qty - wastage.quantity
+        supabase.table("raw_materials").update({
+            "current_quantity": float(new_qty),
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", wastage.item_id).execute()
+        
+        # Log transaction with backdate
+        supabase.table("raw_material_transactions").insert({
+            "material_id": wastage.item_id,
+            "transaction_type": "usage",
+            "quantity": float(wastage.quantity),
+            "remaining_after": float(new_qty),
+            "notes": f"WASTAGE: {wastage.reason or 'No reason'} - {wastage.notes or ''}",
+            "created_by": current_user["id"],
+            "created_at": wastage_timestamp.isoformat()
+        }).execute()
+        
+        item_name = material.data[0]["name"]
+        measurement_unit = material.data[0]["measurement_unit"]
+        
+    else:  # FINISHED_PRODUCT
+        # Get product
+        product = supabase.table("products").select("*").eq("id", wastage.item_id).execute()
+        if not product.data:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        current_units = product.data[0]["units"]
+        if int(wastage.quantity) > current_units:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot waste {wastage.quantity} units. Only {current_units} available"
+            )
+        
+        # Deduct stock
+        new_units = current_units - int(wastage.quantity)
+        low_threshold = product.data[0]["low_stock_threshold"]
+        
+        new_status = StockStatus.OUT_OF_STOCK if new_units == 0 else (
+            StockStatus.LOW_STOCK if new_units <= low_threshold else StockStatus.IN_STOCK
+        )
+        
+        supabase.table("products").update({
+            "units": new_units,
+            "status": new_status,
+            "updated_by": current_user["id"],
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", wastage.item_id).execute()
+        
+        # Log stock entry with backdate
+        supabase.table("stock_entries").insert({
+            "product_id": wastage.item_id,
+            "quantity": int(wastage.quantity),
+            "entry_type": "remove",
+            "notes": f"WASTAGE: {wastage.reason or 'No reason'} - {wastage.notes or ''}",
+            "entered_by": current_user["id"],
+            "created_at": wastage_timestamp.isoformat()
+        }).execute()
+        
+        item_name = product.data[0]["name"]
+        measurement_unit = "units"
+        
+        # Invalidate cache
+        invalidate_product_cache(wastage.item_id)
+        redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
+    
+    # Record in wastage table with backdate
+    wastage_record = {
+        "wastage_type": wastage.wastage_type,
+        "item_id": wastage.item_id,
+        "quantity": float(wastage.quantity),
+        "value": float(wastage.value) if wastage.value else None,
+        "reason": wastage.reason,
+        "notes": wastage.notes,
+        "recorded_by": current_user["id"],
+        "created_at": wastage_timestamp.isoformat()
+    }
+    result = supabase.table("wastage_records").insert(wastage_record).execute()
+    
+    # Clear cache
+    redis_client.delete_pattern("raw_materials:*")
+    redis_client.delete_pattern("products:list:*")
+    
+    # Log activity
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "record_wastage", wastage.wastage_type, wastage.item_id,
+        {
+            "item_name": item_name,
+            "quantity": float(wastage.quantity),
+            "measurement_unit": measurement_unit,
+            "value": float(wastage.value) if wastage.value else None,
+            "wastage_date": wastage_timestamp.isoformat()
+        },
+        request
+    )
+    
+    return {
+        "message": "Wastage recorded successfully",
+        "data": {
+            **result.data[0],
+            "item_name": item_name,
+            "measurement_unit": measurement_unit
+        }
+    }
