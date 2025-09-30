@@ -2629,3 +2629,69 @@ async def record_wastage(
             "measurement_unit": measurement_unit
         }
     }
+
+
+
+@router.post("/products/{product_id}/options")
+async def create_product_option(
+    product_id: str,
+    option: ProductOptionCreate,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    product = supabase.table("products").select("has_options").eq("id", product_id).execute()
+    if not product.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not product.data[0]["has_options"]:
+        raise HTTPException(status_code=400, detail="Product does not support options")
+    
+    option_data = {**option.dict(), "product_id": product_id}
+    result = supabase_admin.table("product_options").insert(option_data).execute()
+    return {"message": "Option created", "data": result.data[0]}
+
+
+@router.get("/products/{product_id}/options")
+async def get_product_options(
+    product_id: str,
+    active_only: bool = True,
+    current_user: dict = Depends(require_staff)
+):
+    query = supabase.table("product_options").select("*").eq("product_id", product_id)
+    if active_only:
+        query = query.eq("is_active", True)
+    
+    result = query.order("display_order", "name").execute()
+    return result.data
+
+
+@router.patch("/products/{product_id}/options/{option_id}/toggle")
+async def toggle_option_visibility(
+    product_id: str,
+    option_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Toggle option visibility (show/hide)"""
+    # Get current option
+    option = supabase.table("product_options").select("is_active").eq("id", option_id).eq("product_id", product_id).execute()
+    if not option.data:
+        raise HTTPException(status_code=404, detail="Option not found")
+    
+    # Toggle is_active
+    new_status = not option.data[0].get("is_active", True)
+    result = supabase_admin.table("product_options").update({
+        "is_active": new_status,
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("id", option_id).execute()
+    
+    return {"message": f"Option {'shown' if new_status else 'hidden'}", "is_active": new_status}
+
+
+@router.delete("/products/{product_id}/options/{option_id}")
+async def delete_product_option(
+    product_id: str,
+    option_id: str,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    result = supabase_admin.table("product_options").delete().eq("id", option_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Option not found")
+    return {"message": "Option deleted"}
