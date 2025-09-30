@@ -466,7 +466,7 @@ async def create_product(
        "updated_by": current_user["id"]
    }
    
-   result = supabase.table("products").insert(product_data).execute()
+   result = supabase_admin.table("products").insert(product_data).execute()
    
    # Log initial stock if units > 0
    if product.units > 0:
