@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from datetime import datetime, timedelta
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional
 from fastapi import Security
 from fastapi.security import OAuth2PasswordBearer
@@ -21,6 +21,7 @@ from ..core.cache import invalidate_user_cache
 from ..database import supabase, supabase_admin
 from ..services.celery import send_invitation_email
 from ..models.user import UserRole
+from ..core.activity_logger import log_activity
 
 
 
@@ -56,6 +57,18 @@ class UserResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(max_length=6, min_length=6)
+    new_password: str = Field(min_length=8)
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -367,60 +380,143 @@ async def logout(
 
 
 
-@router.get("/debug/auth-test")
-async def debug_auth():
-    import os
-    return {
-        "supabase_url": os.getenv("SUPABASE_URL", "NOT_SET")[:30] + "...",
-        "has_supabase_key": bool(os.getenv("SUPABASE_KEY")),
-        "has_service_key": bool(os.getenv("SUPABASE_SERVICE_KEY")),
-        "environment": "production"
-    }
-
-@router.post("/debug/login", response_model=dict)
-async def debug_login(credentials: UserLogin, request: Request):
-    print(f"DEBUG: Starting login for email: {credentials.email}")
+@router.post("/change-password")
+async def change_password(
+    password_data: ChangePasswordRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """Change password for authenticated user"""
     
     try:
-        print("DEBUG: Attempting Supabase authentication")
-        
-        # Use Supabase Auth
-        response = supabase.auth.sign_in_with_password({
-            "email": credentials.email,
-            "password": credentials.password
+        # Verify current password by attempting to sign in
+        verify_response = supabase.auth.sign_in_with_password({
+            "email": current_user["email"],
+            "password": password_data.current_password
         })
         
-        print(f"DEBUG: Auth successful! User ID: {response.user.id}")
+        if not verify_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Current password is incorrect"
+            )
         
-        # Get profile
-        print("DEBUG: Attempting to fetch user profile")
-        profile = supabase_admin.table("profiles").select("*").eq("id", response.user.id).single().execute()
+        # Update password
+        supabase_admin.auth.admin.update_user_by_id(
+            current_user["id"],
+            {"password": password_data.new_password}
+        )
         
-        print(f"DEBUG: Profile query executed")
-        print(f"DEBUG: Profile data: {profile.data}")
+        # Destroy all other sessions except current
+        session_manager.destroy_all_user_sessions(current_user["id"])
         
-        if not profile.data:
-            print("DEBUG: No profile found")
-            return {"error": "No profile found", "user_id": response.user.id}
+        # Log activity
+        await log_activity(
+            current_user["id"], current_user["email"], current_user["role"],
+            "password_change", "auth", None,
+            {"ip": request.client.host},
+            request
+        )
         
-        print(f"DEBUG: Profile found for user: {profile.data.get('email')}")
-        print(f"DEBUG: User is_active: {profile.data.get('is_active')}")
+        return {"message": "Password changed successfully"}
         
-        if not profile.data["is_active"]:
-            print("DEBUG: User account is deactivated")
-            return {"error": "Account deactivated", "profile": profile.data}
-        
-        return {
-            "success": True,
-            "user_id": response.user.id,
-            "profile": profile.data,
-            "auth_user": {
-                "email": response.user.email,
-                "id": response.user.id
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect"
+        )
+    
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request_data: ForgotPasswordRequest,
+    request: Request
+):
+    """Send password reset OTP via email"""
+    
+    # Rate limiting
+    await auth_limiter.check_rate_limit(request, request_data.email)
+    
+    # Check if user exists
+    profile = supabase.table("profiles").select("id, is_active").eq("email", request_data.email).execute()
+    
+    if not profile.data:
+        return {"message": "If the email exists, a reset code has been sent"}
+    
+    if not profile.data[0]["is_active"]:
+        return {"message": "If the email exists, a reset code has been sent"}
+    
+    try:
+        # Send OTP - configure Supabase to send numeric OTP instead of magic link
+        supabase.auth.sign_in_with_otp({
+            "email": request_data.email,
+            "options": {
+                "should_create_user": False
             }
-        }
+        })
+        
+        # Log activity
+        await log_activity(
+            profile.data[0]["id"], request_data.email, "unknown",
+            "forgot_password", "auth", None,
+            {"ip": request.client.host if request.client else "unknown"},
+            request
+        )
+        
+        return {"message": "If the email exists, a reset code has been sent"}
         
     except Exception as e:
-        print(f"DEBUG: Error: {str(e)}")
-        print(f"DEBUG: Error type: {type(e)}")
-        return {"error": str(e), "error_type": str(type(e))}
+        return {"message": "If the email exists, a reset code has been sent"}
+
+@router.post("/reset-password")
+async def reset_password(
+    reset_data: ResetPasswordRequest,
+    request: Request
+):
+    """Reset password using OTP"""
+    
+    # Rate limiting
+    await auth_limiter.check_rate_limit(request, reset_data.email)
+    
+    try:
+        # Verify OTP and update password
+        response = supabase.auth.verify_otp({
+            "email": reset_data.email,
+            "token": reset_data.otp,
+            "type": "email"
+        })
+        
+        if not response.user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired OTP"
+            )
+        
+        # Update password
+        supabase_admin.auth.admin.update_user_by_id(
+            response.user.id,
+            {"password": reset_data.new_password}
+        )
+        
+        # Sign out all sessions
+        session_manager.destroy_all_user_sessions(response.user.id)
+        
+        # Log activity
+        await log_activity(
+            response.user.id, reset_data.email, "unknown",
+            "password_reset", "auth", None,
+            {"ip": request.client.host},
+            request
+        )
+        
+        return {"message": "Password reset successful. Please login with your new password"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP"
+        )
