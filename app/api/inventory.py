@@ -771,7 +771,7 @@ async def update_stock(
        }
        supabase_admin.table("product_price_history").insert(audit_data).execute()
    
-   supabase.table("products").update(product_update).eq("id", product_id).execute()
+   supabase_admin.table("products").update(product_update).eq("id", product_id).execute()
    
    # Log stock entry
    stock_entry = {
