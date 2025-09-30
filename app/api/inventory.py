@@ -494,39 +494,6 @@ async def create_product(
    return {"message": "Product created", "data": result.data[0]}
 
 
-# @router.get("/products", response_model=List[dict])
-# async def get_products(
-#     request: Request,
-#     category_id: Optional[str] = None,
-#     available_only: bool = False,
-#     include_out_of_stock: bool = True,
-#     current_user: dict = Depends(require_staff)  # Changed from require_inventory_staff
-# ):
-#     # Rate limiting
-#     await default_limiter.check_rate_limit(request, current_user["id"])
-    
-#     # Check cache
-#     cache_key = f"products:list:{category_id}:{available_only}:{include_out_of_stock}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-    
-#     query = supabase.table("products").select("*, categories(*), suppliers(name)")
-    
-#     if category_id:
-#         query = query.eq("category_id", category_id)
-#     if available_only:
-#         query = query.eq("is_available", True)
-#     if not include_out_of_stock:
-#         query = query.neq("status", StockStatus.OUT_OF_STOCK)
-    
-#     result = query.order("name").execute()
-    
-#     # Cache for 1 minute
-#     redis_client.set(cache_key, result.data, 60)
-    
-#     return result.data
-
 
 
 
@@ -759,7 +726,7 @@ async def update_stock(
    else:
        new_status = StockStatus.IN_STOCK
    
-   # Update product
+   # Update product - always update stock
    product_update = {
        "units": new_units,
        "status": new_status,
@@ -767,11 +734,11 @@ async def update_stock(
        "updated_at": datetime.utcnow().isoformat()
    }
    
-   # Track price/tax changes
+   # Track price/tax changes (independent of stock operation)
    price_changed = False
    tax_changed = False
    
-   if stock.price:
+   if stock.price is not None:
        product_update["price"] = float(stock.price)
        if float(stock.price) != current_price:
            price_changed = True
@@ -781,16 +748,21 @@ async def update_stock(
        if float(stock.tax_per_unit) != current_tax:
            tax_changed = True
    
-   # Create audit record if needed
+   # Create audit record if price or tax changed
    if price_changed or tax_changed:
-       effective_timestamp = stock.effective_date or datetime.utcnow()
-       if effective_timestamp > datetime.utcnow():
-           raise HTTPException(status_code=400, detail="Cannot set future effective date")
+       effective_timestamp = stock.effective_date
+       if effective_timestamp:
+           if effective_timestamp.tzinfo:
+               effective_timestamp = effective_timestamp.replace(tzinfo=None)
+           if effective_timestamp > datetime.utcnow():
+               raise HTTPException(status_code=400, detail="Cannot set future effective date")
+       else:
+           effective_timestamp = datetime.utcnow()
        
        audit_data = {
            "product_id": product_id,
            "old_price": current_price,
-           "new_price": float(stock.price) if stock.price else current_price,
+           "new_price": float(stock.price) if stock.price is not None else current_price,
            "old_tax_per_unit": current_tax,
            "new_tax_per_unit": float(stock.tax_per_unit) if stock.tax_per_unit is not None else current_tax,
            "changed_by": current_user["id"],
@@ -815,7 +787,6 @@ async def update_stock(
    # Invalidate cache
    invalidate_product_cache(product_id)
    
-   # Update low stock alerts cache if needed
    if new_status in [StockStatus.LOW_STOCK, StockStatus.OUT_OF_STOCK]:
        redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
    
@@ -830,7 +801,7 @@ async def update_stock(
        "operation": stock.operation
    }
    
-   if stock.price:
+   if stock.price is not None:
        log_data["previous_price"] = current_price
        log_data["new_price"] = float(stock.price)
        log_data["price_change"] = float(stock.price) - current_price
@@ -847,14 +818,13 @@ async def update_stock(
        request
    )
    
-   # Prepare return data
    return_data = {
        "message": f"Stock {stock.operation}ed successfully",
        "current_units": new_units,
        "status": new_status
    }
    
-   if stock.price:
+   if stock.price is not None:
        return_data["new_price"] = float(stock.price)
    
    if stock.tax_per_unit is not None:
