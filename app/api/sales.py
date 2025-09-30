@@ -38,6 +38,7 @@ class OfflineOrderCreate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     payment_method: str = Field(..., pattern="^(cash|card|transfer)$")
+    order_placement_type: str = Field(..., pattern="^(dine_in|takeaway)$")
     notes: Optional[str] = None
 
 class OrderConfirm(BaseModel):
@@ -917,19 +918,22 @@ async def create_offline_order(
     
     batch_id = SalesService.generate_batch_id()
     batch_created_at = datetime.utcnow().isoformat()
+    display_number = SalesService.get_next_display_number()  # Add this line
 
     order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
     
     order_entry = {
         "order_number": order_number,
+        "display_number": display_number,
         "order_type": "offline",
+        "order_placement_type": order_data.order_placement_type,
         "status": "pending",
         "payment_status": "pending",
         "payment_method": order_data.payment_method,
         "customer_name": order_data.customer_name,
         "customer_phone": order_data.customer_phone,
         "subtotal": float(totals["subtotal"]),
-        "tax": float(totals["tax"]),  # Changed from "tax" to use new calculation
+        "tax": float(totals["tax"]), 
         "total": float(totals["total"]),
         "estimated_prep_time_minutes": total_prep_time,  # New field
         "notes": order_data.notes,
@@ -1050,6 +1054,7 @@ async def print_sales_receipt(
     receipt_data = {
         "order_number": order_data["order_number"],
         "batch_id": order_data.get("batch_id"),
+        "display_number": order_data.get("display_number"),
         "customer_name": order_data.get("customer_name", "Walk-in Customer"),
         "payment_method": order_data.get("payment_method"),
         "created_at": order_data["created_at"],

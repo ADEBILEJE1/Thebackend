@@ -59,7 +59,7 @@ class SalesService:
         
         # Order type breakdown (from non-cancelled orders)
         online_orders = [o for o in non_cancelled_orders if o["order_type"] == "online"]
-        offline_orders = [o for o in non_cancelled_orders if o["order_type"] == "online"]
+        offline_orders = [o for o in non_cancelled_orders if o["order_type"] == "offline"]
         
         # Top products today (from completed orders only)
         product_sales = defaultdict(lambda: {"quantity": 0, "revenue": Decimal('0'), "orders": 0})

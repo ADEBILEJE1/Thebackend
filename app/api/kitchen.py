@@ -192,6 +192,8 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
             batches[batch_id] = {
                 "batch_id": batch_id,
                 "customer_name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
+                "order_placement_type": order.get("order_placement_type"),
+                "display_number": order.get("display_number"),
                 "orders": [],
                 "total_items": 0,
                 "preparing_at": order.get("preparing_at"),
@@ -519,6 +521,8 @@ async def print_order_receipt(
         "order_type": order["order_type"],
         "customer_name": order.get("customer_name", "Walk-in Customer"),
         "created_at": order["created_at"],
+        "display_number": order.get("display_number"),  
+        "order_placement_type": order.get("order_placement_type"),
         "status": order["status"],
         "items": [
             {

@@ -374,7 +374,7 @@ async def change_password(
         return {"message": "Password changed successfully"}
         
     except Exception as e:
-        print(f"Password change error: {str(e)}")
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Password change failed"

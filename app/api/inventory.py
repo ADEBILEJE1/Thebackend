@@ -68,6 +68,7 @@ class ProductUpdate(BaseModel):
     main_product_id: Optional[str] = None
     has_options: Optional[bool] = None
     change_reason: Optional[str] = None
+    effective_date: Optional[datetime] = None 
 
 class StockUpdate(BaseModel):
     quantity: int = Field(gt=0)
@@ -76,6 +77,7 @@ class StockUpdate(BaseModel):
     tax_per_unit: Optional[Decimal] = Field(ge=0, default=None) 
     notes: Optional[str] = None
     change_reason: Optional[str] = None 
+    effective_date: Optional[datetime] = None 
 
 class ProductAvailability(BaseModel):
     is_available: bool
@@ -239,6 +241,7 @@ class ProductOptionUpdate(BaseModel):
 class PackagingCostCreate(BaseModel):
     cost_per_order: Decimal = Field(..., gt=0)
     notes: Optional[str] = None
+    effective_date: Optional[datetime] = None
 
 
 
@@ -248,12 +251,19 @@ class WastageType(str, Enum):
 
 class WastageCreate(BaseModel):
     wastage_type: WastageType
-    item_id: str  # raw_material_id or product_id
+    item_id: str  
     quantity: Decimal = Field(..., gt=0)
     value: Optional[Decimal] = Field(None, ge=0)
     reason: Optional[str] = None
     notes: Optional[str] = None
     wastage_date: Optional[datetime] = None
+
+class RawMaterialStockUpdate(BaseModel):
+    quantity: Decimal = Field(gt=0)
+    operation: str = Field(pattern="^(add|deduct)$")
+    cost: Optional[Decimal] = Field(ge=0, default=None)
+    notes: Optional[str] = None
+    effective_date: Optional[datetime] = None
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
@@ -584,6 +594,10 @@ async def update_product(
         
         # Create audit record if price or tax changed
         if price_changed or tax_changed:
+            effective_timestamp = update.effective_date or datetime.utcnow()
+            if effective_timestamp > datetime.utcnow():
+                raise HTTPException(status_code=400, detail="Cannot set future effective date")
+            
             audit_data = {
                 "product_id": product_id,
                 "old_price": float(current_data["price"]),
@@ -591,7 +605,8 @@ async def update_product(
                 "old_tax_per_unit": float(current_data.get("tax_per_unit", 0)),
                 "new_tax_per_unit": float(updates.get("tax_per_unit", current_data.get("tax_per_unit", 0))),
                 "changed_by": current_user["id"],
-                "change_reason": update.change_reason or "Product update"
+                "change_reason": update.change_reason or "Product update",
+                "created_at": effective_timestamp.isoformat()
             }
             supabase_admin.table("product_price_history").insert(audit_data).execute()
         
@@ -825,6 +840,10 @@ async def update_stock(
    
    # Create audit record if needed
    if price_changed or tax_changed:
+       effective_timestamp = stock.effective_date or datetime.utcnow()
+       if effective_timestamp > datetime.utcnow():
+           raise HTTPException(status_code=400, detail="Cannot set future effective date")
+       
        audit_data = {
            "product_id": product_id,
            "old_price": current_price,
@@ -832,7 +851,8 @@ async def update_stock(
            "old_tax_per_unit": current_tax,
            "new_tax_per_unit": float(stock.tax_per_unit) if stock.tax_per_unit is not None else current_tax,
            "changed_by": current_user["id"],
-           "change_reason": stock.change_reason or f"Stock {stock.operation} operation"
+           "change_reason": stock.change_reason or f"Stock {stock.operation} operation",
+           "created_at": effective_timestamp.isoformat()
        }
        supabase_admin.table("product_price_history").insert(audit_data).execute()
    
@@ -1908,6 +1928,92 @@ async def get_raw_materials(
     return result.data
 
 
+
+@router.post("/raw-materials/{material_id}/stock")
+async def update_raw_material_stock(
+    material_id: str,
+    stock: RawMaterialStockUpdate,
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Add or deduct raw material stock"""
+    # Get current material
+    material = supabase.table("raw_materials").select("*").eq("id", material_id).execute()
+    if not material.data:
+        raise HTTPException(status_code=404, detail="Raw material not found")
+    
+    current_qty = Decimal(str(material.data[0]["current_quantity"]))
+    material_name = material.data[0]["name"]
+    unit = material.data[0]["measurement_unit"]
+    
+    # Calculate new quantity
+    if stock.operation == "add":
+        new_qty = current_qty + stock.quantity
+        transaction_type = TransactionType.PURCHASE
+    else:  # deduct
+        if stock.quantity > current_qty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot deduct {stock.quantity} {unit}. Only {current_qty} available"
+            )
+        new_qty = current_qty - stock.quantity
+        transaction_type = TransactionType.USAGE
+    
+    # Validate effective date - make both timezone-naive for comparison
+    effective_timestamp = stock.effective_date or datetime.utcnow()
+    if stock.effective_date:
+        # Remove timezone info if present
+        effective_timestamp = effective_timestamp.replace(tzinfo=None)
+    
+    if effective_timestamp > datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Cannot set future effective date")
+    
+    # Update material quantity
+    supabase.table("raw_materials").update({
+        "current_quantity": float(new_qty),
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("id", material_id).execute()
+    
+    # Record transaction with backdating
+    transaction_data = {
+        "material_id": material_id,
+        "transaction_type": transaction_type,
+        "quantity": float(stock.quantity),
+        "remaining_after": float(new_qty),
+        "cost": float(stock.cost) if stock.cost else None,
+        "notes": stock.notes,
+        "created_by": current_user["id"],
+        "created_at": effective_timestamp.isoformat()
+    }
+    
+    result = supabase.table("raw_material_transactions").insert(transaction_data).execute()
+    
+    # Clear cache
+    redis_client.delete_pattern("raw_materials:*")
+    
+    # Log activity
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        f"raw_material_{stock.operation}", "raw_material", material_id,
+        {
+            "material_name": material_name,
+            "quantity": float(stock.quantity),
+            "previous_quantity": float(current_qty),
+            "new_quantity": float(new_qty),
+            "unit": unit,
+            "effective_date": effective_timestamp.isoformat()
+        },
+        request
+    )
+    
+    return {
+        "message": f"Stock {stock.operation}ed successfully",
+        "remaining_quantity": float(new_qty),
+        "unit": unit,
+        "transaction": result.data[0]
+    }
+
+
 @router.post("/transactions", response_model=dict)
 async def create_transaction(
     transaction: MaterialTransaction,
@@ -2335,10 +2441,15 @@ async def set_packaging_costs(
 ):
     """Set or update packaging cost per order"""
     
+    effective_timestamp = cost_data.effective_date or datetime.utcnow()
+    if effective_timestamp > datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Cannot set future effective date")
+    
     cost_entry = {
         "cost_per_order": float(cost_data.cost_per_order),
         "notes": cost_data.notes,
-        "created_by": current_user["id"]
+        "created_by": current_user["id"],
+        "created_at": effective_timestamp.isoformat()
     }
     
     result = supabase.table("packaging_costs").insert(cost_entry).execute()
