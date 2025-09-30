@@ -70,6 +70,9 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class DashboardSelection(BaseModel):
+    selected_dashboard: str = Field(pattern="^(super_admin|manager|sales|inventory_staff|chef)$")
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/invite", response_model=dict)
@@ -174,122 +177,32 @@ async def register(user_data: UserCreate):
 
 
 
-@router.post("/login", response_model=dict)
-async def login(credentials: UserLogin, request: Request):
-    try:
-        # Use Supabase Auth
-        response = supabase.auth.sign_in_with_password({
-            "email": credentials.email,
-            "password": credentials.password
-        })
-        
-        # Get profile
-        profile = supabase_admin.table("profiles").select("*").eq("id", response.user.id).single().execute()
-        
-        if not profile.data:
-            supabase.auth.sign_out()
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User profile not found"
-            )
-        
-        if not profile.data["is_active"]:
-            supabase.auth.sign_out()
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account deactivated"
-            )
-        
-        # Create Redis session
-        try:
-            session_manager.create_session(
-                response.user.id,
-                profile.data,
-                response.session.access_token
-            )
-            print("DEBUG: Redis session created successfully")
-        except Exception as redis_error:
-            print(f"DEBUG: Redis session failed: {str(redis_error)}")
-            # Continue without Redis session for now
-        
-        # Update last login
-        supabase.table("profiles").update({
-            "last_login": datetime.utcnow().isoformat()
-        }).eq("id", response.user.id).execute()
-        
-        return {
-            "access_token": response.session.access_token,
-            "refresh_token": response.session.refresh_token,
-            "user": {
-                "id": response.user.id,
-                "email": profile.data["email"],
-                "role": profile.data["role"]
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"DEBUG: Login error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Login failed: {str(e)}"
-        )
-
-
-
 # @router.post("/login", response_model=dict)
 # async def login(credentials: UserLogin, request: Request):
-#     print(f"DEBUG: Starting login for email: {credentials.email}")
-    
-#     # Rate limiting
 #     try:
-#         await auth_limiter.check_rate_limit(request, credentials.email)
-#         print("DEBUG: Rate limiting passed")
-#     except Exception as e:
-#         print(f"DEBUG: Rate limiting failed: {str(e)}")
-#         raise
-    
-#     try:
-#         print("DEBUG: Attempting Supabase authentication")
-        
 #         # Use Supabase Auth
 #         response = supabase.auth.sign_in_with_password({
 #             "email": credentials.email,
 #             "password": credentials.password
 #         })
         
-#         print(f"DEBUG: Auth successful! User ID: {response.user.id}")
-#         print(f"DEBUG: Response user object exists: {response.user is not None}")
-#         print(f"DEBUG: Response session exists: {response.session is not None}")
-        
 #         # Get profile
-#         print("DEBUG: Attempting to fetch user profile")
 #         profile = supabase_admin.table("profiles").select("*").eq("id", response.user.id).single().execute()
         
-#         print(f"DEBUG: Profile query executed")
-#         print(f"DEBUG: Profile data exists: {profile.data is not None}")
-#         print(f"DEBUG: Profile data: {profile.data}")
-        
 #         if not profile.data:
-#             print("DEBUG: No profile found, signing out")
 #             supabase.auth.sign_out()
 #             raise HTTPException(
 #                 status_code=status.HTTP_404_NOT_FOUND,
 #                 detail="User profile not found"
 #             )
         
-#         print(f"DEBUG: Profile found for user: {profile.data.get('email')}")
-#         print(f"DEBUG: User is_active: {profile.data.get('is_active')}")
-        
 #         if not profile.data["is_active"]:
-#             print("DEBUG: User account is deactivated")
 #             supabase.auth.sign_out()
 #             raise HTTPException(
 #                 status_code=status.HTTP_403_FORBIDDEN,
 #                 detail="Account deactivated"
 #             )
         
-#         print("DEBUG: Creating Redis session")
 #         # Create Redis session
 #         try:
 #             session_manager.create_session(
@@ -298,23 +211,16 @@ async def login(credentials: UserLogin, request: Request):
 #                 response.session.access_token
 #             )
 #             print("DEBUG: Redis session created successfully")
-#         except Exception as e:
-#             print(f"DEBUG: Redis session creation failed: {str(e)}")
-#             # Don't fail login if Redis session fails, just log it
+#         except Exception as redis_error:
+#             print(f"DEBUG: Redis session failed: {str(redis_error)}")
+#             # Continue without Redis session for now
         
-#         print("DEBUG: Updating last login timestamp")
 #         # Update last login
-#         try:
-#             supabase.table("profiles").update({
-#                 "last_login": datetime.utcnow().isoformat()
-#             }).eq("id", response.user.id).execute()
-#             print("DEBUG: Last login updated successfully")
-#         except Exception as e:
-#             print(f"DEBUG: Last login update failed: {str(e)}")
-#             # Don't fail login if timestamp update fails
+#         supabase.table("profiles").update({
+#             "last_login": datetime.utcnow().isoformat()
+#         }).eq("id", response.user.id).execute()
         
-#         print("DEBUG: Preparing response")
-#         login_response = {
+#         return {
 #             "access_token": response.session.access_token,
 #             "refresh_token": response.session.refresh_token,
 #             "user": {
@@ -323,23 +229,82 @@ async def login(credentials: UserLogin, request: Request):
 #                 "role": profile.data["role"]
 #             }
 #         }
-        
-#         print(f"DEBUG: Login successful for user: {profile.data['email']}")
-#         return login_response
-        
 #     except HTTPException:
-#         # Re-raise HTTP exceptions (like 404, 403) as-is
-#         print("DEBUG: Re-raising HTTP exception")
 #         raise
 #     except Exception as e:
-#         print(f"DEBUG: Unexpected error during login: {str(e)}")
-#         print(f"DEBUG: Error type: {type(e)}")
-#         import traceback
-#         print(f"DEBUG: Full traceback: {traceback.format_exc()}")
+#         print(f"DEBUG: Login error: {str(e)}")
 #         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Invalid credentials"
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Login failed: {str(e)}"
 #         )
+
+
+@router.post("/login", response_model=dict)
+async def login(credentials: UserLogin, request: Request):
+    try:
+        await auth_limiter.check_rate_limit(request, credentials.email)
+        
+        response = supabase.auth.sign_in_with_password({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+        
+        profile = supabase_admin.table("profiles").select("*").eq("id", response.user.id).single().execute()
+        
+        if not profile.data:
+            supabase.auth.sign_out()
+            raise HTTPException(status_code=404, detail="User profile not found")
+        
+        if not profile.data["is_active"]:
+            supabase.auth.sign_out()
+            raise HTTPException(status_code=403, detail="Account deactivated")
+        
+        # Super admin needs dashboard selection
+        if profile.data["role"] == UserRole.SUPER_ADMIN:
+            return {
+                "requires_dashboard_selection": True,
+                "access_token": response.session.access_token,
+                "refresh_token": response.session.refresh_token,
+                "user": {
+                    "id": response.user.id,
+                    "email": profile.data["email"],
+                    "role": profile.data["role"]
+                },
+                "available_dashboards": [
+                    {"role": "super_admin", "label": "Super Admin Dashboard"},
+                    {"role": "manager", "label": "Manager Dashboard"},
+                    {"role": "sales", "label": "Sales Dashboard"},
+                    {"role": "inventory_staff", "label": "Inventory Dashboard"},
+                    {"role": "chef", "label": "Chef Dashboard"}
+                ]
+            }
+        
+        # Regular user - complete login
+        session_manager.create_session(
+            response.user.id,
+            profile.data,
+            response.session.access_token
+        )
+        
+        supabase.table("profiles").update({
+            "last_login": datetime.utcnow().isoformat()
+        }).eq("id", response.user.id).execute()
+        
+        return {
+            "requires_dashboard_selection": False,
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token,
+            "user": {
+                "id": response.user.id,
+                "email": profile.data["email"],
+                "role": profile.data["role"]
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 
 @router.post("/refresh")
@@ -379,6 +344,7 @@ async def logout(
 
 
 
+
 @router.post("/change-password")
 async def change_password(
     password_data: ChangePasswordRequest,
@@ -388,19 +354,7 @@ async def change_password(
     """Change password for authenticated user"""
     
     try:
-        # Verify current password by attempting to sign in
-        verify_response = supabase.auth.sign_in_with_password({
-            "email": current_user["email"],
-            "password": password_data.current_password
-        })
-        
-        if not verify_response.user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Current password is incorrect"
-            )
-        
-        # Update password
+        # Update password directly
         supabase_admin.auth.admin.update_user_by_id(
             current_user["id"],
             {"password": password_data.new_password}
@@ -419,13 +373,13 @@ async def change_password(
         
         return {"message": "Password changed successfully"}
         
-    except HTTPException:
-        raise
     except Exception as e:
+        print(f"Password change error: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Password change failed"
         )
+    
     
 
 
@@ -517,3 +471,52 @@ async def reset_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired reset link"
         )
+    
+
+@router.post("/select-dashboard")
+async def select_dashboard(
+    selection: DashboardSelection,
+    token: str = Depends(security)
+):
+    """Complete super admin login by selecting dashboard"""
+    
+    try:
+        user_response = supabase.auth.get_user(token.credentials)
+        
+        if not user_response.user:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        profile = supabase.table("profiles").select("*").eq("id", user_response.user.id).single().execute()
+        
+        if not profile.data or profile.data["role"] != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Only super admins can select dashboards")
+        
+        # Create session with selected dashboard
+        session_data = profile.data.copy()
+        session_data["active_dashboard"] = selection.selected_dashboard
+        
+        session_manager.create_session(
+            user_response.user.id,
+            session_data,
+            token.credentials
+        )
+        
+        supabase.table("profiles").update({
+            "last_login": datetime.utcnow().isoformat()
+        }).eq("id", user_response.user.id).execute()
+        
+        return {
+            "message": "Dashboard selected successfully",
+            "active_dashboard": selection.selected_dashboard,
+            "user": {
+                "id": user_response.user.id,
+                "email": profile.data["email"],
+                "role": profile.data["role"],
+                "active_dashboard": selection.selected_dashboard
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")

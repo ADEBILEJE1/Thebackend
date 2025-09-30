@@ -57,5 +57,22 @@ class SessionManager:
     def get_active_sessions() -> int:
         """Count active sessions"""
         return len(redis_client.client.keys("session:*"))
+    
+    @staticmethod
+    def destroy_all_user_sessions(user_id: str):
+        """Destroy all sessions for a user"""
+        pattern = f"session:{user_id}:*"
+        sessions = redis_client.client.keys(pattern)
+        if sessions:
+            redis_client.client.delete(*sessions)
+        
+        # Also clear active session tokens
+        token_pattern = f"active_session:*"
+        tokens = redis_client.client.keys(token_pattern)
+        for token_key in tokens:
+            stored_user_id = redis_client.get(token_key)
+            if stored_user_id == user_id:
+                redis_client.delete(token_key)
 
 session_manager = SessionManager()
+
