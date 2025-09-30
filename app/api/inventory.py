@@ -675,6 +675,10 @@ async def update_product(
 
 
 
+
+
+
+
 # @router.post("/products/{product_id}/stock")
 # async def update_stock(
 #    product_id: str,
@@ -920,6 +924,32 @@ async def update_stock(
    return return_data
 
 
+
+@router.get("/products/{product_id}", response_model=dict)
+async def get_product(
+    product_id: str,
+    current_user: dict = Depends(require_staff)
+):
+    """Get single product details"""
+    result = supabase.table("products").select(
+        "*, categories(*), suppliers(name)"
+    ).eq("id", product_id).execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    product = result.data[0]
+    
+    # Add options if product has them
+    if product.get("has_options"):
+        options = supabase.table("product_options").select("*").eq(
+            "product_id", product_id
+        ).order("display_order", "name").execute()
+        product["options"] = options.data
+    else:
+        product["options"] = []
+    
+    return product
 
 
 # Availability Toggle (for Sales staff)
