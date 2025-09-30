@@ -63,7 +63,6 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
-    otp: str = Field(max_length=6, min_length=6)
     new_password: str = Field(min_length=8)
 
 class ChangePasswordRequest(BaseModel):
@@ -429,12 +428,13 @@ async def change_password(
         )
     
 
+
 @router.post("/forgot-password")
 async def forgot_password(
     request_data: ForgotPasswordRequest,
     request: Request
 ):
-    """Send password reset OTP via email"""
+    """Send password reset link via email"""
     
     # Rate limiting
     await auth_limiter.check_rate_limit(request, request_data.email)
@@ -443,62 +443,59 @@ async def forgot_password(
     profile = supabase.table("profiles").select("id, is_active").eq("email", request_data.email).execute()
     
     if not profile.data:
-        return {"message": "If the email exists, a reset code has been sent"}
+        return {"message": "If the email exists, a reset link has been sent"}
     
     if not profile.data[0]["is_active"]:
-        return {"message": "If the email exists, a reset code has been sent"}
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated"
+        )
     
     try:
-        # Send OTP - configure Supabase to send numeric OTP instead of magic link
-        supabase.auth.sign_in_with_otp({
-            "email": request_data.email,
-            "options": {
-                "should_create_user": False
+        # Send reset link (not OTP)
+        supabase.auth.reset_password_email(
+            request_data.email,
+            options={
+                "redirect_to": "https://yourdomain.com/reset-password"  # Your frontend reset page
             }
-        })
+        )
         
         # Log activity
         await log_activity(
             profile.data[0]["id"], request_data.email, "unknown",
             "forgot_password", "auth", None,
-            {"ip": request.client.host if request.client else "unknown"},
+            {"ip": request.client.host},
             request
         )
         
-        return {"message": "If the email exists, a reset code has been sent"}
+        return {"message": "If the email exists, a reset link has been sent"}
         
     except Exception as e:
-        return {"message": "If the email exists, a reset code has been sent"}
+        return {"message": "If the email exists, a reset link has been sent"}
+
 
 @router.post("/reset-password")
 async def reset_password(
     reset_data: ResetPasswordRequest,
     request: Request
 ):
-    """Reset password using OTP"""
+    """Reset password using token from email link"""
     
     # Rate limiting
     await auth_limiter.check_rate_limit(request, reset_data.email)
     
     try:
-        # Verify OTP and update password
-        response = supabase.auth.verify_otp({
-            "email": reset_data.email,
-            "token": reset_data.otp,
-            "type": "email"
+        # The token comes from the URL in the email link
+        # User clicks link -> redirected to frontend -> frontend extracts token -> calls this endpoint
+        response = supabase.auth.update_user({
+            "password": reset_data.new_password
         })
         
         if not response.user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired OTP"
+                detail="Invalid or expired reset link"
             )
-        
-        # Update password
-        supabase_admin.auth.admin.update_user_by_id(
-            response.user.id,
-            {"password": reset_data.new_password}
-        )
         
         # Sign out all sessions
         session_manager.destroy_all_user_sessions(response.user.id)
@@ -518,5 +515,5 @@ async def reset_password(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP"
+            detail="Invalid or expired reset link"
         )
