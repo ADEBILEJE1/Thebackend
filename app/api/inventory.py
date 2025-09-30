@@ -526,7 +526,7 @@ async def get_products(
     # Add options to products that have them
     for product in result.data:
         if product.get("has_options"):
-            options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order", "name").execute()
+            options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order").order("name").execute()
             product["options"] = options.data
         else:
             product["options"] = []
