@@ -1282,18 +1282,14 @@ async def push_batch_to_kitchen(
         "preparing_at": datetime.utcnow().isoformat()
     }).in_("id", order_ids).execute()
     
-    # Deduct stock for all items
-    all_items = []
-    for order in orders.data:
-        all_items.extend(order["order_items"])
-    
+    # Stock already deducted during confirmation - no deduction here
     
     # Notify kitchen
     # await notify_order_update(batch_id, "new_batch", {"batch_id": batch_id, "orders": orders.data})
     
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
-        "push_batch_to_kitchen", "batch", None,  # Change batch_id to None here
+        "push_batch_to_kitchen", "batch", None,
         {"order_count": len(orders.data)}, 
         request,
         batch_id=batch_id

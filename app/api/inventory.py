@@ -861,7 +861,7 @@ async def get_product(
     return product
 
 
-# Availability Toggle (for Sales staff)
+
 @router.patch("/products/{product_id}/availability")
 async def toggle_availability(
     product_id: str,
@@ -880,7 +880,7 @@ async def toggle_availability(
     
     return {"message": f"Product {'enabled' if availability.is_available else 'disabled'} for website"}
 
-# Stock History
+
 @router.get("/products/{product_id}/history")
 async def get_stock_history(
     product_id: str,
@@ -894,20 +894,20 @@ async def get_stock_history(
 
 
 
-# Low Stock Alert
+
 @router.get("/alerts/low-stock")
 async def get_low_stock_items(
     request: Request,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    # Check cache
+   
     cached = redis_client.get(CacheKeys.LOW_STOCK_ALERTS)
     if cached:
         return cached
     
     result = supabase.table("products").select("*, categories(name)").in_("status", [StockStatus.LOW_STOCK.value, StockStatus.OUT_OF_STOCK.value]).order("units").execute()
     
-    # Cache for 5 minutes
+   
     redis_client.set(CacheKeys.LOW_STOCK_ALERTS, result.data, 300)
     
     return result.data
@@ -1093,7 +1093,7 @@ async def get_suppliers(
 
 
 
-# Reorder Suggestions
+
 @router.get("/reorder-suggestions")
 async def get_reorder_suggestions(
     request: Request,
@@ -1107,7 +1107,7 @@ async def get_reorder_suggestions(
     suggestions = await InventoryService.get_reorder_suggestions(threshold_multiplier)
     return suggestions
 
-# Product Performance Analytics
+
 @router.get("/performance")
 async def get_product_performance(
     request: Request,
@@ -1121,7 +1121,7 @@ async def get_product_performance(
     performance_data = await InventoryService.get_product_performance(days)
     return performance_data
 
-# Wastage Analysis
+
 @router.get("/analytics/wastage")
 async def get_wastage_analysis(
     request: Request,
@@ -1143,7 +1143,7 @@ async def get_wastage_analysis(
     
     return wastage_data
 
-# Enhanced Low Stock Alerts with Predictions
+
 @router.get("/alerts/enhanced")
 async def get_enhanced_alerts(
     request: Request,
@@ -1197,7 +1197,7 @@ async def get_enhanced_alerts(
     
     return alerts_data
 
-# Category Performance Comparison
+
 @router.get("/analytics/category-comparison")
 async def get_category_performance_comparison(
     request: Request,
@@ -1262,7 +1262,7 @@ async def get_category_performance_comparison(
         }
     }
 
-# Stock Optimization Recommendations
+
 @router.get("/optimization")
 async def get_stock_optimization(
     request: Request,
@@ -1463,7 +1463,7 @@ async def deactivate_sku_code(
    
    return {"message": "SKU code deactivated"}
 
-# Product-SKU Mapping
+
 @router.post("/products/{product_id}/map-sku")
 async def map_sku_to_product(
    product_id: str,
@@ -1593,7 +1593,7 @@ async def upload_image(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-# Banner Management
+
 @router.post("/banners", response_model=dict)
 async def create_banner(
     banner: BannerCreate,
@@ -1771,18 +1771,18 @@ async def create_raw_material(
     """Create new raw material"""
     material.validate_units_per_pack()
     
-    # Check unique name
+    
     existing = supabase.table("raw_materials").select("id").eq("name", material.name).execute()
     if existing.data:
         raise HTTPException(status_code=400, detail="Material name already exists")
     
-    # Check SKU uniqueness if provided
+    
     if material.sku:
         existing_sku = supabase.table("raw_materials").select("id").eq("sku", material.sku).execute()
         if existing_sku.data:
             raise HTTPException(status_code=400, detail="SKU already exists")
     
-    # Verify supplier if provided
+    
     if material.supplier_id:
         supplier = supabase.table("suppliers").select("id").eq("id", material.supplier_id).execute()
         if not supplier.data:
@@ -1798,7 +1798,7 @@ async def create_raw_material(
     result = supabase.table("raw_materials").insert(material_data).execute()
     material_id = result.data[0]["id"]
     
-    # Log initial quantity if > 0
+    
     if material.initial_quantity > 0:
         transaction_data = {
             "material_id": material_id,
@@ -1876,7 +1876,7 @@ async def update_raw_material_stock(
     current_user: dict = Depends(require_inventory_staff)
 ):
     """Add or deduct raw material stock"""
-    # Get current material
+    
     material = supabase.table("raw_materials").select("*").eq("id", material_id).execute()
     if not material.data:
         raise HTTPException(status_code=404, detail="Raw material not found")
@@ -1885,11 +1885,11 @@ async def update_raw_material_stock(
     material_name = material.data[0]["name"]
     unit = material.data[0]["measurement_unit"]
     
-    # Calculate new quantity
+    
     if stock.operation == "add":
         new_qty = current_qty + stock.quantity
         transaction_type = TransactionType.PURCHASE
-    else:  # deduct
+    else:  
         if stock.quantity > current_qty:
             raise HTTPException(
                 status_code=400,
@@ -1898,22 +1898,22 @@ async def update_raw_material_stock(
         new_qty = current_qty - stock.quantity
         transaction_type = TransactionType.USAGE
     
-    # Validate effective date - make both timezone-naive for comparison
+    
     effective_timestamp = stock.effective_date or datetime.utcnow()
     if stock.effective_date:
-        # Remove timezone info if present
+        
         effective_timestamp = effective_timestamp.replace(tzinfo=None)
     
     if effective_timestamp > datetime.utcnow():
         raise HTTPException(status_code=400, detail="Cannot set future effective date")
     
-    # Update material quantity
+    
     supabase.table("raw_materials").update({
         "current_quantity": float(new_qty),
         "updated_at": datetime.utcnow().isoformat()
     }).eq("id", material_id).execute()
     
-    # Record transaction with backdating
+    
     transaction_data = {
         "material_id": material_id,
         "transaction_type": transaction_type,
@@ -1927,10 +1927,10 @@ async def update_raw_material_stock(
     
     result = supabase.table("raw_material_transactions").insert(transaction_data).execute()
     
-    # Clear cache
+    
     redis_client.delete_pattern("raw_materials:*")
     
-    # Log activity
+    
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         f"raw_material_{stock.operation}", "raw_material", material_id,
@@ -2056,7 +2056,7 @@ async def get_usage_summary(
     if not date_to:
         date_to = date.today()
     
-    # Build query
+    
     query = supabase.table("raw_material_transactions").select(
         "*, raw_materials!inner(name, measurement_unit)"
     ).gte("created_at", date_from.isoformat()).lte("created_at", f"{date_to.isoformat()}T23:59:59")
@@ -2123,7 +2123,7 @@ async def get_cost_analysis(
     if not date_to:
         date_to = date.today()
     
-    # Get purchase transactions with costs
+    
     purchases = supabase.table("raw_material_transactions").select(
         "*, raw_materials!inner(name, measurement_unit)"
     ).eq("transaction_type", "purchase").gte("created_at", date_from.isoformat()).lte("created_at", f"{date_to.isoformat()}T23:59:59").execute()
@@ -2149,7 +2149,7 @@ async def get_cost_analysis(
         cost_analysis[material_name]["transactions"] += 1
         total_spent += cost
     
-    # Calculate average costs
+    
     for material, data in cost_analysis.items():
         if data["total_quantity"] > 0:
             data["cost_per_unit"] = round(data["total_cost"] / data["total_quantity"], 2)
@@ -2212,16 +2212,16 @@ async def get_raw_materials_dashboard(
     if cached:
         return cached
     
-    # Get all materials
+    
     materials = supabase.table("raw_materials").select("*").execute()
     
-    # Calculate metrics
+    
     total_materials = len(materials.data)
     in_stock = len([m for m in materials.data if m["current_quantity"] > 10])
     low_stock = len([m for m in materials.data if 0 < m["current_quantity"] <= 10])
     out_of_stock = len([m for m in materials.data if m["current_quantity"] <= 0])
     
-    # Recent transactions
+    
     recent = supabase.table("raw_material_transactions").select(
         "*, raw_materials(name), profiles(email)"
     ).order("created_at", desc=True).limit(10).execute()
@@ -2296,23 +2296,7 @@ async def create_area(
     redis_client.delete("delivery:areas")
     return {"message": "Area created", "data": result.data[0]}
 
-# @router.get("/areas", response_model=List[dict])
-# async def get_areas(
-#     active_only: bool = True,
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     cache_key = f"delivery:areas:{active_only}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-    
-#     query = supabase.table("delivery_areas").select("*")
-#     if active_only:
-#         query = query.eq("is_active", True)
-    
-#     result = query.order("name").execute()
-#     redis_client.set(cache_key, result.data, 300)
-#     return result.data
+
 
 @router.get("/delivery/areas", response_model=List[dict])
 async def get_areas(
@@ -2415,13 +2399,13 @@ async def record_wastage(
 ):
     """Record wastage for raw materials or finished products with optional backdating"""
     
-    # Validate and set timestamp
+    
     wastage_timestamp = wastage.wastage_date or datetime.utcnow()
     if wastage_timestamp > datetime.utcnow():
         raise HTTPException(status_code=400, detail="Cannot set future wastage date")
     
     if wastage.wastage_type == WastageType.RAW_MATERIAL:
-        # Get raw material
+        
         material = supabase.table("raw_materials").select("*").eq("id", wastage.item_id).execute()
         if not material.data:
             raise HTTPException(status_code=404, detail="Raw material not found")
@@ -2433,14 +2417,14 @@ async def record_wastage(
                 detail=f"Cannot waste {wastage.quantity} {material.data[0]['measurement_unit']}. Only {current_qty} available"
             )
         
-        # Deduct quantity
+        
         new_qty = current_qty - wastage.quantity
         supabase.table("raw_materials").update({
             "current_quantity": float(new_qty),
             "updated_at": datetime.utcnow().isoformat()
         }).eq("id", wastage.item_id).execute()
         
-        # Log transaction with backdate
+        
         supabase.table("raw_material_transactions").insert({
             "material_id": wastage.item_id,
             "transaction_type": "usage",
@@ -2454,8 +2438,8 @@ async def record_wastage(
         item_name = material.data[0]["name"]
         measurement_unit = material.data[0]["measurement_unit"]
         
-    else:  # FINISHED_PRODUCT
-        # Get product
+    else:  
+        
         product = supabase.table("products").select("*").eq("id", wastage.item_id).execute()
         if not product.data:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -2467,7 +2451,7 @@ async def record_wastage(
                 detail=f"Cannot waste {wastage.quantity} units. Only {current_units} available"
             )
         
-        # Deduct stock
+        
         new_units = current_units - int(wastage.quantity)
         low_threshold = product.data[0]["low_stock_threshold"]
         
@@ -2482,8 +2466,8 @@ async def record_wastage(
             "updated_at": datetime.utcnow().isoformat()
         }).eq("id", wastage.item_id).execute()
         
-        # Log stock entry with backdate
-        supabase.table("stock_entries").insert({
+        
+        supabase_admin.table("stock_entries").insert({
             "product_id": wastage.item_id,
             "quantity": int(wastage.quantity),
             "entry_type": "remove",
@@ -2495,11 +2479,11 @@ async def record_wastage(
         item_name = product.data[0]["name"]
         measurement_unit = "units"
         
-        # Invalidate cache
+        
         invalidate_product_cache(wastage.item_id)
         redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
     
-    # Record in wastage table with backdate
+    
     wastage_record = {
         "wastage_type": wastage.wastage_type,
         "item_id": wastage.item_id,
@@ -2512,11 +2496,11 @@ async def record_wastage(
     }
     result = supabase.table("wastage_records").insert(wastage_record).execute()
     
-    # Clear cache
+    
     redis_client.delete_pattern("raw_materials:*")
     redis_client.delete_pattern("products:list:*")
     
-    # Log activity
+    
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "record_wastage", wastage.wastage_type, wastage.item_id,
