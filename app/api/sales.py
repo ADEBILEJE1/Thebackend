@@ -225,7 +225,7 @@ async def get_products_for_orders(
         # Fetch options if product has them
         product_options = []
         if product.get("has_options"):
-            options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order", "name").execute()
+            options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order").execute()
             product_options = [
                 {
                     "id": opt["id"],
