@@ -1211,6 +1211,20 @@ async def get_pending_orders(
         )
     """).eq("status", "pending").order("created_at", desc=True).execute()
     
+    # Format the response to flatten options into the order_items
+    for order in result.data:
+        for item in order.get("order_items", []):
+            # Extract options from junction table
+            item["options"] = [
+                {
+                    "id": opt["product_options"]["id"],
+                    "name": opt["product_options"]["name"]
+                }
+                for opt in item.get("order_item_options", [])
+            ]
+            # Clean up the junction data
+            del item["order_item_options"]
+    
     return result.data
 
 
@@ -1223,13 +1237,11 @@ async def modify_pending_order(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Modify pending order items"""
-    # Check order is pending
     order = supabase_admin.table("orders").select("*").eq("id", order_id).eq("status", "pending").execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Pending order not found")
     
-    # Validate new items
     processed_items = await SalesService.validate_sales_cart_items(items)
     totals = CartService.calculate_order_total(processed_items)
     
@@ -1241,6 +1253,7 @@ async def modify_pending_order(
     supabase.table("order_items").delete().eq("order_id", order_id).execute()
     
     # Create new items with options
+    new_items = []
     for item in processed_items:
         item_data = {
             "order_id": order_id,
@@ -1257,14 +1270,25 @@ async def modify_pending_order(
         order_item_id = result.data[0]["id"]
         
         # Insert options
+        options = []
         for option_id in item.get("option_ids", []):
-            supabase_admin.table("order_item_options").insert({
+            opt_result = supabase_admin.table("order_item_options").insert({
                 "id": str(uuid.uuid4()),
                 "order_item_id": order_item_id,
                 "option_id": option_id
             }).execute()
+            
+            # Fetch option details
+            opt_details = supabase.table("product_options").select("id, name").eq("id", option_id).execute()
+            if opt_details.data:
+                options.append(opt_details.data[0])
+        
+        # Add options to item data
+        item_result = result.data[0]
+        item_result["options"] = options
+        new_items.append(item_result)
     
-    # Update order totals
+    
     supabase.table("orders").update({
         "subtotal": float(totals["subtotal"]),
         "tax": float(totals["tax"]),
@@ -1276,7 +1300,16 @@ async def modify_pending_order(
         "modify", "pending_order", order_id, None, request
     )
     
-    return {"message": "Order modified successfully"}
+    return {
+        "message": "Order modified successfully",
+        "items": new_items,
+        "totals": {
+            "subtotal": float(totals["subtotal"]),
+            "tax": float(totals["tax"]),
+            "total": float(totals["total"])
+        }
+    }
+
 
 @router.delete("/orders/{order_id}")
 async def delete_pending_order(
