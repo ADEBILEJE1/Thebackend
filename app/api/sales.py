@@ -1200,32 +1200,30 @@ async def get_pending_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get all pending orders"""
-    result = supabase_admin.table("orders").select("""
-        *, 
-        order_items(
-            *,
-            order_item_options(
-                option_id,
-                product_options(id, name)
-            )
-        )
-    """).eq("status", "pending").order("created_at", desc=True).execute()
+    # Get orders first
+    orders_result = supabase_admin.table("orders").select("*").eq("status", "pending").order("created_at", desc=True).execute()
     
-    # Format the response to flatten options into the order_items
-    for order in result.data:
-        for item in order.get("order_items", []):
-            # Extract options from junction table
+    
+    for order in orders_result.data:
+        items_result = supabase_admin.table("order_items").select("""
+            *,
+            order_item_options(option_id, product_options(id, name))
+        """).eq("order_id", order["id"]).execute()
+        
+        
+        for item in items_result.data:
             item["options"] = [
                 {
                     "id": opt["product_options"]["id"],
                     "name": opt["product_options"]["name"]
                 }
-                for opt in item.get("order_item_options", [])
+                for opt in item.get("order_item_options", []) if opt.get("product_options")
             ]
-            # Clean up the junction data
             del item["order_item_options"]
+        
+        order["order_items"] = items_result.data
     
-    return result.data
+    return orders_result.data
 
 
 
