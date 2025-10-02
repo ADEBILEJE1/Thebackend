@@ -1073,11 +1073,14 @@ async def create_offline_order(
         
         # Insert multiple options
         for option_id in item.get("option_ids", []):
-            supabase_admin.table("order_item_options").insert({
-                "id": str(uuid.uuid4()),
-                "order_item_id": order_item_id,
-                "option_id": option_id
-            }).execute()
+            try:
+                supabase_admin.table("order_item_options").insert({
+                    "id": str(uuid.uuid4()),
+                    "order_item_id": order_item_id,
+                    "option_id": option_id
+                }).execute()
+            except Exception as e:
+                print(f"Failed to insert option {option_id}: {e}")
     
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
