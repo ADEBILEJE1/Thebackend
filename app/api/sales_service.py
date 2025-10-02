@@ -901,7 +901,7 @@ class SalesService:
                     processed_items.append({
                         "product_id": extra["id"],
                         "product_name": extra_data["name"],
-                        "option_ids": [],
+                        "option_ids": option_ids,
                         "quantity": extra["quantity"],
                         "unit_price": extra_price,
                         "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
