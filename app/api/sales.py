@@ -1232,30 +1232,38 @@ async def get_pending_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get all pending orders"""
-    orders_result = supabase_admin.table("orders").select("*").eq("status", "pending").order("created_at", desc=True).execute()
-    
-    for order in orders_result.data:
-        # Get items
-        items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
+    try:
+        orders_result = supabase.table("orders").select("*").eq("status", "pending").order("created_at", desc=True).execute()
         
-        for item in items_result.data:
-            # Get options for this item
-            options_result = supabase_admin.table("order_item_options").select("""
-                option_id,
-                product_options(id, name)
-            """).eq("order_item_id", item["id"]).execute()
+        if not orders_result.data:
+            return []
+        
+        for order in orders_result.data:
+            # Get items
+            items_result = supabase.table("order_items").select("*").eq("order_id", order["id"]).execute()
             
-            item["options"] = [
-                {
-                    "id": opt["product_options"]["id"],
-                    "name": opt["product_options"]["name"]
-                }
-                for opt in options_result.data if opt.get("product_options")
-            ]
+            for item in items_result.data:
+                # Get options for this item
+                options_result = supabase.table("order_item_options").select("""
+                    option_id,
+                    product_options(id, name)
+                """).eq("order_item_id", item["id"]).execute()
+                
+                item["options"] = [
+                    {
+                        "id": opt["product_options"]["id"],
+                        "name": opt["product_options"]["name"]
+                    }
+                    for opt in options_result.data if opt.get("product_options")
+                ]
+            
+            order["order_items"] = items_result.data
         
-        order["order_items"] = items_result.data
-    
-    return orders_result.data
+        return orders_result.data
+        
+    except Exception as e:
+        print(f"Error fetching pending orders: {e}")
+        return []
 
 
 

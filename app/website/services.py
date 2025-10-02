@@ -377,7 +377,9 @@ class AddressService:
         return result.data[0]
     
 class MonnifyService:
-    BASE_URL = "https://sandbox-api.monnify.com"  # Use production URL for live
+    @property
+    def BASE_URL(self):
+        return settings.MONNIFY_BASE_URL
     
     @staticmethod
     async def get_access_token() -> str:
