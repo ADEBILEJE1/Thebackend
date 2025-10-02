@@ -1195,36 +1195,6 @@ async def print_sales_receipt(
 
 
 
-# @router.get("/orders/pending")
-# async def get_pending_orders(
-#     current_user: dict = Depends(require_sales_staff)
-# ):
-#     """Get all pending orders"""
-#     # Get orders first
-#     orders_result = supabase_admin.table("orders").select("*").eq("status", "pending").order("created_at", desc=True).execute()
-    
-    
-#     for order in orders_result.data:
-#         items_result = supabase_admin.table("order_items").select("""
-#             *,
-#             order_item_options(option_id, product_options(id, name))
-#         """).eq("order_id", order["id"]).execute()
-        
-        
-#         for item in items_result.data:
-#             item["options"] = [
-#                 {
-#                     "id": opt["product_options"]["id"],
-#                     "name": opt["product_options"]["name"]
-#                 }
-#                 for opt in item.get("order_item_options", []) if opt.get("product_options")
-#             ]
-#             item.pop("order_item_options", None)
-        
-#         order["order_items"] = items_result.data
-    
-#     return orders_result.data
-
 
 
 @router.get("/orders/pending")
@@ -1232,33 +1202,58 @@ async def get_pending_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get all pending orders"""
-    result = supabase_admin.table("orders").select("""
-        *, 
-        order_items(
-            *,
-            order_item_options(
+    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "pending").order("created_at", desc=True).execute()
+    
+    # Fetch options for each order item
+    for order in result.data:
+        for item in order["order_items"]:
+            options_result = supabase_admin.table("order_item_options").select("""
                 option_id,
                 product_options(id, name)
-            )
-        )
-    """).eq("status", "pending").order("created_at", desc=True).execute()
-    
-    # Clean up the nested structure
-    for order in result.data:
-        for item in order.get("order_items", []):
+            """).eq("order_item_id", item["id"]).execute()
+            
             item["options"] = [
                 {
                     "id": opt["product_options"]["id"],
                     "name": opt["product_options"]["name"]
                 }
-                for opt in item.get("order_item_options", []) 
-                if opt.get("product_options")
+                for opt in options_result.data if opt.get("product_options")
             ]
-            # Remove the nested structure
-            item.pop("order_item_options", None)
     
     return result.data
 
+
+# @router.get("/orders/pending")
+# async def get_pending_orders(
+#     current_user: dict = Depends(require_sales_staff)
+# ):
+#     """Get all pending orders"""
+#     result = supabase_admin.table("orders").select("""
+#         *, 
+#         order_items(
+#             *,
+#             products(id, name, price, image_url),
+#             order_item_options(
+#                 option_id,
+#                 product_options(id, name)
+#             )
+#         )
+#     """).eq("status", "pending").order("created_at", desc=True).execute()
+    
+#     # Clean up the nested structure
+#     for order in result.data:
+#         for item in order.get("order_items", []):
+#             item["options"] = [
+#                 {
+#                     "id": opt["product_options"]["id"],
+#                     "name": opt["product_options"]["name"]
+#                 }
+#                 for opt in item.get("order_item_options", []) 
+#                 if opt.get("product_options")
+#             ]
+#             item.pop("order_item_options", None)
+    
+#     return result.data
 
 
 @router.patch("/orders/{order_id}")
