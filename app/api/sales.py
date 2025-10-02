@@ -1200,8 +1200,20 @@ async def get_pending_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get all pending orders"""
-    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "pending").order("created_at", desc=True).execute()
+    result = supabase_admin.table("orders").select("""
+        *, 
+        order_items(
+            *,
+            order_item_options(
+                option_id,
+                product_options(id, name)
+            )
+        )
+    """).eq("status", "pending").order("created_at", desc=True).execute()
+    
     return result.data
+
+
 
 @router.patch("/orders/{order_id}")
 async def modify_pending_order(
@@ -1221,10 +1233,14 @@ async def modify_pending_order(
     processed_items = await SalesService.validate_sales_cart_items(items)
     totals = CartService.calculate_order_total(processed_items)
     
-    # Delete existing items
+    # Delete existing items and their options
+    existing_items = supabase.table("order_items").select("id").eq("order_id", order_id).execute()
+    for item in existing_items.data:
+        supabase.table("order_item_options").delete().eq("order_item_id", item["id"]).execute()
+    
     supabase.table("order_items").delete().eq("order_id", order_id).execute()
     
-    # Create new items
+    # Create new items with options
     for item in processed_items:
         item_data = {
             "order_id": order_id,
@@ -1232,14 +1248,26 @@ async def modify_pending_order(
             "product_name": item["product_name"],
             "quantity": item["quantity"],
             "unit_price": float(item["unit_price"]),
-            "total_price": float(item["total_price"])
+            "tax_per_unit": float(item["tax_per_unit"]),
+            "total_price": float(item["total_price"]),
+            "preparation_time_minutes": item["preparation_time_minutes"],
+            "notes": item.get("notes")
         }
-        supabase.table("order_items").insert(item_data).execute()
+        result = supabase.table("order_items").insert(item_data).execute()
+        order_item_id = result.data[0]["id"]
+        
+        # Insert options
+        for option_id in item.get("option_ids", []):
+            supabase_admin.table("order_item_options").insert({
+                "id": str(uuid.uuid4()),
+                "order_item_id": order_item_id,
+                "option_id": option_id
+            }).execute()
     
     # Update order totals
     supabase.table("orders").update({
         "subtotal": float(totals["subtotal"]),
-        "tax": float(totals["vat"]),
+        "tax": float(totals["tax"]),
         "total": float(totals["total"])
     }).eq("id", order_id).execute()
     
