@@ -1022,7 +1022,6 @@ async def create_offline_order(
     processed_items = await SalesService.validate_sales_cart_items(order_data.items)
     totals = CartService.calculate_order_total(processed_items)
     
-    # Calculate total preparation time
     total_prep_time = sum(
         item["preparation_time_minutes"] * item["quantity"] 
         for item in processed_items
@@ -1030,8 +1029,7 @@ async def create_offline_order(
     
     batch_id = SalesService.generate_batch_id()
     batch_created_at = datetime.utcnow().isoformat()
-    display_number = SalesService.get_next_display_number()  # Add this line
-
+    display_number = SalesService.get_next_display_number()
     order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
     
     order_entry = {
@@ -1047,7 +1045,7 @@ async def create_offline_order(
         "subtotal": float(totals["subtotal"]),
         "tax": float(totals["tax"]), 
         "total": float(totals["total"]),
-        "estimated_prep_time_minutes": total_prep_time,  # New field
+        "estimated_prep_time_minutes": total_prep_time,
         "notes": order_data.notes,
         "created_by": current_user["id"],
         "batch_id": batch_id,
@@ -1062,7 +1060,6 @@ async def create_offline_order(
             "order_id": order_id,
             "product_id": item["product_id"],
             "product_name": item["product_name"],
-            "option_id": item.get("option_id"),
             "quantity": item["quantity"],
             "unit_price": float(item["unit_price"]),
             "tax_per_unit": float(item["tax_per_unit"]),
@@ -1070,7 +1067,15 @@ async def create_offline_order(
             "preparation_time_minutes": item["preparation_time_minutes"],
             "notes": item.get("notes")
         }
-        supabase_admin.table("order_items").insert(item_data).execute()
+        result = supabase_admin.table("order_items").insert(item_data).execute()
+        order_item_id = result.data[0]["id"]
+        
+        # Insert multiple options
+        for option_id in item.get("option_ids", []):
+            supabase_admin.table("order_item_options").insert({
+                "order_item_id": order_item_id,
+                "option_id": option_id
+            }).execute()
     
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],

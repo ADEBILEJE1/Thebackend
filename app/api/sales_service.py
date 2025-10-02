@@ -860,7 +860,6 @@ class SalesService:
         processed_items = []
         
         for item in items:
-            # Validate main product
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             
             if not product.data:
@@ -872,41 +871,27 @@ class SalesService:
                 raise ValueError(f"{product_data['name']} is not available")
             
             if product_data["units"] < item["quantity"]:
-                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
+                raise ValueError(f"Insufficient stock for {product_data['name']}")
             
-            # Handle options validation
-            option_data = None
-            if product_data.get("has_options"):
-                if not item.get("option_id"):
-                    raise ValueError(f"{product_data['name']} requires option selection")
-                
-                option = supabase.table("product_options").select("*").eq("id", item["option_id"]).eq("product_id", item["product_id"]).execute()
-                if not option.data:
-                    raise ValueError(f"Invalid option for {product_data['name']}")
-                
-                option_data = option.data[0]
+            option_ids = item.get("option_ids", [])
+            if product_data.get("has_options") and not option_ids:
+                raise ValueError(f"{product_data['name']} requires option selection")
             
-            final_price = Decimal(str(product_data["price"]))
-            
-            # Add main product
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
-                "option_id": item.get("option_id"),
-                "option_name": option_data["name"] if option_data else None,
+                "option_ids": option_ids,
                 "quantity": item["quantity"],
-                "unit_price": final_price,
+                "unit_price": Decimal(str(product_data["price"])),
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
-                "total_price": final_price * item["quantity"],
+                "total_price": Decimal(str(product_data["price"])) * item["quantity"],
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes")
             })
             
-            # Process extras separately (no option validation needed for extras)
             if "extras" in item and item["extras"]:
                 for extra in item["extras"]:
                     extra_product = supabase.table("products").select("*").eq("id", extra["id"]).execute()
-                    
                     if not extra_product.data:
                         continue
                     
@@ -916,8 +901,7 @@ class SalesService:
                     processed_items.append({
                         "product_id": extra["id"],
                         "product_name": extra_data["name"],
-                        "option_id": None,
-                        "option_name": None,
+                        "option_ids": [],
                         "quantity": extra["quantity"],
                         "unit_price": extra_price,
                         "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
