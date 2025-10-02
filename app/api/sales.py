@@ -1219,7 +1219,7 @@ async def get_pending_orders(
                 }
                 for opt in item.get("order_item_options", []) if opt.get("product_options")
             ]
-            del item["order_item_options"]
+            item.pop("order_item_options", None)
         
         order["order_items"] = items_result.data
     
