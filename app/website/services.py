@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from ..database import supabase
 from ..services.redis import redis_client
 from ..core.cache import CacheKeys
+from ..config import settings
 
 
 class CustomerService:
