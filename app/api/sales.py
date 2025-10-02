@@ -1246,12 +1246,11 @@ async def modify_pending_order(
     # Delete existing items and their options
     existing_items = supabase.table("order_items").select("id").eq("order_id", order_id).execute()
     for item in existing_items.data:
-        supabase.table("order_item_options").delete().eq("order_item_id", item["id"]).execute()
+        supabase_admin.table("order_item_options").delete().eq("order_item_id", item["id"]).execute()
     
-    supabase.table("order_items").delete().eq("order_id", order_id).execute()
+    supabase_admin.table("order_items").delete().eq("order_id", order_id).execute()
     
     # Create new items with options
-    new_items = []
     for item in processed_items:
         item_data = {
             "order_id": order_id,
@@ -1264,30 +1263,17 @@ async def modify_pending_order(
             "preparation_time_minutes": item["preparation_time_minutes"],
             "notes": item.get("notes")
         }
-        result = supabase.table("order_items").insert(item_data).execute()
+        result = supabase_admin.table("order_items").insert(item_data).execute()
         order_item_id = result.data[0]["id"]
         
-        # Insert options
-        options = []
         for option_id in item.get("option_ids", []):
-            opt_result = supabase_admin.table("order_item_options").insert({
+            supabase_admin.table("order_item_options").insert({
                 "id": str(uuid.uuid4()),
                 "order_item_id": order_item_id,
                 "option_id": option_id
             }).execute()
-            
-            # Fetch option details
-            opt_details = supabase.table("product_options").select("id, name").eq("id", option_id).execute()
-            if opt_details.data:
-                options.append(opt_details.data[0])
-        
-        # Add options to item data
-        item_result = result.data[0]
-        item_result["options"] = options
-        new_items.append(item_result)
     
-    
-    supabase.table("orders").update({
+    supabase_admin.table("orders").update({
         "subtotal": float(totals["subtotal"]),
         "tax": float(totals["tax"]),
         "total": float(totals["total"])
@@ -1298,15 +1284,7 @@ async def modify_pending_order(
         "modify", "pending_order", order_id, None, request
     )
     
-    return {
-        "message": "Order modified successfully",
-        "items": new_items,
-        "totals": {
-            "subtotal": float(totals["subtotal"]),
-            "tax": float(totals["tax"]),
-            "total": float(totals["total"])
-        }
-    }
+    return {"message": "Order modified successfully"}
 
 
 @router.delete("/orders/{order_id}")
