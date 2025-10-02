@@ -858,29 +858,9 @@ class SalesService:
     @staticmethod
     async def validate_sales_cart_items(items: List[Dict]) -> List[Dict]:
         processed_items = []
-        all_items_flat = []
         
-        # Flatten nested extras structure for sales
         for item in items:
-            # Add main product
-            all_items_flat.append({
-                "product_id": item["product_id"],
-                "quantity": item["quantity"],
-                "option_id": item.get("option_id"),
-                "notes": item.get("notes")
-            })
-            
-            # Add extras if present
-            if "extras" in item and item["extras"]:
-                for extra in item["extras"]:
-                    all_items_flat.append({
-                        "product_id": extra["id"],
-                        "quantity": extra["quantity"],
-                        "notes": extra.get("notes")
-                    })
-        
-        # Process all items
-        for item in all_items_flat:
+            # Validate main product
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             
             if not product.data:
@@ -905,12 +885,10 @@ class SalesService:
                     raise ValueError(f"Invalid option for {product_data['name']}")
                 
                 option_data = option.data[0]
-                final_price = Decimal(str(product_data["price"])) 
-            else:
-                if item.get("option_id"):
-                    raise ValueError(f"{product_data['name']} does not support options")
-                final_price = Decimal(str(product_data["price"]))
             
+            final_price = Decimal(str(product_data["price"]))
+            
+            # Add main product
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
@@ -923,5 +901,29 @@ class SalesService:
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes")
             })
+            
+            # Process extras separately (no option validation needed for extras)
+            if "extras" in item and item["extras"]:
+                for extra in item["extras"]:
+                    extra_product = supabase.table("products").select("*").eq("id", extra["id"]).execute()
+                    
+                    if not extra_product.data:
+                        continue
+                    
+                    extra_data = extra_product.data[0]
+                    extra_price = Decimal(str(extra_data["price"]))
+                    
+                    processed_items.append({
+                        "product_id": extra["id"],
+                        "product_name": extra_data["name"],
+                        "option_id": None,
+                        "option_name": None,
+                        "quantity": extra["quantity"],
+                        "unit_price": extra_price,
+                        "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
+                        "total_price": extra_price * extra["quantity"],
+                        "preparation_time_minutes": extra_data.get("preparation_time_minutes", 15),
+                        "notes": extra.get("notes")
+                    })
         
         return processed_items
