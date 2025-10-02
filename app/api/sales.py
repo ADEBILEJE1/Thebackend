@@ -1195,31 +1195,63 @@ async def print_sales_receipt(
 
 
 
+# @router.get("/orders/pending")
+# async def get_pending_orders(
+#     current_user: dict = Depends(require_sales_staff)
+# ):
+#     """Get all pending orders"""
+#     # Get orders first
+#     orders_result = supabase_admin.table("orders").select("*").eq("status", "pending").order("created_at", desc=True).execute()
+    
+    
+#     for order in orders_result.data:
+#         items_result = supabase_admin.table("order_items").select("""
+#             *,
+#             order_item_options(option_id, product_options(id, name))
+#         """).eq("order_id", order["id"]).execute()
+        
+        
+#         for item in items_result.data:
+#             item["options"] = [
+#                 {
+#                     "id": opt["product_options"]["id"],
+#                     "name": opt["product_options"]["name"]
+#                 }
+#                 for opt in item.get("order_item_options", []) if opt.get("product_options")
+#             ]
+#             item.pop("order_item_options", None)
+        
+#         order["order_items"] = items_result.data
+    
+#     return orders_result.data
+
+
+
 @router.get("/orders/pending")
 async def get_pending_orders(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Get all pending orders"""
-    # Get orders first
     orders_result = supabase_admin.table("orders").select("*").eq("status", "pending").order("created_at", desc=True).execute()
     
-    
     for order in orders_result.data:
-        items_result = supabase_admin.table("order_items").select("""
-            *,
-            order_item_options(option_id, product_options(id, name))
-        """).eq("order_id", order["id"]).execute()
-        
+        # Get items
+        items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
         
         for item in items_result.data:
+            # Get options for this item
+            options_result = supabase_admin.table("order_item_options").select("""
+                option_id,
+                product_options(id, name)
+            """).eq("order_item_id", item["id"]).execute()
+            
             item["options"] = [
                 {
                     "id": opt["product_options"]["id"],
                     "name": opt["product_options"]["name"]
                 }
-                for opt in item.get("order_item_options", []) if opt.get("product_options")
+                for opt in options_result.data if opt.get("product_options")
             ]
-            item.pop("order_item_options", None)
         
         order["order_items"] = items_result.data
     
