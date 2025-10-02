@@ -25,119 +25,6 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
-@router.get("/products")
-async def get_products_for_website(
-    category_id: Optional[str] = None,
-    search: Optional[str] = None,
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None
-):
-    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-
-    query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
-
-    if category_id:
-        query = query.eq("category_id", category_id)
-    if min_price:
-        query = query.gte("price", min_price)
-    if max_price:
-        query = query.lte("price", max_price)
-    
-    products_result = query.execute()
-    
-    for product in products_result.data:
-        # Fetch category
-        if product["category_id"]:
-            category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-            product["categories"] = category.data[0] if category.data else None
-        else:
-            product["categories"] = None
-        
-        # Fetch extras
-        extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-        product["extras"] = extras.data
-
-        # Fetch options if product has them
-        product["options"] = []
-        if product.get("has_options"):
-            options = supabase_admin.table("product_options").select("*").eq("product_id", product["id"]).order("display_order", "name").execute()
-            product["options"] = options.data
-    
-    # Apply search filter
-    if search:
-        products_result.data = [
-            p for p in products_result.data 
-            if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
-                (search.lower() in p["name"].lower())    
-        ]
-    
-    # Format response
-    products = []
-    for product in products_result.data:
-        display_name = product["name"]
-        if product.get("variant_name"):
-            display_name += f" - {product['variant_name']}"
-        
-        category = {"id": None, "name": "Uncategorized"}
-        if product.get("categories") and product["categories"]:
-            category = product["categories"]
-        
-        # Format extras
-        formatted_extras = []
-        for extra in product["extras"]:
-            extra_display_name = extra["name"]
-            if extra.get("variant_name"):
-                extra_display_name += f" - {extra['variant_name']}"
-            
-            formatted_extras.append({
-                "id": extra["id"],
-                "name": extra_display_name,
-                "price": float(extra["price"]),
-                "description": extra["description"],
-                "image_url": extra["image_url"],
-                "available_stock": extra["units"],
-                "low_stock_threshold": extra["low_stock_threshold"]
-            })
-
-        # Format options
-        formatted_options = []
-        for option in product["options"]:
-            formatted_options.append({
-                "id": option["id"],
-                "name": option["name"],
-                "price_modifier": float(option["price_modifier"])
-            })
-        
-        products.append({
-            "id": product["id"],
-            "name": display_name,
-            "price": float(product["price"]),
-            "description": product["description"],
-            "image_url": product["image_url"],
-            "available_stock": product["units"],
-            "low_stock_threshold": product["low_stock_threshold"],
-            "has_options": product.get("has_options", False),
-            "options": formatted_options,
-            "extras": formatted_extras,
-            "category": category
-        })
-    
-    sorted_data = sorted(products, key=lambda x: (
-        x.get("category", {}).get("name", ""), 
-        x.get("name", "")
-    ))
-    
-    redis_client.set(cache_key, sorted_data, 300)
-    return sorted_data
-
-
-
-
-
-
 # @router.get("/products")
 # async def get_products_for_website(
 #     category_id: Optional[str] = None,
@@ -150,12 +37,7 @@ async def get_products_for_website(
 #     if cached:
 #         return cached
 
-#     query = supabase_admin.table("products").select("""
-#         *,
-#         categories(*),
-#         extras:products!main_product_id(*),
-#         product_options(*)
-#     """).eq("is_available", True).eq("product_type", "main")
+#     query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
 
 #     if category_id:
 #         query = query.eq("category_id", category_id)
@@ -166,46 +48,67 @@ async def get_products_for_website(
     
 #     products_result = query.execute()
     
+#     for product in products_result.data:
+#         # Fetch category
+#         if product["category_id"]:
+#             category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
+#             product["categories"] = category.data[0] if category.data else None
+#         else:
+#             product["categories"] = None
+        
+#         # Fetch extras
+#         extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
+#         product["extras"] = extras.data
+
+#         # Fetch options if product has them
+#         product["options"] = []
+#         if product.get("has_options"):
+#             options = supabase_admin.table("product_options").select("*").eq("product_id", product["id"]).order("display_order", "name").execute()
+#             product["options"] = options.data
+    
+#     # Apply search filter
 #     if search:
-#         search_lower = search.lower()
 #         products_result.data = [
 #             p for p in products_result.data 
-#             if search_lower in p["name"].lower() or
-#                (p.get("categories") and search_lower in p["categories"]["name"].lower())
+#             if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
+#                 (search.lower() in p["name"].lower())    
 #         ]
     
+#     # Format response
 #     products = []
 #     for product in products_result.data:
 #         display_name = product["name"]
 #         if product.get("variant_name"):
 #             display_name += f" - {product['variant_name']}"
         
-#         category = product.get("categories") or {"id": None, "name": "Uncategorized"}
+#         category = {"id": None, "name": "Uncategorized"}
+#         if product.get("categories") and product["categories"]:
+#             category = product["categories"]
         
+#         # Format extras
 #         formatted_extras = []
-#         for extra in product.get("extras", []):
-#             if not extra.get("is_available"):
-#                 continue
-#             extra_name = extra["name"]
+#         for extra in product["extras"]:
+#             extra_display_name = extra["name"]
 #             if extra.get("variant_name"):
-#                 extra_name += f" - {extra['variant_name']}"
+#                 extra_display_name += f" - {extra['variant_name']}"
+            
 #             formatted_extras.append({
 #                 "id": extra["id"],
-#                 "name": extra_name,
+#                 "name": extra_display_name,
 #                 "price": float(extra["price"]),
 #                 "description": extra["description"],
 #                 "image_url": extra["image_url"],
 #                 "available_stock": extra["units"],
 #                 "low_stock_threshold": extra["low_stock_threshold"]
 #             })
-        
+
+#         # Format options
 #         formatted_options = []
-#         for opt in sorted(product.get("product_options", []), 
-#                          key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
+#         for option in product["options"]:
 #             formatted_options.append({
-#                 "id": opt["id"],
-#                 "name": opt["name"],
-#                 "price_modifier": float(opt.get("price_modifier", 0))
+#                 "id": option["id"],
+#                 "name": option["name"],
+#                 "price_modifier": float(option["price_modifier"])
 #             })
         
 #         products.append({
@@ -222,10 +125,107 @@ async def get_products_for_website(
 #             "category": category
 #         })
     
-#     sorted_data = sorted(products, key=lambda x: (x["category"]["name"], x["name"]))
+#     sorted_data = sorted(products, key=lambda x: (
+#         x.get("category", {}).get("name", ""), 
+#         x.get("name", "")
+#     ))
     
 #     redis_client.set(cache_key, sorted_data, 300)
 #     return sorted_data
+
+
+
+
+
+
+@router.get("/products")
+async def get_products_for_website(
+    category_id: Optional[str] = None,
+    search: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None
+):
+    cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
+
+    query = supabase_admin.table("products").select("""
+        *,
+        categories(*),
+        extras:products!main_product_id(*),
+        product_options(*)
+    """).eq("is_available", True).eq("product_type", "main")
+
+    if category_id:
+        query = query.eq("category_id", category_id)
+    if min_price:
+        query = query.gte("price", min_price)
+    if max_price:
+        query = query.lte("price", max_price)
+    
+    products_result = query.execute()
+    
+    if search:
+        search_lower = search.lower()
+        products_result.data = [
+            p for p in products_result.data 
+            if search_lower in p["name"].lower() or
+               (p.get("categories") and search_lower in p["categories"]["name"].lower())
+        ]
+    
+    products = []
+    for product in products_result.data:
+        display_name = product["name"]
+        if product.get("variant_name"):
+            display_name += f" - {product['variant_name']}"
+        
+        category = product.get("categories") or {"id": None, "name": "Uncategorized"}
+        
+        formatted_extras = []
+        for extra in product.get("extras", []):
+            if not extra.get("is_available"):
+                continue
+            extra_name = extra["name"]
+            if extra.get("variant_name"):
+                extra_name += f" - {extra['variant_name']}"
+            formatted_extras.append({
+                "id": extra["id"],
+                "name": extra_name,
+                "price": float(extra["price"]),
+                "description": extra["description"],
+                "image_url": extra["image_url"],
+                "available_stock": extra["units"],
+                "low_stock_threshold": extra["low_stock_threshold"]
+            })
+        
+        formatted_options = []
+        for opt in sorted(product.get("product_options", []), 
+                         key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
+            formatted_options.append({
+                "id": opt["id"],
+                "name": opt["name"],
+                "price_modifier": float(opt.get("price_modifier", 0))
+            })
+        
+        products.append({
+            "id": product["id"],
+            "name": display_name,
+            "price": float(product["price"]),
+            "description": product["description"],
+            "image_url": product["image_url"],
+            "available_stock": product["units"],
+            "low_stock_threshold": product["low_stock_threshold"],
+            "has_options": product.get("has_options", False),
+            "options": formatted_options,
+            "extras": formatted_extras,
+            "category": category
+        })
+    
+    sorted_data = sorted(products, key=lambda x: (x["category"]["name"], x["name"]))
+    
+    redis_client.set(cache_key, sorted_data, 300)
+    return sorted_data
 
 
 
