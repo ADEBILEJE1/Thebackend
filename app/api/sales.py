@@ -3,6 +3,7 @@ from typing import List, Optional,  Dict, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 import random
+import uuid
 from .sales_service import SalesService
 from pydantic import BaseModel, Field, validator, EmailStr
 from ..models.user import UserRole
@@ -1073,6 +1074,7 @@ async def create_offline_order(
         # Insert multiple options
         for option_id in item.get("option_ids", []):
             supabase_admin.table("order_item_options").insert({
+                "id": str(uuid.uuid4()),
                 "order_item_id": order_item_id,
                 "option_id": option_id
             }).execute()
