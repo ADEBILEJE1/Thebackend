@@ -167,7 +167,7 @@ async def deduct_stock(items: List[dict]):
 async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
     """Get orders grouped by batches"""
     # First get orders
-    result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("preparing_at").execute()
+    result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at", desc=True).execute()
     
     # Group by batch_id
     batches = {}
@@ -177,6 +177,11 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
         # Get order items
         items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
         order["order_items"] = items_result.data
+
+        # Get options for each item
+        for item in order["order_items"]:
+            options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+            item["options"] = options_result.data
         
         # Get customer info if website order
         if order.get("website_customer_id"):
@@ -211,28 +216,6 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
     return {"batches": list(batches.values())}
 
 
-# @router.get("/queue/kitchen-batches")
-# async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
-#     """Get orders grouped by batches"""
-#     result = supabase_admin.table("orders").select("*, order_items(*)").not_.is_("batch_id", "null").order("preparing_at").execute()
-    
-#     # Group by batch_id
-#     batches = {}
-#     for order in result.data:
-#         batch_id = order["batch_id"]
-#         if batch_id not in batches:
-#             batches[batch_id] = {
-#                 "batch_id": batch_id,
-#                 "customer_name": order.get("customer_name"),
-#                 "orders": [],
-#                 "total_items": 0,
-#                 "preparing_at": order["preparing_at"]
-#             }
-        
-#         batches[batch_id]["orders"].append(order)
-#         batches[batch_id]["total_items"] += len(order["order_items"])
-    
-#     return {"batches": list(batches.values())}
 
 
 
@@ -360,6 +343,11 @@ async def get_order(
 ):
     # Only allow access to batch orders in kitchen
     result = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).not_.is_("batch_id", "null").in_("status", ["preparing", "completed"]).execute()
+
+    if result.data:
+        for item in result.data[0]["order_items"]:
+            options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+            item["options"] = options_result.data
     
     if not result.data:
         raise HTTPException(status_code=404, detail="Order not found in kitchen queue")
@@ -514,6 +502,10 @@ async def print_order_receipt(
         raise HTTPException(status_code=404, detail="Order not found")
     
     order = order_result.data[0]
+
+    for item in order["order_items"]:
+        options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+        item["options"] = options_result.data
     
     # Generate print-friendly format
     receipt_data = {
