@@ -25,114 +25,6 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
-# @router.get("/products")
-# async def get_products_for_website(
-#     category_id: Optional[str] = None,
-#     search: Optional[str] = None,
-#     min_price: Optional[float] = None,
-#     max_price: Optional[float] = None
-# ):
-#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-
-#     query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
-
-#     if category_id:
-#         query = query.eq("category_id", category_id)
-#     if min_price:
-#         query = query.gte("price", min_price)
-#     if max_price:
-#         query = query.lte("price", max_price)
-    
-#     products_result = query.execute()
-    
-#     for product in products_result.data:
-#         # Fetch category
-#         if product["category_id"]:
-#             category = supabase_admin.table("categories").select("*").eq("id", product["category_id"]).execute()
-#             product["categories"] = category.data[0] if category.data else None
-#         else:
-#             product["categories"] = None
-        
-#         # Fetch extras
-#         extras = supabase_admin.table("products").select("*").eq("main_product_id", product["id"]).eq("is_available", True).execute()
-#         product["extras"] = extras.data
-
-#         # Fetch options if product has them
-#         product["options"] = []
-#         if product.get("has_options"):
-#             options = supabase_admin.table("product_options").select("*").eq("product_id", product["id"]).order("display_order", "name").execute()
-#             product["options"] = options.data
-    
-#     # Apply search filter
-#     if search:
-#         products_result.data = [
-#             p for p in products_result.data 
-#             if (p.get("categories") and search.lower() in p["categories"]["name"].lower()) or
-#                 (search.lower() in p["name"].lower())    
-#         ]
-    
-#     # Format response
-#     products = []
-#     for product in products_result.data:
-#         display_name = product["name"]
-#         if product.get("variant_name"):
-#             display_name += f" - {product['variant_name']}"
-        
-#         category = {"id": None, "name": "Uncategorized"}
-#         if product.get("categories") and product["categories"]:
-#             category = product["categories"]
-        
-#         # Format extras
-#         formatted_extras = []
-#         for extra in product["extras"]:
-#             extra_display_name = extra["name"]
-#             if extra.get("variant_name"):
-#                 extra_display_name += f" - {extra['variant_name']}"
-            
-#             formatted_extras.append({
-#                 "id": extra["id"],
-#                 "name": extra_display_name,
-#                 "price": float(extra["price"]),
-#                 "description": extra["description"],
-#                 "image_url": extra["image_url"],
-#                 "available_stock": extra["units"],
-#                 "low_stock_threshold": extra["low_stock_threshold"]
-#             })
-
-#         # Format options
-#         formatted_options = []
-#         for option in product["options"]:
-#             formatted_options.append({
-#                 "id": option["id"],
-#                 "name": option["name"],
-#                 "price_modifier": float(option["price_modifier"])
-#             })
-        
-#         products.append({
-#             "id": product["id"],
-#             "name": display_name,
-#             "price": float(product["price"]),
-#             "description": product["description"],
-#             "image_url": product["image_url"],
-#             "available_stock": product["units"],
-#             "low_stock_threshold": product["low_stock_threshold"],
-#             "has_options": product.get("has_options", False),
-#             "options": formatted_options,
-#             "extras": formatted_extras,
-#             "category": category
-#         })
-    
-#     sorted_data = sorted(products, key=lambda x: (
-#         x.get("category", {}).get("name", ""), 
-#         x.get("name", "")
-#     ))
-    
-#     redis_client.set(cache_key, sorted_data, 300)
-#     return sorted_data
-
 
 
 
@@ -152,10 +44,10 @@ async def get_products_for_website(
     if cached:
         return cached
 
-    # Single optimized query with all joins
+    # Single query with joins
     query = supabase_admin.table("products").select("""
         id, name, variant_name, price, description, image_url, units, 
-        low_stock_threshold, has_options,
+        low_stock_threshold, has_options, category_id,
         categories(id, name),
         product_options(id, name, price_modifier, display_order)
     """).eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
@@ -167,7 +59,6 @@ async def get_products_for_website(
     if max_price:
         query = query.lte("price", max_price)
     
-    # Pagination
     query = query.range(offset, offset + limit - 1)
     products_result = query.execute()
     
@@ -175,23 +66,24 @@ async def get_products_for_website(
         redis_client.set(cache_key, [], 300)
         return []
     
-    # Batch fetch all extras in one query
+    # Batch fetch extras
     product_ids = [p["id"] for p in products_result.data]
     extras_result = supabase_admin.table("products").select(
         "id, name, variant_name, price, description, image_url, units, low_stock_threshold, main_product_id"
     ).in_("main_product_id", product_ids).eq("is_available", True).execute()
     
-    # Map extras by main_product_id
+    # Map extras
     extras_map = {}
     for extra in extras_result.data:
-        if extra["main_product_id"] not in extras_map:
-            extras_map[extra["main_product_id"]] = []
+        main_id = extra["main_product_id"]
+        if main_id not in extras_map:
+            extras_map[main_id] = []
         
         extra_name = extra["name"]
         if extra.get("variant_name"):
             extra_name += f" - {extra['variant_name']}"
         
-        extras_map[extra["main_product_id"]].append({
+        extras_map[main_id].append({
             "id": extra["id"],
             "name": extra_name,
             "price": float(extra["price"]),
@@ -201,7 +93,7 @@ async def get_products_for_website(
             "low_stock_threshold": extra["low_stock_threshold"]
         })
     
-    # Apply search filter
+    # Search filter
     if search:
         search_lower = search.lower()
         products_result.data = [
@@ -219,14 +111,13 @@ async def get_products_for_website(
         
         category = product.get("categories") or {"id": None, "name": "Uncategorized"}
         
-        # Format options (already loaded)
         formatted_options = [
             {
                 "id": opt["id"],
                 "name": opt["name"],
                 "price_modifier": float(opt.get("price_modifier", 0))
             }
-            for opt in sorted(product.get("product_options", []), 
+            for opt in sorted(product.get("product_options") or [], 
                             key=lambda x: (x.get("display_order", 999), x.get("name", "")))
         ]
         
@@ -248,98 +139,6 @@ async def get_products_for_website(
     
     redis_client.set(cache_key, sorted_data, 300)
     return sorted_data
-
-
-
-# @router.get("/products")
-# async def get_products_for_website(
-#     category_id: Optional[str] = None,
-#     search: Optional[str] = None,
-#     min_price: Optional[float] = None,
-#     max_price: Optional[float] = None
-# ):
-#     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-
-#     query = supabase_admin.table("products").select("""
-#         *,
-#         categories(*),
-#         extras:products!main_product_id(*),
-#         product_options(*)
-#     """).eq("is_available", True).eq("product_type", "main")
-
-#     if category_id:
-#         query = query.eq("category_id", category_id)
-#     if min_price:
-#         query = query.gte("price", min_price)
-#     if max_price:
-#         query = query.lte("price", max_price)
-    
-#     products_result = query.execute()
-    
-#     if search:
-#         search_lower = search.lower()
-#         products_result.data = [
-#             p for p in products_result.data 
-#             if search_lower in p["name"].lower() or
-#                (p.get("categories") and search_lower in p["categories"]["name"].lower())
-#         ]
-    
-#     products = []
-#     for product in products_result.data:
-#         display_name = product["name"]
-#         if product.get("variant_name"):
-#             display_name += f" - {product['variant_name']}"
-        
-#         category = product.get("categories") or {"id": None, "name": "Uncategorized"}
-        
-#         formatted_extras = []
-#         for extra in product.get("extras", []):
-#             if not extra.get("is_available"):
-#                 continue
-#             extra_name = extra["name"]
-#             if extra.get("variant_name"):
-#                 extra_name += f" - {extra['variant_name']}"
-#             formatted_extras.append({
-#                 "id": extra["id"],
-#                 "name": extra_name,
-#                 "price": float(extra["price"]),
-#                 "description": extra["description"],
-#                 "image_url": extra["image_url"],
-#                 "available_stock": extra["units"],
-#                 "low_stock_threshold": extra["low_stock_threshold"]
-#             })
-        
-#         formatted_options = []
-#         for opt in sorted(product.get("product_options", []), 
-#                          key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
-#             formatted_options.append({
-#                 "id": opt["id"],
-#                 "name": opt["name"],
-#                 "price_modifier": float(opt.get("price_modifier", 0))
-#             })
-        
-#         products.append({
-#             "id": product["id"],
-#             "name": display_name,
-#             "price": float(product["price"]),
-#             "description": product["description"],
-#             "image_url": product["image_url"],
-#             "available_stock": product["units"],
-#             "low_stock_threshold": product["low_stock_threshold"],
-#             "has_options": product.get("has_options", False),
-#             "options": formatted_options,
-#             "extras": formatted_extras,
-#             "category": category
-#         })
-    
-#     sorted_data = sorted(products, key=lambda x: (x["category"]["name"], x["name"]))
-    
-#     redis_client.set(cache_key, sorted_data, 300)
-#     return sorted_data
-
 
 
 
@@ -638,13 +437,21 @@ async def complete_checkout(
                 "order_id": order_id,
                 "product_id": item["product_id"],
                 "product_name": item["product_name"],
-                "option_id": item.get("option_id"),
                 "quantity": item["quantity"],
                 "unit_price": float(item["unit_price"]),
                 "total_price": float(item["total_price"]),
                 "notes": item.get("notes")
             }
-            supabase_admin.table("order_items").insert(item_data).execute()
+            result = supabase_admin.table("order_items").insert(item_data).execute()
+            order_item_id = result.data[0]["id"]
+            
+            # Insert option if exists
+            if item.get("option_id"):
+                supabase_admin.table("order_item_options").insert({
+                    "id": str(uuid.uuid4()),
+                    "order_item_id": order_item_id,
+                    "option_id": item["option_id"]
+                }).execute()
         
         created_orders.append(created_order.data[0])
     
@@ -850,12 +657,19 @@ async def bypass_payment_create(
                 "order_id": order_id,
                 "product_id": item["product_id"],
                 "product_name": item["product_name"],
-                "option_id": item.get("option_id"),
                 "quantity": item["quantity"],
                 "unit_price": float(item["unit_price"]),
                 "total_price": float(item["total_price"]),
             }
-            supabase_admin.table("order_items").insert(item_data).execute()
+            result = supabase_admin.table("order_items").insert(item_data).execute()
+            order_item_id = result.data[0]["id"]
+            
+            if item.get("option_id"):
+                supabase_admin.table("order_item_options").insert({
+                    "id": str(uuid.uuid4()),
+                    "order_item_id": order_item_id,
+                    "option_id": item["option_id"]
+                }).execute()
 
         created_orders.append(updated_order.data[0])
 
