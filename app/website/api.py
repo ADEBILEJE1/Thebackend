@@ -147,6 +147,7 @@ async def get_products_for_website(
     offset: int = Query(0, ge=0)
 ):
     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{limit}:{offset}"
+    redis_client.delete(cache_key)
     cached = redis_client.get(cache_key)
     if cached:
         return cached
