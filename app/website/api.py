@@ -155,7 +155,7 @@ async def get_products_for_website(
     query = supabase_admin.table("products").select("""
         id, name, variant_name, price, description, image_url, units, 
         low_stock_threshold, has_options, category_id,
-        categories(id, name),
+        category:categories(id, name),
         product_options(id, name, price_modifier, display_order),
         extras:products!main_product_id(id, name, variant_name, price, description, image_url, units, low_stock_threshold)
     """).eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
@@ -183,7 +183,7 @@ async def get_products_for_website(
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
         
-        category = product.get("categories") or {"id": product.get("category_id"), "name": "Uncategorized"}
+        category = product.get("category") or {"id": product.get("category_id"), "name": "Uncategorized"}
         
         formatted_options = [
             {
