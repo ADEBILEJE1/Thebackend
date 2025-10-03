@@ -1114,7 +1114,7 @@ async def confirm_order_payment(
     
     # Update order status
     supabase_admin.table("orders").update({
-        "status": "preparing",
+        "status": "confirmed",
         "payment_status": "paid",
         "preparing_at": datetime.utcnow().isoformat()
     }).eq("id", order_id).execute()
