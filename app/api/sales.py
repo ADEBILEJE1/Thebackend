@@ -1113,7 +1113,7 @@ async def confirm_order_payment(
         raise HTTPException(status_code=404, detail="Pending order not found")
     
     # Update order status
-    supabase.table("orders").update({
+    supabase_admin.table("orders").update({
         "status": "preparing",
         "payment_status": "paid",
         "preparing_at": datetime.utcnow().isoformat()
