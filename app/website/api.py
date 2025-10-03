@@ -129,7 +129,6 @@ async def get_products_for_website(
     offset: int = Query(0, ge=0)
 ):
     cache_key = f"website:products:{category_id}:{search}:{min_price}:{max_price}:{limit}:{offset}"
-    redis_client.delete(cache_key)
     
     cached = redis_client.get(cache_key)
     if cached:
@@ -151,6 +150,7 @@ async def get_products_for_website(
     
     query = query.range(offset, offset + limit - 1)
     products_result = query.execute()
+    print("RAW DATA:", products_result.data[0] if products_result.data else "No data")
     
     if not products_result.data:
         redis_client.set(cache_key, [], 300)
