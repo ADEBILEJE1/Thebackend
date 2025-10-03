@@ -282,15 +282,15 @@ class CartService:
         subtotal = sum(item["total_price"] for item in items)
         
         # Calculate tax based on individual product tax rates
-        total_tax = sum(
+        vat = sum(
             Decimal(str(item["tax_per_unit"])) * item["quantity"] 
             for item in items
         )
         
         return {
             "subtotal": subtotal,
-            "tax": total_tax,  # Changed from "vat" to "tax"
-            "total": subtotal + total_tax
+            "vat": vat,
+            "total": subtotal + vat
         }
     
     @staticmethod
@@ -378,14 +378,18 @@ class AddressService:
         return result.data[0]
     
 class MonnifyService:
-    @property
-    def BASE_URL(self):
+    @staticmethod
+    def get_base_url() -> str:
+        """Get base URL based on environment"""
         return settings.MONNIFY_BASE_URL
     
     @staticmethod
     async def get_access_token() -> str:
         """Get Monnify access token"""
-        from ..config import settings
+        # Cache token to avoid repeated requests
+        cached_token = redis_client.get("monnify:access_token")
+        if cached_token:
+            return cached_token
         
         # Encode API key and secret
         credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
@@ -396,15 +400,21 @@ class MonnifyService:
             "Content-Type": "application/json"
         }
         
-        response = requests.post(
-            f"{MonnifyService.BASE_URL}/api/v1/auth/login",
-            headers=headers
-        )
-        
-        if response.status_code == 200:
-            return response.json()["responseBody"]["accessToken"]
-        else:
-            raise Exception("Failed to get Monnify access token")
+        try:
+            response = requests.post(
+                f"{MonnifyService.get_base_url()}/api/v1/auth/login",
+                headers=headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            token = response.json()["responseBody"]["accessToken"]
+            # Cache token for 50 minutes (expires in 60)
+            redis_client.set("monnify:access_token", token, 3000)
+            return token
+            
+        except requests.RequestException as e:
+            raise Exception(f"Failed to get Monnify access token: {str(e)}")
     
     @staticmethod
     async def create_virtual_account(
@@ -414,8 +424,6 @@ class MonnifyService:
         customer_name: str
     ) -> Dict[str, Any]:
         """Create one-time virtual account"""
-        from ..config import settings
-        
         access_token = await MonnifyService.get_access_token()
         
         headers = {
@@ -434,17 +442,17 @@ class MonnifyService:
             "incomeSplitConfig": []
         }
         
-        response = requests.post(
-            f"{MonnifyService.BASE_URL}/api/v1/merchant/transactions/init-transaction",
-            headers=headers,
-            json=payload
-        )
-        
-        if response.status_code == 200:
-            data = response.json()["responseBody"]
+        try:
+            response = requests.post(
+                f"{MonnifyService.get_base_url()}/api/v1/merchant/transactions/init-transaction",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            response.raise_for_status()
             
-            # Extract account details
-            account_details = data["accountDetails"][0]  # First account
+            data = response.json()["responseBody"]
+            account_details = data["accountDetails"][0]
             
             return {
                 "payment_reference": payment_reference,
@@ -452,10 +460,11 @@ class MonnifyService:
                 "account_name": account_details["accountName"],
                 "bank_name": account_details["bankName"],
                 "amount": amount,
-                "expires_at": datetime.utcnow() + timedelta(hours=1)  # 1 hour expiry
+                "expires_at": datetime.utcnow() + timedelta(hours=1)
             }
-        else:
-            raise Exception(f"Failed to create virtual account: {response.text}")
+            
+        except requests.RequestException as e:
+            raise Exception(f"Failed to create virtual account: {str(e)}")
     
     @staticmethod
     async def verify_payment(payment_reference: str) -> Dict[str, Any]:
@@ -467,12 +476,15 @@ class MonnifyService:
             "Content-Type": "application/json"
         }
         
-        response = requests.get(
-            f"{MonnifyService.BASE_URL}/api/v2/transactions/{payment_reference}",
-            headers=headers
-        )
-        
-        if response.status_code == 200:
+        try:
+            response = requests.get(
+                f"{MonnifyService.get_base_url()}/api/v2/transactions/{payment_reference}",
+                headers=headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            
             return response.json()["responseBody"]
-        else:
-            raise Exception(f"Failed to verify payment: {response.text}")
+            
+        except requests.RequestException as e:
+            raise Exception(f"Failed to verify payment: {str(e)}")
