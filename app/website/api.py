@@ -48,7 +48,7 @@ async def get_products_for_website(
     query = supabase_admin.table("products").select("""
         id, name, variant_name, price, description, image_url, units, 
         low_stock_threshold, has_options, category_id,
-        categories(id, name),
+        categories!products_category_id_fkey(id, name),
         product_options(id, name, price_modifier, display_order)
     """).eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
 
