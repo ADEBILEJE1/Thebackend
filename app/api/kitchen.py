@@ -167,7 +167,7 @@ async def deduct_stock(items: List[dict]):
 async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
     """Get orders grouped by batches"""
     # First get orders
-    result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at", desc=True).execute()
+    result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
     
     # Group by batch_id
     batches = {}
