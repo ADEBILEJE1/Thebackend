@@ -284,7 +284,7 @@ async def validate_cart(items: List[CartItem]):
             "items": processed_items,
             "totals": {
                 "subtotal": float(totals["subtotal"]),
-                "vat": float(totals["vat"]),
+                "vat": total_tax,
                 "total": float(totals["total"])
             }
         }
