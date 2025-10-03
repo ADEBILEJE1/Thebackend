@@ -76,7 +76,7 @@ router = APIRouter(prefix="/website", tags=["Website"])
 #             {
 #                 "id": opt["id"],
 #                 "name": opt["name"],
-#                 "price_modifier": float(opt.get("price_modifier", 0))
+#                 
 #             }
 #             for opt in sorted(product.get("product_options") or [], 
 #                             key=lambda x: (x.get("display_order", 999), x.get("name", "")))
@@ -135,7 +135,7 @@ async def get_products_for_website(
         return cached
 
     query = supabase_admin.table("products").select(
-        "id, name, variant_name, price, description, image_url, units, low_stock_threshold, has_options, category_id, categories(id, name), product_options(id, name, price_modifier, display_order)"
+        "id, name, variant_name, price, description, image_url, units, low_stock_threshold, has_options, category_id, categories(id, name), product_options(id, name, display_order)"
     ).eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
 
     if category_id:
@@ -200,7 +200,7 @@ async def get_products_for_website(
             {
                 "id": opt["id"],
                 "name": opt["name"],
-                "price_modifier": float(opt.get("price_modifier", 0))
+                
             }
             for opt in sorted(product.get("product_options") or [], 
                             key=lambda x: (x.get("display_order", 999), x.get("name", "")))
