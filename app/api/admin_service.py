@@ -1276,7 +1276,7 @@ class AdminService:
         # Usage and purchase breakdown
         total_purchases = sum(t["quantity"] for t in transactions.data if t["transaction_type"] == "purchase")
         total_usage = sum(t["quantity"] for t in transactions.data if t["transaction_type"] == "usage")
-        total_cost = sum(float(t.get("cost", 0)) for t in transactions.data if t["transaction_type"] == "purchase")
+        total_cost = sum(float(t.get("cost") or 0) for t in transactions.data if t["transaction_type"] == "purchase")
         
         # Material breakdown
         material_breakdown = []
