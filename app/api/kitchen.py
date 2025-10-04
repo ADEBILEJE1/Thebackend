@@ -163,35 +163,104 @@ async def deduct_stock(items: List[dict]):
 
 
 
+# @router.get("/queue/kitchen-batches")
+# async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
+#     """Get orders grouped by batches"""
+#     # First get orders
+#     result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+    
+#     # Group by batch_id
+#     batches = {}
+#     for order in result.data:
+#         batch_id = order["batch_id"]
+        
+#         # Get order items
+#         items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
+#         order["order_items"] = items_result.data
+
+#         # Get options for each item BEFORE adding to batch
+#         for item in order["order_items"]:
+#             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+#             item["options"] = options_result.data
+        
+#         # Get customer info if website order
+#         if order.get("website_customer_id"):
+#             customer_result = supabase_admin.table("website_customers").select("full_name, email, phone").eq("id", order["website_customer_id"]).execute()
+#             order["website_customers"] = customer_result.data[0] if customer_result.data else None
+        
+#         # Get address info if exists
+#         if order.get("delivery_address_id"):
+#             address_result = supabase_admin.table("customer_addresses").select("full_address, delivery_areas(name, estimated_time)").eq("id", order["delivery_address_id"]).execute()
+#             order["customer_addresses"] = address_result.data[0] if address_result.data else None
+        
+#         if batch_id not in batches:
+#             batches[batch_id] = {
+#                 "batch_id": batch_id,
+#                 "customer_name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
+#                 "order_placement_type": order.get("order_placement_type"),
+#                 "display_number": order.get("display_number"),
+#                 "orders": [],
+#                 "total_items": 0,
+#                 "preparing_at": order.get("preparing_at"),
+#                 "customer_info": {
+#                     "name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
+#                     "phone": order.get("customer_phone") or (order.get("website_customers", {}) or {}).get("phone"),
+#                     "email": order.get("customer_email") or (order.get("website_customers", {}) or {}).get("email")
+#                 },
+#                 "delivery_info": order.get("customer_addresses")
+#             }
+        
+#         batches[batch_id]["orders"].append(order)
+#         batches[batch_id]["total_items"] += len(order["order_items"])
+    
+#     return {"batches": list(batches.values())}
+
+
+
+
 @router.get("/queue/kitchen-batches")
 async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staff)):
-    """Get orders grouped by batches"""
-    # First get orders
-    result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+    """Get orders grouped by batches - optimized"""
+    
+    # Single query to get all orders with related data
+    result = supabase_admin.table("orders").select("""
+        *,
+        order_items(*),
+        website_customers(full_name, email, phone),
+        customer_addresses(full_address, delivery_areas(name, estimated_time))
+    """).in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+    
+    if not result.data:
+        return {"batches": []}
+    
+    # Collect all order_item IDs
+    all_item_ids = []
+    for order in result.data:
+        for item in order.get("order_items", []):
+            all_item_ids.append(item["id"])
+    
+    # Batch fetch all options at once
+    options_map = {}
+    if all_item_ids:
+        options_result = supabase_admin.table("order_item_options").select(
+            "*, product_options(*)"
+        ).in_("order_item_id", all_item_ids).execute()
+        
+        for opt in options_result.data:
+            item_id = opt["order_item_id"]
+            if item_id not in options_map:
+                options_map[item_id] = []
+            options_map[item_id].append(opt)
+    
+    # Attach options to items
+    for order in result.data:
+        for item in order.get("order_items", []):
+            item["options"] = options_map.get(item["id"], [])
     
     # Group by batch_id
     batches = {}
     for order in result.data:
         batch_id = order["batch_id"]
-        
-        # Get order items
-        items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
-        order["order_items"] = items_result.data
-
-        # Get options for each item BEFORE adding to batch
-        for item in order["order_items"]:
-            options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
-            item["options"] = options_result.data
-        
-        # Get customer info if website order
-        if order.get("website_customer_id"):
-            customer_result = supabase_admin.table("website_customers").select("full_name, email, phone").eq("id", order["website_customer_id"]).execute()
-            order["website_customers"] = customer_result.data[0] if customer_result.data else None
-        
-        # Get address info if exists
-        if order.get("delivery_address_id"):
-            address_result = supabase_admin.table("customer_addresses").select("full_address, delivery_areas(name, estimated_time)").eq("id", order["delivery_address_id"]).execute()
-            order["customer_addresses"] = address_result.data[0] if address_result.data else None
         
         if batch_id not in batches:
             batches[batch_id] = {
@@ -211,11 +280,9 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
             }
         
         batches[batch_id]["orders"].append(order)
-        batches[batch_id]["total_items"] += len(order["order_items"])
+        batches[batch_id]["total_items"] += len(order.get("order_items", []))
     
     return {"batches": list(batches.values())}
-
-
 
 
 
