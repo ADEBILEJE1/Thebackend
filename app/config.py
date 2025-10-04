@@ -19,10 +19,10 @@ class Settings(BaseSettings):
     MONNIFY_API_KEY: str
     MONNIFY_SECRET_KEY: str
     MONNIFY_CONTRACT_CODE: str
-    MONNIFY_BASE_URL: str = "https://sandbox-api.monnify.com"
+    MONNIFY_BASE_URL: str = "https://sandbox.monnify.com"
     
     # Add this line:
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour default
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  
     
     class Config:
         env_file = ".env"

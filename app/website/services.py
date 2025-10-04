@@ -3,6 +3,8 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import re
 import uuid
+import httpx
+from uuid import uuid4
 import random
 import string
 import math
@@ -205,7 +207,6 @@ class CartService:
         main_products_in_cart = set()
         extra_products_in_cart = []
         
-        # First pass: identify main products and collect extras
         for item in items:
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             
@@ -223,7 +224,6 @@ class CartService:
                     "main_product_id": product_data["main_product_id"]
                 })
         
-        # Validate extras have corresponding main products
         for extra_info in extra_products_in_cart:
             main_product_id = extra_info["main_product_id"]
             if main_product_id not in main_products_in_cart:
@@ -231,7 +231,6 @@ class CartService:
                 main_name = main_product.data[0]["name"] if main_product.data else "Unknown"
                 raise ValueError(f"Cannot add extra '{extra_info['product_data']['name']}' without adding main product '{main_name}' to cart")
         
-        # Second pass: process all items
         for item in items:
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             product_data = product.data[0]
@@ -242,28 +241,24 @@ class CartService:
             if product_data["units"] < item["quantity"]:
                 raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
             
-            # Handle options validation
-            option_data = None
-            if product_data.get("has_options"):
-                if not item.get("option_id"):
-                    raise ValueError(f"{product_data['name']} requires option selection")
-                
-                option = supabase.table("product_options").select("*").eq("id", item["option_id"]).eq("product_id", item["product_id"]).execute()
-                if not option.data:
-                    raise ValueError(f"Invalid option for {product_data['name']}")
-                
-                option_data = option.data[0]
-                final_price = Decimal(str(product_data["price"])) 
-            else:
-                if item.get("option_id"):
-                    raise ValueError(f"{product_data['name']} does not support options")
-                final_price = Decimal(str(product_data["price"]))
+            # Handle option_ids (array) instead of option_id
+            option_ids = item.get("option_ids", [])
+            if product_data.get("has_options") and not option_ids:
+                raise ValueError(f"{product_data['name']} requires option selection")
+            
+            # Validate all provided options
+            if option_ids:
+                for option_id in option_ids:
+                    option = supabase.table("product_options").select("*").eq("id", option_id).eq("product_id", item["product_id"]).execute()
+                    if not option.data:
+                        raise ValueError(f"Invalid option for {product_data['name']}")
+            
+            final_price = Decimal(str(product_data["price"]))
             
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
-                "option_id": item.get("option_id"),
-                "option_name": option_data["name"] if option_data else None,
+                "option_ids": option_ids,  
                 "quantity": item["quantity"],
                 "unit_price": final_price,
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
@@ -289,7 +284,7 @@ class CartService:
         
         return {
             "subtotal": subtotal,
-            "vat": vat,
+            "tax": vat,
             "total": subtotal + vat
         }
     
@@ -385,86 +380,85 @@ class MonnifyService:
     
     @staticmethod
     async def get_access_token() -> str:
-        """Get Monnify access token"""
-        # Cache token to avoid repeated requests
-        cached_token = redis_client.get("monnify:access_token")
-        if cached_token:
-            return cached_token
-        
-        # Encode API key and secret
+        """Fetch access token from Monnify"""
         credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
-        
+
         headers = {
             "Authorization": f"Basic {encoded_credentials}",
             "Content-Type": "application/json"
         }
-        
-        try:
-            response = requests.post(
-                f"{MonnifyService.get_base_url()}/api/v1/auth/login",
-                headers=headers,
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            token = response.json()["responseBody"]["accessToken"]
-            # Cache token for 50 minutes (expires in 60)
-            redis_client.set("monnify:access_token", token, 3000)
-            return token
-            
-        except requests.RequestException as e:
-            raise Exception(f"Failed to get Monnify access token: {str(e)}")
+
+        url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
+        response = requests.post(url, headers=headers, timeout=30)
+        response.raise_for_status()
+
+        data = response.json()
+        print(f"DEBUG Access Token Response: {data}")
+
+        return data["responseBody"]["accessToken"]
     
     @staticmethod
     async def create_virtual_account(
-        payment_reference: str,
         amount: Decimal,
         customer_email: str,
-        customer_name: str
+        customer_name: str,
+        customer_phone: str
     ) -> Dict[str, Any]:
-        """Create one-time virtual account"""
+        """Create reserved account for bank transfer"""
         access_token = await MonnifyService.get_access_token()
         
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
-        
+
+        payment_reference = f"ORDER-{uuid4().hex[:12]}"
+
+        # payload = {
+        #     "accountReference": payment_reference,
+        #     "accountName": customer_name,
+        #     "currencyCode": "NGN",
+        #     "contractCode": settings.MONNIFY_CONTRACT_CODE,
+        #     "customerEmail": customer_email,
+        #     "customerName": customer_name,
+        #     "getAllAvailableBanks": True
+        # }
+
         payload = {
-            "transactionReference": payment_reference,
-            "amount": float(amount),
+            "accountReference": payment_reference,
+            "accountName": customer_name,
+            "currencyCode": "NGN",
+            "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": customer_email,
             "customerName": customer_name,
-            "contractCode": settings.MONNIFY_CONTRACT_CODE,
-            "currencyCode": "NGN",
-            "paymentMethods": ["ACCOUNT_TRANSFER"],
-            "incomeSplitConfig": []
+            "preferredBanks": ["232"], # Moniepoint bank code
+            "getAllAvailableBanks": False  
         }
-        
-        try:
-            response = requests.post(
-                f"{MonnifyService.get_base_url()}/api/v1/merchant/transactions/init-transaction",
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts",
                 headers=headers,
                 json=payload,
                 timeout=30
             )
-            response.raise_for_status()
-            
-            data = response.json()["responseBody"]
-            account_details = data["accountDetails"][0]
-            
-            return {
-                "payment_reference": payment_reference,
-                "account_number": account_details["accountNumber"],
-                "account_name": account_details["accountName"],
-                "bank_name": account_details["bankName"],
-                "amount": amount,
-                "expires_at": datetime.utcnow() + timedelta(hours=1)
-            }
-            
-        except requests.RequestException as e:
-            raise Exception(f"Failed to create virtual account: {str(e)}")
+
+        print(f"Monnify Response Status: {response.status_code}")
+        print(f"Monnify Response Body: {response.text}")
+        response.raise_for_status()
+
+        data = response.json()["responseBody"]
+        account = data["accounts"][0]
+
+        return {
+            "payment_reference": data["accountReference"],
+            "account_number": account["accountNumber"],
+            "account_name": account["accountName"],
+            "bank_name": account["bankName"],
+            "amount": amount,
+            "expires_at": datetime.utcnow() + timedelta(hours=1)
+        }
     
     @staticmethod
     async def verify_payment(payment_reference: str) -> Dict[str, Any]:

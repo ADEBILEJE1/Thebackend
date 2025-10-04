@@ -69,12 +69,22 @@ class CheckoutSummary(BaseModel):
     total_delivery: Decimal
     grand_total: Decimal
 
+# class PaymentRequest(BaseModel):
+#     orders: List[WebsiteOrder]
+#     total_amount: Decimal
+#     customer_email: str
+#     customer_name: str
+#     customer_phone: str
+
 class PaymentRequest(BaseModel):
     orders: List[WebsiteOrder]
-    total_amount: Decimal
+    total_amount: Decimal 
     customer_email: str
-    customer_name: str
-    customer_phone: str
+    customer_name: str 
+    customer_phone: str 
+
+    class Config:
+        populate_by_name = True
 
 class VirtualAccountResponse(BaseModel):
     account_number: str
