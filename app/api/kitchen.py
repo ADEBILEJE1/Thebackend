@@ -178,7 +178,7 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
         items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
         order["order_items"] = items_result.data
 
-        # Get options for each item
+        # Get options for each item BEFORE adding to batch
         for item in order["order_items"]:
             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
             item["options"] = options_result.data

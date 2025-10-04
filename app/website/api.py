@@ -390,7 +390,8 @@ async def complete_checkout(
                 "quantity": item["quantity"],
                 "unit_price": float(item["unit_price"]),
                 "total_price": float(item["total_price"]),
-                "notes": item.get("notes")
+                "notes": item.get("notes"),
+                "is_extra": item.get("is_extra", False)
             }
             result = supabase_admin.table("order_items").insert(item_data).execute()
             order_item_id = result.data[0]["id"]
@@ -505,7 +506,8 @@ async def verify_payment(payment_reference: str):
                         "quantity": item["quantity"],
                         "unit_price": float(item["unit_price"]),
                         "total_price": float(item["total_price"]),
-                        "notes": item.get("notes")
+                        "notes": item.get("notes"),
+                        "is_extra": item.get("is_extra", False)
                     }
                     result = supabase_admin.table("order_items").insert(item_data).execute()
                     order_item_id = result.data[0]["id"]
@@ -620,7 +622,8 @@ async def bypass_payment_create(
                 "quantity": item["quantity"],
                 "unit_price": float(item["unit_price"]),
                 "total_price": float(item["total_price"]),
-                "notes": item.get("notes")
+                "notes": item.get("notes"),
+                "is_extra": item.get("is_extra", False)
             }
             result = supabase_admin.table("order_items").insert(item_data).execute()
             order_item_id = result.data[0]["id"]

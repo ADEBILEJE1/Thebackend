@@ -264,7 +264,8 @@ class CartService:
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
                 "total_price": final_price * item["quantity"],
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
-                "notes": item.get("notes")
+                "notes": item.get("notes"),
+                "is_extra": product_data.get("product_type") == "extra"
             })
         
         return processed_items

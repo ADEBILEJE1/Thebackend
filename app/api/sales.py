@@ -834,9 +834,14 @@ async def push_order_to_kitchen(
 ):
     """Push confirmed online order to kitchen"""
     order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "confirmed").execute()
-    
+
     if not order.data:
         raise HTTPException(status_code=404, detail="Order not found or already processed")
+
+    # Fetch options for each item
+    for item in order.data[0]["order_items"]:
+        options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+        item["options"] = options_result.data
     
     supabase_admin.table("orders").update({
         "status": "preparing",
@@ -1020,8 +1025,16 @@ async def create_offline_order(
             "issues": stock_validation["issues"]
         })
     
+    # processed_items = await SalesService.validate_sales_cart_items(order_data.items)
+    # totals = CartService.calculate_order_total(processed_items)
+
     processed_items = await SalesService.validate_sales_cart_items(order_data.items)
-    totals = CartService.calculate_order_total(processed_items)
+
+    subtotal = sum(item["total_price"] for item in processed_items)
+    tax = sum(Decimal(str(item.get("tax_per_unit", 0))) * item["quantity"] for item in processed_items)
+    total = subtotal + tax
+
+    totals = {"subtotal": subtotal, "tax": tax, "total": total}
     
     total_prep_time = sum(
         item["preparation_time_minutes"] * item["quantity"] 
@@ -1066,7 +1079,8 @@ async def create_offline_order(
             "tax_per_unit": float(item["tax_per_unit"]),
             "total_price": float(item["total_price"]),
             "preparation_time_minutes": item["preparation_time_minutes"],
-            "notes": item.get("notes")
+            "notes": item.get("notes"),
+            "is_extra": item.get("is_extra", False)
         }
         result = supabase_admin.table("order_items").insert(item_data).execute()
         order_item_id = result.data[0]["id"]
@@ -1368,6 +1382,12 @@ async def get_batch_details(
     
     if not orders.data:
         raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Fetch options
+    for order in orders.data:
+        for item in order["order_items"]:
+            options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+            item["options"] = options_result.data
     
     # Extract comprehensive customer and delivery info
     first_order = orders.data[0]
@@ -1406,10 +1426,16 @@ async def push_batch_to_kitchen(
 ):
     """Push entire batch to kitchen"""
     orders = supabase_admin.table("orders").select("*, order_items(*)").eq("batch_id", batch_id).eq("status", "confirmed").execute()
-    
+
     if not orders.data:
         raise HTTPException(status_code=404, detail="No confirmed orders found for this batch")
-    
+
+    # Fetch options for all items in all orders
+    for order in orders.data:
+        for item in order["order_items"]:
+            options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+            item["options"] = options_result.data
+
     order_ids = [o["id"] for o in orders.data]
     
     # Update all orders to preparing

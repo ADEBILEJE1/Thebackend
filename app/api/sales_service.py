@@ -886,7 +886,8 @@ class SalesService:
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
                 "total_price": Decimal(str(product_data["price"])) * item["quantity"],
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
-                "notes": item.get("notes")
+                "notes": item.get("notes"),
+                "is_extra": False
             })
             
             if "extras" in item and item["extras"]:
@@ -907,7 +908,8 @@ class SalesService:
                         "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
                         "total_price": extra_price * extra["quantity"],
                         "preparation_time_minutes": extra_data.get("preparation_time_minutes", 15),
-                        "notes": extra.get("notes")
+                        "notes": extra.get("notes"),
+                        "is_extra": True
                     })
         
         return processed_items
