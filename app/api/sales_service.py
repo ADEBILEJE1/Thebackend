@@ -870,26 +870,42 @@ class SalesService:
             if not product_data["is_available"] or product_data["status"] == "out_of_stock":
                 raise ValueError(f"{product_data['name']} is not available")
             
-            if product_data["units"] < item["quantity"]:
+            # NEW: Support options array
+            options = item.get("options", [])
+            
+            if product_data.get("has_options") and not options:
+                raise ValueError(f"{product_data['name']} requires option selection")
+            
+            # Calculate total quantity from options or use item quantity
+            if options:
+                total_quantity = sum(opt["quantity"] for opt in options)
+            else:
+                total_quantity = item.get("quantity", 1)
+            
+            if product_data["units"] < total_quantity:
                 raise ValueError(f"Insufficient stock for {product_data['name']}")
             
-            option_ids = item.get("option_ids", [])
-            if product_data.get("has_options") and not option_ids:
-                raise ValueError(f"{product_data['name']} requires option selection")
+            # Validate options
+            if options:
+                for opt in options:
+                    option = supabase.table("product_options").select("*").eq("id", opt["option_id"]).eq("product_id", item["product_id"]).execute()
+                    if not option.data:
+                        raise ValueError(f"Invalid option for {product_data['name']}")
             
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
-                "option_ids": option_ids,
-                "quantity": item["quantity"],
+                "options": options,
+                "quantity": total_quantity,
                 "unit_price": Decimal(str(product_data["price"])),
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
-                "total_price": Decimal(str(product_data["price"])) * item["quantity"],
+                "total_price": Decimal(str(product_data["price"])) * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes"),
                 "is_extra": False
             })
             
+            # Handle extras
             if "extras" in item and item["extras"]:
                 for extra in item["extras"]:
                     extra_product = supabase.table("products").select("*").eq("id", extra["id"]).execute()
@@ -902,7 +918,7 @@ class SalesService:
                     processed_items.append({
                         "product_id": extra["id"],
                         "product_name": extra_data["name"],
-                        "option_ids": option_ids,
+                        "options": [],
                         "quantity": extra["quantity"],
                         "unit_price": extra_price,
                         "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),

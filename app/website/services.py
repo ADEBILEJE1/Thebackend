@@ -204,10 +204,9 @@ class CartService:
     @staticmethod
     async def validate_cart_items(items: List[Dict]) -> List[Dict]:
         processed_items = []
-        main_products_in_cart = set()
-        extra_products_in_cart = []
         
         for item in items:
+            # Validate main product
             product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
             
             if not product.data:
@@ -215,36 +214,16 @@ class CartService:
             
             product_data = product.data[0]
             
-            if product_data["product_type"] == "main":
-                main_products_in_cart.add(item["product_id"])
-            elif product_data["product_type"] == "extra":
-                extra_products_in_cart.append({
-                    "item": item,
-                    "product_data": product_data,
-                    "main_product_id": product_data["main_product_id"]
-                })
-        
-        for extra_info in extra_products_in_cart:
-            main_product_id = extra_info["main_product_id"]
-            if main_product_id not in main_products_in_cart:
-                main_product = supabase.table("products").select("name").eq("id", main_product_id).execute()
-                main_name = main_product.data[0]["name"] if main_product.data else "Unknown"
-                raise ValueError(f"Cannot add extra '{extra_info['product_data']['name']}' without adding main product '{main_name}' to cart")
-        
-        for item in items:
-            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
-            product_data = product.data[0]
-            
             if not product_data["is_available"] or product_data["status"] == "out_of_stock":
                 raise ValueError(f"{product_data['name']} is not available")
             
-            # Handle new options structure: [{option_id: str, quantity: int}]
+            # Handle options with quantities
             options = item.get("options", [])
             
             if product_data.get("has_options") and not options:
                 raise ValueError(f"{product_data['name']} requires option selection")
             
-            # Calculate total quantity from all options or use item quantity
+            # Calculate total quantity
             if options:
                 total_quantity = sum(opt["quantity"] for opt in options)
             else:
@@ -253,7 +232,7 @@ class CartService:
             if product_data["units"] < total_quantity:
                 raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
             
-            # Validate all options
+            # Validate options
             if options:
                 for opt in options:
                     option = supabase.table("product_options").select("*").eq("id", opt["option_id"]).eq("product_id", item["product_id"]).execute()
@@ -262,18 +241,58 @@ class CartService:
             
             final_price = Decimal(str(product_data["price"]))
             
+            # Add main product
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
-                "options": options,  # Store options with quantities
+                "options": options,
                 "quantity": total_quantity,
                 "unit_price": final_price,
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
                 "total_price": final_price * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes"),
-                "is_extra": product_data.get("product_type") == "extra"
+                "is_extra": False
             })
+            
+            # Validate and add extras
+            extras = item.get("extras", [])
+            for extra in extras:
+                extra_product = supabase.table("products").select("*").eq("id", extra["id"]).execute()
+                
+                if not extra_product.data:
+                    raise ValueError(f"Extra product {extra['id']} not found")
+                
+                extra_data = extra_product.data[0]
+                
+                if extra_data["product_type"] != "extra":
+                    raise ValueError(f"{extra_data['name']} is not an extra")
+                
+                if extra_data["main_product_id"] != item["product_id"]:
+                    raise ValueError(f"{extra_data['name']} is not valid for {product_data['name']}")
+                
+                if not extra_data["is_available"] or extra_data["status"] == "out_of_stock":
+                    raise ValueError(f"Extra {extra_data['name']} is not available")
+                
+                extra_quantity = extra.get("quantity", 1)
+                
+                if extra_data["units"] < extra_quantity:
+                    raise ValueError(f"Insufficient stock for {extra_data['name']}. Available: {extra_data['units']}")
+                
+                extra_price = Decimal(str(extra_data["price"]))
+                
+                processed_items.append({
+                    "product_id": extra["id"],
+                    "product_name": extra_data["name"],
+                    "options": [],
+                    "quantity": extra_quantity,
+                    "unit_price": extra_price,
+                    "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
+                    "total_price": extra_price * extra_quantity,
+                    "preparation_time_minutes": extra_data.get("preparation_time_minutes", 15),
+                    "notes": extra.get("notes"),
+                    "is_extra": True
+                })
         
         return processed_items
 
