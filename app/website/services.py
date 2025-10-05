@@ -238,18 +238,25 @@ class CartService:
             if not product_data["is_available"] or product_data["status"] == "out_of_stock":
                 raise ValueError(f"{product_data['name']} is not available")
             
-            if product_data["units"] < item["quantity"]:
-                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
+            # Handle new options structure: [{option_id: str, quantity: int}]
+            options = item.get("options", [])
             
-            # Handle option_ids (array) instead of option_id
-            option_ids = item.get("option_ids", [])
-            if product_data.get("has_options") and not option_ids:
+            if product_data.get("has_options") and not options:
                 raise ValueError(f"{product_data['name']} requires option selection")
             
-            # Validate all provided options
-            if option_ids:
-                for option_id in option_ids:
-                    option = supabase.table("product_options").select("*").eq("id", option_id).eq("product_id", item["product_id"]).execute()
+            # Calculate total quantity from all options or use item quantity
+            if options:
+                total_quantity = sum(opt["quantity"] for opt in options)
+            else:
+                total_quantity = item.get("quantity", 1)
+            
+            if product_data["units"] < total_quantity:
+                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {product_data['units']}")
+            
+            # Validate all options
+            if options:
+                for opt in options:
+                    option = supabase.table("product_options").select("*").eq("id", opt["option_id"]).eq("product_id", item["product_id"]).execute()
                     if not option.data:
                         raise ValueError(f"Invalid option for {product_data['name']}")
             
@@ -258,11 +265,11 @@ class CartService:
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
-                "option_ids": option_ids,  
-                "quantity": item["quantity"],
+                "options": options,  # Store options with quantities
+                "quantity": total_quantity,
                 "unit_price": final_price,
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
-                "total_price": final_price * item["quantity"],
+                "total_price": final_price * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes"),
                 "is_extra": product_data.get("product_type") == "extra"
