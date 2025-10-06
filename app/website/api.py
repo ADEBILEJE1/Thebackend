@@ -289,7 +289,7 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
         totals = CartService.calculate_order_total(processed_items)
         
         total_subtotal += totals["subtotal"]
-        total_vat += totals["vat"]
+        total_vat += totals["tax"]
         
         # Get address with area details
         address_result = supabase_admin.table("customer_addresses").select("full_address, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
