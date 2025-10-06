@@ -28,11 +28,6 @@ class AddressUpdate(BaseModel):
     street_address: Optional[str] = None
     is_default: Optional[bool] = None
 
-class CartItem(BaseModel):
-    product_id: str
-    quantity: int = Field(gt=0)
-    option_id: Optional[str] = None
-    notes: Optional[str] = None
 
 class WebsiteOrder(BaseModel):
     items: List[CartItem]
