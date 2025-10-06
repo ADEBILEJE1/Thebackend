@@ -116,3 +116,18 @@ class AddressUpdate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     is_default: Optional[bool] = None
+
+class ProductOption(BaseModel):
+    option_id: str
+    quantity: int = Field(gt=0)
+
+class ExtraItem(BaseModel):
+    id: str
+    quantity: int = Field(gt=0, default=1)
+
+class CartItem(BaseModel):
+    product_id: str
+    quantity: Optional[int] = None
+    options: Optional[List[ProductOption]] = []
+    extras: Optional[List[ExtraItem]] = []
+    notes: Optional[str] = None
