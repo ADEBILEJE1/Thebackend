@@ -41,9 +41,12 @@ class WebsiteOrder(BaseModel):
 
 class CheckoutRequest(BaseModel):
     orders: List[WebsiteOrder]
+    customer_email: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    total_amount: Optional[float] = None
     customer_details: Optional[CustomerCreate] = None
     new_address: Optional[AddressCreate] = None
-
 class DeliveryCalculation(BaseModel):
     distance_km: float
     fee: Decimal
