@@ -476,6 +476,9 @@ async def verify_payment(payment_reference: str):
                 totals = CartService.calculate_order_total(processed_items)
                 all_items.extend(processed_items)
 
+                for item in processed_items:
+                    item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
+                    
                 # Get delivery fee from address area
                 address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
                 delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
