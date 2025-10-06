@@ -292,7 +292,7 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
         total_vat += totals["tax"]
         
         # Get address with area details
-        address_result = supabase_admin.table("customer_addresses").select("full_address, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
+        address_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
         
         if not address_result.data:
             raise HTTPException(status_code=404, detail=f"Address not found for order {idx + 1}")
