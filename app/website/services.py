@@ -560,12 +560,15 @@ class MonnifyService:
                 headers=headers,
                 timeout=30
             )
-            response.raise_for_status()
             
+            if response.status_code == 404:
+                return {"paymentStatus": "PENDING"}
+            
+            response.raise_for_status()
             return response.json()["responseBody"]
             
-        except requests.RequestException as e:
-            raise Exception(f"Failed to verify payment: {str(e)}")
+        except requests.RequestException:
+            return {"paymentStatus": "PENDING"}
         
 
     @staticmethod

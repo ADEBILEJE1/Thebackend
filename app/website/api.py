@@ -511,7 +511,10 @@ async def create_payment_account(
         
         redis_client.set(f"payment:{account_data['account_reference']}", payment_session, 3600)
         
-        return account_data
+        return {
+            **account_data,  
+            "payment_reference": payment_reference
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
