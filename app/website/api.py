@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 from decimal import Decimal
 import json
 import uuid
+import requests
 from uuid import uuid4
 from pydantic import BaseModel
 from datetime import datetime
@@ -1080,3 +1081,14 @@ async def set_default_address(
         raise HTTPException(status_code=404, detail=str(e))
     
 
+@router.get("/payment/check-transactions/{account_reference}")
+async def check_transactions(account_reference: str):
+    access_token = await MonnifyService.get_access_token()
+    
+    response = requests.get(
+        f"{settings.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts/{account_reference}/transactions",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=30
+    )
+    
+    return response.json()
