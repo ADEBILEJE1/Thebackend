@@ -10,7 +10,7 @@ from .database import supabase, supabase_admin
 from .core.permissions import get_current_user
 from .website.api import router as website_router
 
-app = FastAPI(title="Restaurant Management API")
+app = FastAPI(title="Leban Street API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,7 +33,7 @@ async def add_process_time_header(request: Request, call_next):
 
 @app.get("/")
 async def root():
-    return {"message": "Hello, FastAPI with Redis is working!"}
+    return {"message": "Of course its working fine!"}
 
 @app.on_event("startup")
 async def startup_event():

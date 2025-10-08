@@ -589,7 +589,7 @@ async def get_all_users(
     request: Request,
     role: Optional[UserRole] = None,
     is_active: Optional[bool] = None,
-    current_user: dict = Depends(require_manager_up)
+    current_user: dict = Depends(require_super_admin)
 ):
     query = supabase.table("profiles").select("*, invitations!invited_by(invited_by)")
     
@@ -617,7 +617,7 @@ async def update_user_status(
     is_active: bool,
     reason: Optional[str] = None,
     request: Request = None,
-    current_user: dict = Depends(require_manager_up)
+    current_user: dict = Depends(require_super_admin)
 ):
     target_user = supabase.table("profiles").select("*").eq("id", user_id).execute()
     if not target_user.data:
@@ -697,7 +697,7 @@ async def get_team_performance(
     request: Request,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
-    current_user: dict = Depends(require_manager_up)
+    current_user: dict = Depends(require_super_admin)
 ):
     if not date_from:
         date_from = date.today() - timedelta(days=7)
@@ -835,7 +835,7 @@ async def create_staff_salary(
 async def get_staff_salaries(
     request: Request,
     active_only: bool = True,
-    current_user: dict = Depends(require_manager_up)
+    current_user: dict = Depends(require_super_admin)
 ):
     """Get all staff salary entries"""
     query = supabase.table("staff_salaries").select("*")
@@ -906,7 +906,7 @@ async def update_staff_salary(
 async def get_staff_salary_history(
     salary_id: str,
     request: Request,
-    current_user: dict = Depends(require_manager_up)
+    current_user: dict = Depends(require_super_admin)
 ):
     """Get salary change history for specific salary entry"""
     

@@ -295,6 +295,47 @@ class CartService:
                 })
         
         return processed_items
+    
+
+    @staticmethod
+    async def calculate_checkout_total(orders: List[Dict]) -> Dict[str, Any]:
+        """Single source of truth for all checkout calculations"""
+        total_subtotal = Decimal('0')
+        total_vat = Decimal('0')
+        delivery_fees_by_area = {}
+        
+        for order in orders:
+            processed_items = await CartService.validate_cart_items(order.get("items", []))
+            totals = CartService.calculate_order_total(processed_items)
+            
+            total_subtotal += totals["subtotal"]
+            total_vat += totals["tax"]
+            
+            address = supabase.table("customer_addresses").select(
+                "area_id, delivery_areas(delivery_fee)"
+            ).eq("id", order.get("delivery_address_id")).execute()
+            
+            if not address.data:
+                raise ValueError("Address not found")
+            
+            area_id = address.data[0]["area_id"]
+            if area_id not in delivery_fees_by_area:
+                delivery_fees_by_area[area_id] = Decimal(str(address.data[0]["delivery_areas"]["delivery_fee"]))
+        
+        total_delivery = sum(delivery_fees_by_area.values())
+        grand_total = total_subtotal + total_vat + total_delivery
+        
+        return {
+            "subtotal": total_subtotal,  # Return Decimal
+            "vat": total_vat,
+            "delivery": total_delivery,
+            "total": grand_total,
+            # Also include float versions for JSON response
+            "subtotal_float": float(total_subtotal),
+            "vat_float": float(total_vat),
+            "delivery_float": float(total_delivery),
+            "total_float": float(grand_total)
+        }
 
     
     
@@ -430,9 +471,9 @@ class MonnifyService:
         amount: Decimal,
         customer_email: str,
         customer_name: str,
-        customer_phone: str
+        customer_phone: str,
+        payment_reference: str
     ) -> Dict[str, Any]:
-        """Create reserved account for bank transfer"""
         access_token = await MonnifyService.get_access_token()
         
         headers = {
@@ -440,27 +481,45 @@ class MonnifyService:
             "Content-Type": "application/json"
         }
 
-        payment_reference = f"ORDER-{uuid4().hex[:12]}"
+        # Check if customer already has a reserved account
+        account_reference = f"CUST-{customer_email.split('@')[0]}"  # Constant per customer
+        
+        # Try to get existing account first
+        async with httpx.AsyncClient() as client:
+            try:
+                get_response = await client.get(
+                    f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
+                    headers=headers,
+                    timeout=30
+                )
+                
+                if get_response.status_code == 200:
+                    # Account exists, return it
+                    data = get_response.json()["responseBody"]
+                    account = data["accounts"][0]
+                    
+                    return {
+                        "payment_reference": payment_reference,
+                        "account_reference": account_reference,
+                        "account_number": account["accountNumber"],
+                        "account_name": account["accountName"],
+                        "bank_name": account["bankName"],
+                        "amount": amount,
+                        "expires_at": datetime.utcnow() + timedelta(hours=1)
+                    }
+            except:
+                pass  # Account doesn't exist, create new one
 
-        # payload = {
-        #     "accountReference": payment_reference,
-        #     "accountName": customer_name,
-        #     "currencyCode": "NGN",
-        #     "contractCode": settings.MONNIFY_CONTRACT_CODE,
-        #     "customerEmail": customer_email,
-        #     "customerName": customer_name,
-        #     "getAllAvailableBanks": True
-        # }
-
+        # Create new account
         payload = {
-            "accountReference": payment_reference,
+            "accountReference": account_reference,
             "accountName": customer_name,
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": customer_email,
             "customerName": customer_name,
-            "preferredBanks": ["232"], # Moniepoint bank code
-            "getAllAvailableBanks": False  
+            "preferredBanks": ["50515"], 
+            "getAllAvailableBanks": False
         }
 
         async with httpx.AsyncClient() as client:
@@ -471,15 +530,13 @@ class MonnifyService:
                 timeout=30
             )
 
-        print(f"Monnify Response Status: {response.status_code}")
-        print(f"Monnify Response Body: {response.text}")
         response.raise_for_status()
-
         data = response.json()["responseBody"]
         account = data["accounts"][0]
 
         return {
-            "payment_reference": data["accountReference"],
+            "payment_reference": payment_reference,
+            "account_reference": account_reference,
             "account_number": account["accountNumber"],
             "account_name": account["accountName"],
             "bank_name": account["bankName"],
@@ -509,3 +566,72 @@ class MonnifyService:
             
         except requests.RequestException as e:
             raise Exception(f"Failed to verify payment: {str(e)}")
+        
+
+    @staticmethod
+    async def process_webhook_payment(payload: Dict, account_reference: str, transaction_reference: str):
+        """Background task for webhook processing"""
+        try:
+            payment_status = payload.get("paymentStatus")
+            
+            # Only process PAID status
+            if payment_status != "PAID":
+                return
+            
+            # Get payment session
+            payment_session = redis_client.get(f"payment:{account_reference}")
+            
+            if not payment_session:
+                print(f"⚠️ Payment session not found: {account_reference}")
+                return
+            
+            # Check if already completed
+            if payment_session.get("status") == "completed":
+                print(f"ℹ️ Payment already completed: {account_reference}")
+                return
+            
+            # Update session with webhook data
+            payment_session["webhook_status"] = payment_status
+            payment_session["webhook_data"] = payload
+            payment_session["transaction_reference"] = transaction_reference
+            payment_session["webhook_received_at"] = datetime.utcnow().isoformat()
+            
+            redis_client.set(f"payment:{account_reference}", payment_session, 3600)
+            
+            # Mark as fully processed
+            redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)  # 24 hours
+            
+            print(f"✅ Webhook processed successfully: {transaction_reference}")
+            
+        except Exception as e:
+            print(f"❌ Webhook processing error: {str(e)}")
+            # Remove processing lock so it can be retried
+            redis_client.delete(f"webhook_processed:{transaction_reference}")
+
+    
+
+    @staticmethod
+    def verify_transaction_hash(payload: Dict) -> bool:
+        """Verify Monnify transaction hash"""
+        import hashlib
+        
+        # Extract hash from payload
+        received_hash = payload.get("transactionHash")
+        if not received_hash:
+            return False
+        
+        # Monnify hash formula (check their docs for exact fields)
+        # Usually: SHA512(SECRET_KEY + paymentReference + amount + paidOn + transactionReference)
+        hash_string = (
+            f"{settings.MONNIFY_SECRET_KEY}"
+            f"{payload.get('paymentReference', '')}"
+            f"{payload.get('amountPaid', '')}"
+            f"{payload.get('paidOn', '')}"
+            f"{payload.get('transactionReference', '')}"
+        )
+        
+        computed_hash = hashlib.sha512(hash_string.encode()).hexdigest()
+        
+        # Secure comparison
+        import hmac
+        return hmac.compare_digest(computed_hash, received_hash)

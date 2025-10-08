@@ -3,8 +3,10 @@ from typing import List, Optional, Dict, Any
 from decimal import Decimal
 import json
 import uuid
+from uuid import uuid4
 from pydantic import BaseModel
 from datetime import datetime
+from fastapi import BackgroundTasks
 
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService
@@ -14,6 +16,7 @@ from ..services.redis import redis_client
 from .services import MonnifyService
 from .services import CartService
 from ..api.sales_service import SalesService
+from ..config import settings
 
 router = APIRouter(prefix="/website", tags=["Website"])
 
@@ -273,67 +276,111 @@ async def calculate_delivery_by_area(area_id: str):
 
 
 
+# @router.post("/checkout/summary")
+# async def get_checkout_summary(checkout_data: CheckoutRequest):
+#     """Get checkout summary with area-based delivery"""
+#     order_summaries = []
+#     total_subtotal = Decimal('0')
+#     total_vat = Decimal('0')
+#     delivery_fees_by_area = {}
+    
+#     for idx, order in enumerate(checkout_data.orders):
+#         if not order.delivery_address_id:
+#             raise HTTPException(status_code=400, detail=f"Delivery address required for order {idx + 1}")
+        
+#         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
+#         totals = CartService.calculate_order_total(processed_items)
+        
+#         total_subtotal += totals["subtotal"]
+#         total_vat += totals["tax"]
+        
+#         # Get address with area details
+#         address_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
+        
+#         if not address_result.data:
+#             raise HTTPException(status_code=404, detail=f"Address not found for order {idx + 1}")
+        
+#         address_data = address_result.data[0]
+#         area_id = address_data["area_id"]
+        
+#         if area_id not in delivery_fees_by_area:
+#             delivery_fees_by_area[area_id] = {
+#                 "fee": Decimal(str(address_data["delivery_areas"]["delivery_fee"])),
+#                 "address": address_data["full_address"]
+#             }
+        
+#         order_summaries.append({
+#             "order_index": idx,
+#             "items": [
+#                 {
+#                     "product_name": item["product_name"],
+#                     "quantity": item["quantity"],
+#                     "unit_price": float(item["unit_price"]),
+#                     "total_price": float(item["total_price"])
+#                 }
+#                 for item in processed_items
+#             ],
+#             "subtotal": float(totals["subtotal"]),
+#             "delivery_address": delivery_fees_by_area[area_id]["address"],
+#             "delivery_fee": float(delivery_fees_by_area[area_id]["fee"])
+#         })
+    
+#     total_delivery = sum(data["fee"] for data in delivery_fees_by_area.values())
+#     grand_total = total_subtotal + total_vat + total_delivery
+    
+#     return {
+#         "orders": order_summaries,
+#         "total_subtotal": float(total_subtotal),
+#         "total_vat": float(total_vat),
+#         "total_delivery": float(total_delivery),
+#         "grand_total": float(grand_total)
+#     }
+
+
+
+
 @router.post("/checkout/summary")
 async def get_checkout_summary(checkout_data: CheckoutRequest):
     """Get checkout summary with area-based delivery"""
-    order_summaries = []
-    total_subtotal = Decimal('0')
-    total_vat = Decimal('0')
-    delivery_fees_by_area = {}
-    
-    for idx, order in enumerate(checkout_data.orders):
-        if not order.delivery_address_id:
-            raise HTTPException(status_code=400, detail=f"Delivery address required for order {idx + 1}")
+    try:
+        # Use shared calculation
+        totals = await CartService.calculate_checkout_total(
+            [order.dict() for order in checkout_data.orders]
+        )
         
-        processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
-        totals = CartService.calculate_order_total(processed_items)
+        # Get order details for display
+        order_summaries = []
+        for idx, order in enumerate(checkout_data.orders):
+            processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
+            order_totals = CartService.calculate_order_total(processed_items)
+            
+            address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
+            
+            order_summaries.append({
+                "order_index": idx,
+                "items": [
+                    {
+                        "product_name": item["product_name"],
+                        "quantity": item["quantity"],
+                        "unit_price": float(item["unit_price"]),
+                        "total_price": float(item["total_price"])
+                    }
+                    for item in processed_items
+                ],
+                "subtotal": float(order_totals["subtotal"]),
+                "delivery_address": address.data[0]["full_address"],
+                "delivery_fee": float(address.data[0]["delivery_areas"]["delivery_fee"])
+            })
         
-        total_subtotal += totals["subtotal"]
-        total_vat += totals["tax"]
-        
-        # Get address with area details
-        address_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
-        
-        if not address_result.data:
-            raise HTTPException(status_code=404, detail=f"Address not found for order {idx + 1}")
-        
-        address_data = address_result.data[0]
-        area_id = address_data["area_id"]
-        
-        if area_id not in delivery_fees_by_area:
-            delivery_fees_by_area[area_id] = {
-                "fee": Decimal(str(address_data["delivery_areas"]["delivery_fee"])),
-                "address": address_data["full_address"]
-            }
-        
-        order_summaries.append({
-            "order_index": idx,
-            "items": [
-                {
-                    "product_name": item["product_name"],
-                    "quantity": item["quantity"],
-                    "unit_price": float(item["unit_price"]),
-                    "total_price": float(item["total_price"])
-                }
-                for item in processed_items
-            ],
-            "subtotal": float(totals["subtotal"]),
-            "delivery_address": delivery_fees_by_area[area_id]["address"],
-            "delivery_fee": float(delivery_fees_by_area[area_id]["fee"])
-        })
-    
-    total_delivery = sum(data["fee"] for data in delivery_fees_by_area.values())
-    grand_total = total_subtotal + total_vat + total_delivery
-    
-    return {
-        "orders": order_summaries,
-        "total_subtotal": float(total_subtotal),
-        "total_vat": float(total_vat),
-        "total_delivery": float(total_delivery),
-        "grand_total": float(grand_total)
-    }
-
-
+        return {
+            "orders": order_summaries,
+            "total_subtotal": totals["subtotal_float"],  # Use float version
+            "total_vat": totals["vat_float"],
+            "total_delivery": totals["delivery_float"],
+            "grand_total": totals["total_float"]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 
@@ -425,20 +472,34 @@ async def create_payment_account(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Generate unique payment reference
-    payment_reference = f"PAY-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
-
+    # ========== USE SAME CALCULATION AS CHECKOUT ==========
+    try:
+        calculated_totals = await CartService.calculate_checkout_total(
+            [order.dict() for order in payment_data.orders]
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Validate client sent correct total
+    if abs(Decimal(str(calculated_totals["total"])) - Decimal(str(payment_data.total_amount))) > Decimal('0.01'):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Price mismatch. Expected: {calculated_totals['total']}, Got: {payment_data.total_amount}"
+        )
+    # ========== END VALIDATION ==========
+    
+    # payment_reference = f"tranx-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid4())[:6]}"
+    payment_reference = f"tranx-{str(uuid4())}"
     
     try:
-        # Create virtual account
         account_data = await MonnifyService.create_virtual_account(
             amount=payment_data.total_amount,
             customer_email=payment_data.customer_email,
             customer_name=payment_data.customer_name,
-            customer_phone=payment_data.customer_phone
+            customer_phone=payment_data.customer_phone,
+            payment_reference=payment_reference
         )
         
-        # Store payment session
         payment_session = {
             "payment_reference": payment_reference,
             "customer_id": session_data["customer_id"],
@@ -448,95 +509,231 @@ async def create_payment_account(
             "created_at": datetime.utcnow().isoformat()
         }
         
-        redis_client.set(f"payment:{payment_reference}", payment_session, 3600)  # 1 hour
+        redis_client.set(f"payment:{account_data['account_reference']}", payment_session, 3600)
         
         return account_data
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
 
 
-@router.get("/payment/verify/{payment_reference}")
-async def verify_payment(payment_reference: str):
+# @router.get("/payment/verify/{payment_reference}")
+# async def verify_payment(payment_reference: str):
+#     """Verify payment status"""
+#     try:
+#         payment_session = redis_client.get(f"payment:{payment_reference}")
+#         if not payment_session:
+#             raise HTTPException(status_code=404, detail="Payment session not found")
+       
+#         payment_data = await MonnifyService.verify_payment(payment_reference)
+       
+#         if payment_data["paymentStatus"] == "PAID":
+#             created_orders = []
+#             all_items = []
+           
+#             for order_data in payment_session["orders"]:
+#                 processed_items = await CartService.validate_cart_items(order_data["items"])
+#                 totals = CartService.calculate_order_total(processed_items)
+#                 all_items.extend(processed_items)
+
+#                 for item in processed_items:
+#                     item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
+                    
+#                 # Get delivery fee from address area
+#                 address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
+#                 delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+               
+#                 order_entry = {
+#                     "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+#                     "order_type": "online",
+#                     "status": "confirmed",
+#                     "payment_status": "paid",
+#                     "payment_reference": payment_reference,
+#                     "subtotal": float(totals["subtotal"]),
+#                     "tax": float(totals["vat"]),
+#                     "delivery_fee": delivery_fee,
+#                     "total": float(totals["total"]) + delivery_fee,
+#                     "website_customer_id": payment_session["customer_id"],
+#                     "delivery_address_id": order_data["delivery_address_id"],
+#                     "confirmed_at": datetime.utcnow().isoformat()
+#                 }
+               
+#                 created_order = supabase_admin.table("orders").insert(order_entry).execute()
+#                 order_id = created_order.data[0]["id"]
+               
+#                 for item in processed_items:
+#                     item_data = {
+#                         "order_id": order_id,
+#                         "product_id": item["product_id"],
+#                         "product_name": item["product_name"],
+#                         "quantity": item["quantity"],
+#                         "unit_price": float(item["unit_price"]),
+#                         "total_price": float(item["total_price"]),
+#                         "notes": item.get("notes"),
+#                         "is_extra": item.get("is_extra", False)
+#                     }
+#                     result = supabase_admin.table("order_items").insert(item_data).execute()
+#                     order_item_id = result.data[0]["id"]
+                    
+#                     # Insert multiple options
+#                     for option_id in item.get("option_ids", []):
+#                         supabase_admin.table("order_item_options").insert({
+#                             "id": str(uuid.uuid4()),
+#                             "order_item_id": order_item_id,
+#                             "option_id": option_id
+#                         }).execute()
+               
+#                 created_orders.append(created_order.data[0])
+
+#             # Deduct stock immediately after payment confirmation
+#             await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
+           
+#             payment_session["status"] = "completed"
+#             payment_session["orders_created"] = [o["id"] for o in created_orders]
+#             redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
+           
+#             return {
+#                 "payment_status": "success",
+#                 "orders": created_orders,
+#                 "payment_details": payment_data
+#             }
+       
+#         elif payment_data["paymentStatus"] == "PENDING":
+#             return {
+#                 "payment_status": "pending",
+#                 "message": "Payment is still pending"
+#             }
+       
+#         else:
+#             return {
+#                 "payment_status": "failed",
+#                 "message": "Payment failed or expired"
+#             }
+           
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.get("/payment/verify/{account_reference}")  
+async def verify_payment(account_reference: str):  
     """Verify payment status"""
     try:
-        payment_session = redis_client.get(f"payment:{payment_reference}")
+        payment_session = redis_client.get(f"payment:{account_reference}")
         if not payment_session:
             raise HTTPException(status_code=404, detail="Payment session not found")
-       
-        payment_data = await MonnifyService.verify_payment(payment_reference)
-       
-        if payment_data["paymentStatus"] == "PAID":
-            created_orders = []
-            all_items = []
-           
-            for order_data in payment_session["orders"]:
-                processed_items = await CartService.validate_cart_items(order_data["items"])
-                totals = CartService.calculate_order_total(processed_items)
-                all_items.extend(processed_items)
-
-                for item in processed_items:
-                    item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
-                    
-                # Get delivery fee from address area
-                address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
-                delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
-               
-                order_entry = {
-                    "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
-                    "order_type": "online",
-                    "status": "confirmed",
-                    "payment_status": "paid",
-                    "payment_reference": payment_reference,
-                    "subtotal": float(totals["subtotal"]),
-                    "tax": float(totals["vat"]),
-                    "delivery_fee": delivery_fee,
-                    "total": float(totals["total"]) + delivery_fee,
-                    "website_customer_id": payment_session["customer_id"],
-                    "delivery_address_id": order_data["delivery_address_id"],
-                    "confirmed_at": datetime.utcnow().isoformat()
+        
+        # ========== DOUBLE PROCESSING CHECK ==========
+        if payment_session.get("status") == "completed":
+            existing_orders = payment_session.get("orders_created", [])
+            
+            if existing_orders:
+                orders_data = []
+                for order_id in existing_orders:
+                    order = supabase_admin.table("orders").select("*").eq("id", order_id).execute()
+                    if order.data:
+                        orders_data.append(order.data[0])
+                
+                return {
+                    "payment_status": "success",
+                    "message": "Payment already processed",
+                    "orders": orders_data
                 }
+        # ========== END CHECK ==========
+        
+        # Verify with Monnify
+        if payment_session.get("webhook_status") == "PAID":
+            payment_data = await MonnifyService.verify_payment(
+                payment_session.get("transaction_reference") or payment_session["payment_reference"]
+            )
+        else:
+            payment_data = await MonnifyService.verify_payment(payment_session["payment_reference"])
+        
+        if payment_data["paymentStatus"] == "PAID":
+            # ========== LOCK TO PREVENT RACE CONDITIONS ==========
+            processing_lock = f"processing:{account_reference}"
+            
+            lock_acquired = redis_client.set(processing_lock, "locked", ex=60, nx=True)
+            
+            if not lock_acquired:
+                return {
+                    "payment_status": "processing",
+                    "message": "Payment is being processed, please wait"
+                }
+            # ========== END LOCK ==========
+            
+            try:
+                created_orders = []
+                all_items = []
                
-                created_order = supabase_admin.table("orders").insert(order_entry).execute()
-                order_id = created_order.data[0]["id"]
-               
-                for item in processed_items:
-                    item_data = {
-                        "order_id": order_id,
-                        "product_id": item["product_id"],
-                        "product_name": item["product_name"],
-                        "quantity": item["quantity"],
-                        "unit_price": float(item["unit_price"]),
-                        "total_price": float(item["total_price"]),
-                        "notes": item.get("notes"),
-                        "is_extra": item.get("is_extra", False)
-                    }
-                    result = supabase_admin.table("order_items").insert(item_data).execute()
-                    order_item_id = result.data[0]["id"]
-                    
-                    # Insert multiple options
-                    for option_id in item.get("option_ids", []):
-                        supabase_admin.table("order_item_options").insert({
-                            "id": str(uuid.uuid4()),
-                            "order_item_id": order_item_id,
-                            "option_id": option_id
-                        }).execute()
-               
-                created_orders.append(created_order.data[0])
+                for order_data in payment_session["orders"]:
+                    processed_items = await CartService.validate_cart_items(order_data["items"])
+                    totals = CartService.calculate_order_total(processed_items)
+                    all_items.extend(processed_items)
 
-            # Deduct stock immediately after payment confirmation
-            await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
-           
-            payment_session["status"] = "completed"
-            payment_session["orders_created"] = [o["id"] for o in created_orders]
-            redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
-           
-            return {
-                "payment_status": "success",
-                "orders": created_orders,
-                "payment_details": payment_data
-            }
+                    for item in processed_items:
+                        item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
+                        
+                    address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
+                    delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+                   
+                    order_entry = {
+                        "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+                        "order_type": "online",
+                        "status": "confirmed",
+                        "payment_status": "paid",
+                        "payment_reference": payment_session["payment_reference"],
+                        "subtotal": float(totals["subtotal"]),
+                        "tax": float(totals["vat"]),
+                        "delivery_fee": delivery_fee,
+                        "total": float(totals["total"]) + delivery_fee,
+                        "website_customer_id": payment_session["customer_id"],
+                        "delivery_address_id": order_data["delivery_address_id"],
+                        "confirmed_at": datetime.utcnow().isoformat()
+                    }
+                   
+                    created_order = supabase_admin.table("orders").insert(order_entry).execute()
+                    order_id = created_order.data[0]["id"]
+                   
+                    for item in processed_items:
+                        item_data = {
+                            "order_id": order_id,
+                            "product_id": item["product_id"],
+                            "product_name": item["product_name"],
+                            "quantity": item["quantity"],
+                            "unit_price": float(item["unit_price"]),
+                            "total_price": float(item["total_price"]),
+                            "notes": item.get("notes"),
+                            "is_extra": item.get("is_extra", False)
+                        }
+                        result = supabase_admin.table("order_items").insert(item_data).execute()
+                        order_item_id = result.data[0]["id"]
+                        
+                        for option_id in item.get("option_ids", []):
+                            supabase_admin.table("order_item_options").insert({
+                                "id": str(uuid.uuid4()),
+                                "order_item_id": order_item_id,
+                                "option_id": option_id
+                            }).execute()
+                   
+                    created_orders.append(created_order.data[0])
+
+                await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
+               
+                # Mark as completed
+                payment_session["status"] = "completed"
+                payment_session["orders_created"] = [o["id"] for o in created_orders]
+                payment_session["completed_at"] = datetime.utcnow().isoformat()
+                redis_client.set(f"payment:{account_reference}", payment_session, 86400)
+               
+                return {
+                    "payment_status": "success",
+                    "orders": created_orders,
+                    "payment_details": payment_data
+                }
+            
+            finally:
+                redis_client.delete(processing_lock)
        
         elif payment_data["paymentStatus"] == "PENDING":
             return {
@@ -552,8 +749,6 @@ async def verify_payment(payment_reference: str):
            
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 
 
 
@@ -653,26 +848,70 @@ async def bypass_payment_create(
 
 
 
+# @router.post("/payment/webhook")
+# async def payment_webhook(request: Request):
+#     payload = await request.json()
+    
+#     payment_reference = payload.get("accountReference")  
+#     payment_status = payload["paymentStatus"]
+    
+#     payment_session = redis_client.get(f"payment:{payment_reference}")
+#     if payment_session:
+#         payment_session["webhook_status"] = payment_status
+#         payment_session["webhook_data"] = payload
+#         redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
+    
+#     return {"status": "success"}
+
+
+
 @router.post("/payment/webhook")
-async def payment_webhook(request: Request):
+async def payment_webhook(request: Request, background_tasks: BackgroundTasks):
     """Handle Monnify payment webhook"""
+    
+    # ========== 1. IP WHITELIST ==========
+    client_ip = request.client.host
+    
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0].strip()
+    
+    MONNIFY_WEBHOOK_IP = settings.MONNIFY_WEBHOOK_IP
+    if client_ip != MONNIFY_WEBHOOK_IP:
+        print(f"⚠️ UNAUTHORIZED WEBHOOK from {client_ip}")
+        return {"status": "error", "message": "Unauthorized"}
+    
+    # ========== 2. PARSE PAYLOAD ==========
     try:
         payload = await request.json()
-        
-        payment_reference = payload["transactionReference"]
-        payment_status = payload["paymentStatus"]
-        
-        # Update payment session
-        payment_session = redis_client.get(f"payment:{payment_reference}")
-        if payment_session:
-            payment_session["webhook_status"] = payment_status
-            payment_session["webhook_data"] = payload
-            redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
-        
-        return {"status": "success"}
-        
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    except:
+        return {"status": "error", "message": "Invalid payload"}
+    
+    # ========== 3. HASH VALIDATION ==========
+    if not MonnifyService.verify_transaction_hash(payload):
+        print(f"⚠️ INVALID HASH: {payload}")
+        return {"status": "error", "message": "Invalid hash"}
+    
+    # ========== 4. DUPLICATE CHECK ==========
+    transaction_reference = payload.get("transactionReference")
+    account_reference = payload.get("accountReference")
+    
+    duplicate_key = f"webhook_processed:{transaction_reference}"
+    if redis_client.get(duplicate_key):
+        print(f"ℹ️ Duplicate webhook ignored: {transaction_reference}")
+        return {"status": "success", "message": "Already processed"}
+    
+    redis_client.set(duplicate_key, "processing", 600)
+    
+    # ========== 5. QUICK RESPONSE ==========
+    background_tasks.add_task(
+        MonnifyService.process_webhook_payment,
+        payload,
+        account_reference,
+        transaction_reference
+    )
+    
+    return {"status": "success"}
     
 
 
