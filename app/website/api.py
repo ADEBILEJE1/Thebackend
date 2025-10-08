@@ -556,6 +556,7 @@ async def verify_payment(account_reference: str):
             )
         else:
             payment_data = await MonnifyService.verify_payment(payment_session["payment_reference"])
+            print(f"📊 Full Monnify Response: {payment_data}")
         
         if payment_data["paymentStatus"] == "PAID":
             # ========== LOCK TO PREVENT RACE CONDITIONS ==========
