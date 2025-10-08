@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional
 from fastapi import Security
+import resend
+import os
 from fastapi.security import OAuth2PasswordBearer
 from ..core.security import generate_invitation_token
 from ..core.permissions import (
@@ -19,9 +21,12 @@ from ..core.session import session_manager
 from ..core.rate_limiter import auth_limiter
 from ..core.cache import invalidate_user_cache
 from ..database import supabase, supabase_admin
-from ..services.celery import send_invitation_email
+
 from ..models.user import UserRole
 from ..core.activity_logger import log_activity
+
+
+resend.api_key = os.getenv("RESEND_API_KEY")
 
 
 
@@ -75,6 +80,21 @@ class DashboardSelection(BaseModel):
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+
+
+
+def send_invitation_email(email: str, token: str):
+    invitation_link = f"{os.getenv('RESEND_APP_URL')}/register?token={token}"
+    
+    resend.Emails.send({
+        "from": "noreply@yourdomain.com",
+        "to": email,
+        "subject": "You're invited!",
+        "html": f"<p>Click to register: <a href='{invitation_link}'>Join now</a></p>"
+    })
+
+
+
 @router.post("/invite", response_model=dict)
 async def invite_user(
     invitation: UserInvite,
@@ -111,7 +131,7 @@ async def invite_user(
     result = supabase_admin.table("invitations").insert(invitation_data).execute()
     
     # Send invitation email
-    # send_invitation_email.delay(invitation.email, token)
+    send_invitation_email(invitation.email, token)
     
     return {"message": "Invitation sent successfully"}
 
@@ -174,69 +194,6 @@ async def register(user_data: UserCreate):
 
 
 
-
-
-
-# @router.post("/login", response_model=dict)
-# async def login(credentials: UserLogin, request: Request):
-#     try:
-#         # Use Supabase Auth
-#         response = supabase.auth.sign_in_with_password({
-#             "email": credentials.email,
-#             "password": credentials.password
-#         })
-        
-#         # Get profile
-#         profile = supabase_admin.table("profiles").select("*").eq("id", response.user.id).single().execute()
-        
-#         if not profile.data:
-#             supabase.auth.sign_out()
-#             raise HTTPException(
-#                 status_code=status.HTTP_404_NOT_FOUND,
-#                 detail="User profile not found"
-#             )
-        
-#         if not profile.data["is_active"]:
-#             supabase.auth.sign_out()
-#             raise HTTPException(
-#                 status_code=status.HTTP_403_FORBIDDEN,
-#                 detail="Account deactivated"
-#             )
-        
-#         # Create Redis session
-#         try:
-#             session_manager.create_session(
-#                 response.user.id,
-#                 profile.data,
-#                 response.session.access_token
-#             )
-#             print("DEBUG: Redis session created successfully")
-#         except Exception as redis_error:
-#             print(f"DEBUG: Redis session failed: {str(redis_error)}")
-#             # Continue without Redis session for now
-        
-#         # Update last login
-#         supabase.table("profiles").update({
-#             "last_login": datetime.utcnow().isoformat()
-#         }).eq("id", response.user.id).execute()
-        
-#         return {
-#             "access_token": response.session.access_token,
-#             "refresh_token": response.session.refresh_token,
-#             "user": {
-#                 "id": response.user.id,
-#                 "email": profile.data["email"],
-#                 "role": profile.data["role"]
-#             }
-#         }
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         print(f"DEBUG: Login error: {str(e)}")
-#         raise HTTPException(
-#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             detail=f"Login failed: {str(e)}"
-#         )
 
 
 @router.post("/login", response_model=dict)
