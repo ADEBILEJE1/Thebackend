@@ -477,3 +477,23 @@ async def select_dashboard(
         raise
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    
+@router.get("/me")
+async def get_current_user_info(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get current logged-in user information"""
+    user = supabase.table("profiles").select("*").eq("id", current_user["id"]).single().execute()
+    
+    if not user.data:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    
+    return {
+        "id": user.data["id"],
+        "email": user.data["email"],
+        "role": user.data["role"],
+        "is_active": user.data["is_active"],
+        "created_at": user.data["created_at"],
+        "last_login": user.data.get("last_login")
+    }
