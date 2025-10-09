@@ -87,7 +87,7 @@ def send_invitation_email(email: str, token: str):
     invitation_link = f"{os.getenv('RESEND_APP_URL')}/register?token={token}"
     
     resend.Emails.send({
-        "from": "noreply@yourdomain.com",
+        "from": "noreply@lebanstreet.com",
         "to": email,
         "subject": "You're invited!",
         "html": f"<p>Click to register: <a href='{invitation_link}'>Join now</a></p>"
