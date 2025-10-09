@@ -34,12 +34,14 @@ resend.api_key = os.getenv("RESEND_API_KEY")
 class UserCreate(BaseModel):
     email: Optional[EmailStr] = None  
     password: str
+    full_name: str = Field(min_length=2, max_length=100)
     invitation_token: str
 
     class Config:
         json_schema_extra = {
             "example": {
                 "invitation_token": "abc123token",
+                "full_name": "John Doe",
                 "password": "SecurePassword123!"
             }
         }
@@ -174,6 +176,7 @@ async def register(user_data: UserCreate):
         profile_data = {
             "id": auth_response.user.id,
             "email": invitation.data["email"],
+            "full_name": user_data.full_name,
             "role": invitation.data["role"],
             "invited_by": invitation.data["invited_by"],
             "is_active": True
