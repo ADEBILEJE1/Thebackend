@@ -84,7 +84,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 def send_invitation_email(email: str, token: str):
-    invitation_link = f"{os.getenv('RESEND_APP_URL')}/register?token={token}"
+    invitation_link = f"{os.getenv('RESEND_APP_URL')}/auth/set-password?token={token}"
     
     resend.Emails.send({
         "from": "noreply@lebanstreet.com",
