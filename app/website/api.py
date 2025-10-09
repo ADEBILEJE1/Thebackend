@@ -429,6 +429,12 @@ async def complete_checkout(
         
         created_order = supabase_admin.table("orders").insert(order_data).execute()
         order_id = created_order.data[0]["id"]
+
+        today = datetime.utcnow().strftime("%Y%m%d")
+        order_number = f"WEB-{today}-{str(order_id)[-6:].zfill(6)}"
+        updated_order = supabase_admin.table("orders").update({"order_number": order_number}).eq("id", order_id).execute()
+
+        created_orders.append(updated_order.data[0])
         
         for item in processed_items:
             item_data = {
@@ -452,7 +458,7 @@ async def complete_checkout(
                     "option_id": option_id
                 }).execute()
         
-        created_orders.append(created_order.data[0])
+        created_orders.append(updated_order.data[0])
     
     # Deduct stock once for all orders
     await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
@@ -556,14 +562,27 @@ async def verify_payment(account_reference: str):
                 payment_session.get("transaction_reference") or payment_session["payment_reference"]
             )
         else:
-            payment_data = await MonnifyService.verify_payment(payment_session["payment_reference"])
+            # payment_data = await MonnifyService.verify_payment(payment_session["payment_reference"])
+            payment_data = await MonnifyService.verify_payment(account_reference)
             print(f"📊 Full Monnify Response: {payment_data}")
         
         if payment_data["paymentStatus"] == "PAID":
+
+            existing_orders = supabase_admin.table("orders").select("*").eq(
+                "payment_reference", payment_session["payment_reference"]
+            ).execute()
+            
+            if existing_orders.data:
+                print("✅ Orders already exist for this payment")
+                return {
+                    "payment_status": "success",
+                    "message": "Payment already processed",
+                    "orders": existing_orders.data
+                }
             # ========== LOCK TO PREVENT RACE CONDITIONS ==========
             processing_lock = f"processing:{account_reference}"
             
-            lock_acquired = redis_client.set(processing_lock, "locked", ex=60, nx=True)
+            lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
             
             if not lock_acquired:
                 return {
@@ -594,7 +613,7 @@ async def verify_payment(account_reference: str):
                         "payment_status": "paid",
                         "payment_reference": payment_session["payment_reference"],
                         "subtotal": float(totals["subtotal"]),
-                        "tax": float(totals["vat"]),
+                        "tax": float(totals["tax"]),
                         "delivery_fee": delivery_fee,
                         "total": float(totals["total"]) + delivery_fee,
                         "website_customer_id": payment_session["customer_id"],
@@ -604,6 +623,13 @@ async def verify_payment(account_reference: str):
                    
                     created_order = supabase_admin.table("orders").insert(order_entry).execute()
                     order_id = created_order.data[0]["id"]
+
+                    today = datetime.utcnow().strftime("%Y%m%d")
+                    order_number = f"WEB-{today}-{str(order_id)[-6:].zfill(6)}"
+
+                    updated_order = supabase_admin.table("orders").update({
+                        "order_number": order_number
+                    }).eq("id", order_id).execute()
                    
                     for item in processed_items:
                         item_data = {
@@ -626,7 +652,7 @@ async def verify_payment(account_reference: str):
                                 "option_id": option_id
                             }).execute()
                    
-                    created_orders.append(created_order.data[0])
+                    created_orders.append(updated_order.data[0])
 
                 await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
                

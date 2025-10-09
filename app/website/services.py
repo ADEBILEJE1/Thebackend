@@ -544,9 +544,38 @@ class MonnifyService:
             "expires_at": datetime.utcnow() + timedelta(hours=1)
         }
     
+    # @staticmethod
+    # async def verify_payment(payment_reference: str) -> Dict[str, Any]:
+    #     """Verify payment status"""
+    #     access_token = await MonnifyService.get_access_token()
+        
+    #     headers = {
+    #         "Authorization": f"Bearer {access_token}",
+    #         "Content-Type": "application/json"
+    #     }
+        
+    #     try:
+    #         response = requests.get(
+    #             f"{MonnifyService.get_base_url()}/api/v2/transactions/{payment_reference}",
+    #             headers=headers,
+    #             timeout=30
+    #         )
+            
+    #         if response.status_code == 404:
+    #             return {"paymentStatus": "PENDING"}
+            
+    #         response.raise_for_status()
+    #         return response.json()["responseBody"]
+            
+    #     except requests.RequestException:
+    #         return {"paymentStatus": "PENDING"}
+
+
+
+    
     @staticmethod
-    async def verify_payment(payment_reference: str) -> Dict[str, Any]:
-        """Verify payment status"""
+    async def verify_payment(account_reference: str) -> Dict[str, Any]:
+        """Verify payment status by checking account transactions"""
         access_token = await MonnifyService.get_access_token()
         
         headers = {
@@ -555,19 +584,32 @@ class MonnifyService:
         }
         
         try:
-            response = requests.get(
-                f"{MonnifyService.get_base_url()}/api/v2/transactions/{payment_reference}",
+            # Get account details which includes transaction info
+            account_response = requests.get(
+                f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
                 headers=headers,
                 timeout=30
             )
             
-            if response.status_code == 404:
-                return {"paymentStatus": "PENDING"}
+            print(f"🔍 Account Response: {account_response.text}")
             
-            response.raise_for_status()
-            return response.json()["responseBody"]
+            if account_response.status_code == 200:
+                data = account_response.json()["responseBody"]
+                
+                # Check if there are transactions
+                if data.get("transactionCount", 0) > 0 and data.get("totalAmount", 0) > 0:
+                    # Account has transactions - payment is PAID
+                    return {
+                        "paymentStatus": "PAID",
+                        "transactionReference": account_reference,  # Use account ref for now
+                        "amountPaid": data.get("totalAmount"),
+                        "paidOn": data.get("createdOn")
+                    }
             
-        except requests.RequestException:
+            return {"paymentStatus": "PENDING"}
+            
+        except Exception as e:
+            print(f"❌ Verification error: {str(e)}")
             return {"paymentStatus": "PENDING"}
         
 
