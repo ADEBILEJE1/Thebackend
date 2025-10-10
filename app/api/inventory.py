@@ -289,7 +289,12 @@ async def create_category(
     }
     
     result = supabase_admin.table("categories").insert(category_data).execute()
+
+    redis_client.delete("website:categories")
+
     return {"message": "Category created", "data": result.data[0]}
+
+
 
 @router.get("/categories", response_model=List[dict])
 async def get_categories(
@@ -490,6 +495,8 @@ async def create_product(
            "entered_by": current_user["id"]
        }
        supabase_admin.table("stock_entries").insert(stock_entry).execute()
+
+   redis_client.delete_pattern("website:products:*") 
    
    return {"message": "Product created", "data": result.data[0]}
 
@@ -571,6 +578,7 @@ async def update_product(
     
     # Invalidate cache
     invalidate_product_cache(product_id)
+    redis_client.delete_pattern("website:products:*")
     
     return {"message": "Product updated"}
 
@@ -860,6 +868,8 @@ async def delete_category(
     result = supabase_admin.table("categories").delete().eq("id", category_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Category not found")
+    
+    redis_client.delete("website:categories")
     
     return {"message": "Category deleted"}
 
