@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Creation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border: 1px solid #d4d4d4;
+        }
+        .header {
+            background: #217346;
+            color: white;
+            padding: 15px 20px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .login-section {
+            background: #f9f9f9;
+            border-bottom: 2px solid #217346;
+            padding: 15px 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+        input, select, textarea {
+            border: 1px solid #d4d4d4;
+            padding: 8px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: 2px solid #217346;
+            border-color: #217346;
+        }
+        .btn {
+            background: #217346;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .btn:hover {
+            background: #1a5c37;
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .grid-section {
+            padding: 20px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 1px;
+            background: #d4d4d4;
+            border: 1px solid #d4d4d4;
+        }
+        .cell {
+            background: white;
+            padding: 10px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+        }
+        .cell-header {
+            background: #f2f2f2;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .cell input, .cell select, .cell textarea {
+            width: 100%;
+            border: none;
+            padding: 4px;
+            font-size: 13px;
+        }
+        .cell textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+        .file-upload {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .file-upload input[type="file"] {
+            flex: 1;
+        }
+        .image-preview {
+            width: 100px;
+            height: 100px;
+            border: 1px solid #d4d4d4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fafafa;
+        }
+        .image-preview img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        .actions {
+            padding: 20px;
+            border-top: 2px solid #d4d4d4;
+            display: flex;
+            gap: 10px;
+        }
+        .response {
+            margin: 20px;
+            padding: 15px;
+            border: 1px solid #d4d4d4;
+            background: #f9f9f9;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .success { border-color: #217346; background: #e8f5e9; }
+        .error { border-color: #d32f2f; background: #ffebee; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">Product Creation - Excel Style</div>
+        
+        <div class="login-section">
+            <div class="form-group">
+                <label>Base URL</label>
+                <input type="text" id="baseUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+            </div>
+            <div class="form-group">
+                <label>Auth Token</label>
+                <input type="text" id="authToken" placeholder="Your JWT token">
+            </div>
+            <button class="btn" onclick="testConnection()">Test Connection</button>
+        </div>
+
+        <div class="grid-section">
+            <div class="grid">
+                <div class="cell cell-header">Product Name</div>
+                <div class="cell"><input type="text" id="name" placeholder="e.g., Jollof Rice"></div>
+
+                <div class="cell cell-header">Category ID</div>
+                <div class="cell"><input type="text" id="category_id" placeholder="Category UUID"></div>
+
+                <div class="cell cell-header">Price</div>
+                <div class="cell"><input type="number" id="price" placeholder="e.g., 2500" step="0.01"></div>
+
+                <div class="cell cell-header">Tax Per Unit</div>
+                <div class="cell"><input type="number" id="tax_per_unit" value="0" step="0.01"></div>
+
+                <div class="cell cell-header">Units (Stock)</div>
+                <div class="cell"><input type="number" id="units" value="100"></div>
+
+                <div class="cell cell-header">Low Stock Threshold</div>
+                <div class="cell"><input type="number" id="low_stock_threshold" value="10"></div>
+
+                <div class="cell cell-header">Prep Time (minutes)</div>
+                <div class="cell"><input type="number" id="preparation_time_minutes" value="15"></div>
+
+                <div class="cell cell-header">Description</div>
+                <div class="cell"><textarea id="description" placeholder="Product description"></textarea></div>
+
+                <div class="cell cell-header">SKU</div>
+                <div class="cell"><input type="text" id="sku" placeholder="Optional SKU code"></div>
+
+                <div class="cell cell-header">Variant Name</div>
+                <div class="cell"><input type="text" id="variant_name" placeholder="e.g., Large, Small"></div>
+
+                <div class="cell cell-header">Product Type</div>
+                <div class="cell">
+                    <select id="product_type">
+                        <option value="main">Main Product</option>
+                        <option value="extra">Extra/Add-on</option>
+                    </select>
+                </div>
+
+                <div class="cell cell-header">Image Upload</div>
+                <div class="cell">
+                    <div class="file-upload">
+                        <input type="file" id="imageFile" accept="image/*" onchange="previewImage()">
+                        <button class="btn" onclick="uploadImage()">Upload Image</button>
+                    </div>
+                </div>
+
+                <div class="cell cell-header">Image Preview</div>
+                <div class="cell">
+                    <div class="image-preview" id="imagePreview">No image</div>
+                </div>
+
+                <div class="cell cell-header">Image URL</div>
+                <div class="cell"><input type="text" id="image_url" placeholder="Will be filled after upload" readonly></div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn" onclick="createProduct()">Create Product</button>
+            <button class="btn" onclick="clearForm()">Clear Form</button>
+        </div>
+
+        <div id="response" class="response" style="display: none;"></div>
+    </div>
+
+    <script>
+        function getHeaders() {
+            const token = document.getElementById('authToken').value;
+            return {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value.replace(/\/$/, '');
+        }
+
+        function showResponse(message, isError = false) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = message;
+            responseDiv.className = isError ? 'response error' : 'response success';
+            responseDiv.style.display = 'block';
+        }
+
+        async function testConnection() {
+            try {
+                const response = await fetch(`${getBaseUrl()}/inventory/categories`, {
+                    headers: getHeaders()
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    showResponse(`✅ Connection successful!\nFound ${data.length} categories`);
+                } else {
+                    showResponse(`❌ Connection failed: ${response.status} ${response.statusText}`, true);
+                }
+            } catch (error) {
+                showResponse(`❌ Connection error: ${error.message}`, true);
+            }
+        }
+
+        function previewImage() {
+            const file = document.getElementById('imageFile').files[0];
+            const preview = document.getElementById('imagePreview');
+            
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function uploadImage() {
+            const fileInput = document.getElementById('imageFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResponse('❌ Please select an image first', true);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('image_type', 'product');
+
+            try {
+                const token = document.getElementById('authToken').value;
+                const response = await fetch(`${getBaseUrl()}/inventory/upload-image`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('image_url').value = data.image_url;
+                    showResponse(`✅ Image uploaded successfully!\nURL: ${data.image_url}`);
+                } else {
+                    showResponse(`❌ Upload failed: ${JSON.stringify(data, null, 2)}`, true);
+                }
+            } catch (error) {
+                showResponse(`❌ Upload error: ${error.message}`, true);
+            }
+        }
+
+        async function createProduct() {
+            const productData = {
+                name: document.getElementById('name').value,
+                category_id: document.getElementById('category_id').value,
+                price: parseFloat(document.getElementById('price').value),
+                tax_per_unit: parseFloat(document.getElementById('tax_per_unit').value),
+                units: parseInt(document.getElementById('units').value),
+                low_stock_threshold: parseInt(document.getElementById('low_stock_threshold').value),
+                preparation_time_minutes: parseInt(document.getElementById('preparation_time_minutes').value),
+                description: document.getElementById('description').value || null,
+                sku: document.getElementById('sku').value || null,
+                variant_name: document.getElementById('variant_name').value || null,
+                product_type: document.getElementById('product_type').value,
+                image_url: document.getElementById('image_url').value || null,
+                has_options: false,
+                options: []
+            };
+
+            // Validation
+            if (!productData.name || !productData.category_id || !productData.price) {
+                showResponse('❌ Please fill in Name, Category ID, and Price', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${getBaseUrl()}/inventory/products`, {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify(productData)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResponse(`✅ Product created successfully!\n\n${JSON.stringify(data, null, 2)}`);
+                } else {
+                    showResponse(`❌ Failed to create product:\n\n${JSON.stringify(data, null, 2)}`, true);
+                }
+            } catch (error) {
+                showResponse(`❌ Error: ${error.message}`, true);
+            }
+        }
+
+        function clearForm() {
+            document.getElementById('name').value = '';
+            document.getElementById('category_id').value = '';
+            document.getElementById('price').value = '';
+            document.getElementById('tax_per_unit').value = '0';
+            document.getElementById('units').value = '100';
+            document.getElementById('low_stock_threshold').value = '10';
+            document.getElementById('preparation_time_minutes').value = '15';
+            document.getElementById('description').value = '';
+            document.getElementById('sku').value = '';
+            document.getElementById('variant_name').value = '';
+            document.getElementById('product_type').value = 'main';
+            document.getElementById('imageFile').value = '';
+            document.getElementById('image_url').value = '';
+            document.getElementById('imagePreview').innerHTML = 'No image';
+            document.getElementById('response').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

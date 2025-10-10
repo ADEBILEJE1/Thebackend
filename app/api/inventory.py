@@ -1583,14 +1583,14 @@ async def get_sku_products(
 #             None
 #         )
         
-#         return {
-#             "image_url": image_url,
-#             "filename": filename,
-#             "type": image_type.value
-#         }
+    #     return {
+    #         "image_url": image_url,
+    #         "filename": filename,
+    #         "type": image_type.value
+    #     }
         
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/upload-image")
@@ -1622,13 +1622,11 @@ async def upload_image(
     filename = f"{uuid.uuid4()}.{file_extension}"
     bucket_name = f"{image_type.value}-images"
     
-    # ✅ Upload with proper parameters
     try:
         supabase_admin.storage.from_(bucket_name).upload(
             path=filename,
             file=content,
             file_options={"content-type": file.content_type}
-            # Removed upsert parameter - unique filename prevents duplicates
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
@@ -1649,6 +1647,7 @@ async def upload_image(
         "type": image_type.value,
         "size": file_size
     }
+
 
 
 @router.post("/banners", response_model=dict)
