@@ -1622,17 +1622,17 @@ async def upload_image(
     filename = f"{uuid.uuid4()}.{file_extension}"
     bucket_name = f"{image_type.value}-images"
     
-    # Upload - simplified without error checking wrapper
+    # ✅ Upload with proper parameters
     try:
         supabase_admin.storage.from_(bucket_name).upload(
             path=filename,
             file=content,
             file_options={"content-type": file.content_type}
+            # Removed upsert parameter - unique filename prevents duplicates
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
-    # Construct URL
     base_url = supabase_admin.supabase_url
     image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
     
@@ -1709,6 +1709,46 @@ async def delete_banner(
 
 
 
+@router.get("/test-storage")
+async def test_storage(current_user: dict = Depends(require_inventory_staff)):
+    """Test storage access"""
+    results = {}
+    
+    try:
+        results["has_supabase_admin"] = supabase_admin is not None
+        results["supabase_url"] = supabase_admin.supabase_url if supabase_admin else None
+    except Exception as e:
+        results["supabase_admin_error"] = str(e)
+        return results
+    
+    try:
+        buckets_response = supabase_admin.storage.list_buckets()
+        results["buckets_type"] = str(type(buckets_response))
+        results["buckets_raw"] = str(buckets_response)
+        
+        # Try different ways to access
+        if hasattr(buckets_response, '__iter__'):
+            results["is_iterable"] = True
+        if hasattr(buckets_response, 'data'):
+            results["has_data_attr"] = True
+            results["buckets"] = [b['name'] for b in buckets_response.data] if buckets_response.data else []
+    except Exception as e:
+        results["list_buckets_error"] = f"{type(e).__name__}: {str(e)}"
+        return results
+    
+    try:
+        test_content = b"test"
+        upload_result = supabase_admin.storage.from_("product-images").upload(
+            path="test.txt",
+            file=test_content,
+            file_options={"content-type": "text/plain"}
+        )
+        results["upload_success"] = True
+        results["upload_result"] = str(upload_result)
+    except Exception as e:
+        results["upload_error"] = f"{type(e).__name__}: {str(e)}"
+    
+    return results
 
 
 
