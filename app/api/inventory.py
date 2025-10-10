@@ -1605,6 +1605,41 @@ async def upload_image(
         ImageType.CATEGORY: 10 * 1024 * 1024,  
         ImageType.BANNER: 25 * 1024 * 1024   
     }
+
+
+    filename = f"{uuid.uuid4()}.{file_extension}"
+    bucket_name = f"{image_type.value}-images"
+    
+    print(f"🔍 Attempting upload to bucket: {bucket_name}")
+    print(f"🔍 Filename: {filename}")
+    print(f"🔍 File size: {file_size} bytes")
+    
+    # Upload to Supabase Storage
+    try:
+        response = supabase_admin.storage.from_(bucket_name).upload(
+            filename, 
+            content,
+            {"content-type": file.content_type, "upsert": "false"}
+        )
+        
+        print(f"🔍 Upload response: {response}")
+        
+        # Check for upload errors
+        if hasattr(response, 'error') and response.error:
+            print(f"❌ Upload error: {response.error}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Storage upload failed: {response.error}"
+            )
+        
+        # Check response data
+        if hasattr(response, 'data'):
+            print(f"✅ Upload data: {response.data}")
+        
+    except Exception as e:
+        print(f"❌ Exception during upload: {str(e)}")
+        print(f"❌ Exception type: {type(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
     # Validate file type
     if file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
