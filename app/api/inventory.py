@@ -1535,6 +1535,64 @@ async def get_sku_products(
 
 
 
+# @router.post("/upload-image")
+# async def upload_image(
+#     file: UploadFile = File(...),
+#     image_type: ImageType = ImageType.PRODUCT,
+#     current_user: dict = Depends(require_inventory_staff)
+# ):
+#     # Type-specific validation
+#     size_limits = {
+#         ImageType.PRODUCT: 5 * 1024 * 1024,   # 5MB
+#         ImageType.CATEGORY: 3 * 1024 * 1024,  # 3MB  
+#         ImageType.BANNER: 10 * 1024 * 1024    # 10MB
+#     }
+    
+#     # Validate file type
+#     if file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
+#         raise HTTPException(status_code=400, detail="Invalid file type")
+    
+#     # Validate file size
+#     if file.size > size_limits[image_type]:
+#         max_mb = size_limits[image_type] / (1024 * 1024)
+#         raise HTTPException(status_code=400, detail=f"File too large. Max {max_mb}MB for {image_type}")
+    
+#     # Generate unique filename
+#     file_extension = file.filename.split('.')[-1].lower()
+#     filename = f"{uuid.uuid4()}.{file_extension}"
+    
+#     # Upload to Supabase Storage
+#     try:
+#         bucket_name = f"{image_type.value}-images"
+        
+#         supabase_admin.storage.from_(bucket_name).upload(
+#             filename, 
+#             file.file.read(),
+#             {"content-type": file.content_type}
+#         )
+        
+        
+#         base_url = supabase_admin.supabase_url
+#         image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
+
+        
+#         await log_activity(
+#             current_user["id"], current_user["email"], current_user["role"],
+#             "upload", f"{image_type.value}_image", None, 
+#             {"filename": filename, "size": file.size}, 
+#             None
+#         )
+        
+#         return {
+#             "image_url": image_url,
+#             "filename": filename,
+#             "type": image_type.value
+#         }
+        
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
 @router.post("/upload-image")
 async def upload_image(
     file: UploadFile = File(...),
@@ -1543,55 +1601,90 @@ async def upload_image(
 ):
     # Type-specific validation
     size_limits = {
-        ImageType.PRODUCT: 5 * 1024 * 1024,   # 5MB
-        ImageType.CATEGORY: 3 * 1024 * 1024,  # 3MB  
-        ImageType.BANNER: 10 * 1024 * 1024    # 10MB
+        ImageType.PRODUCT: 20 * 1024 * 1024,
+        ImageType.CATEGORY: 10 * 1024 * 1024,  
+        ImageType.BANNER: 25 * 1024 * 1024   
     }
     
     # Validate file type
     if file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
-        raise HTTPException(status_code=400, detail="Invalid file type")
+        raise HTTPException(status_code=400, detail="Invalid file type. Must be JPEG, PNG, or WebP")
+    
+    # Block base64 strings
+    if file.content_type == "application/octet-stream":
+        raise HTTPException(status_code=400, detail="Send actual file, not base64 data")
+    
+    # Read file content
+    try:
+        content = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
     
     # Validate file size
-    if file.size > size_limits[image_type]:
+    file_size = len(content)
+    if file_size > size_limits[image_type]:
         max_mb = size_limits[image_type] / (1024 * 1024)
         raise HTTPException(status_code=400, detail=f"File too large. Max {max_mb}MB for {image_type}")
     
     # Generate unique filename
     file_extension = file.filename.split('.')[-1].lower()
+    if file_extension not in ['jpg', 'jpeg', 'png', 'webp']:
+        file_extension = 'jpg'
+    
     filename = f"{uuid.uuid4()}.{file_extension}"
+    bucket_name = f"{image_type.value}-images"
     
     # Upload to Supabase Storage
     try:
-        bucket_name = f"{image_type.value}-images"
-        
-        supabase_admin.storage.from_(bucket_name).upload(
+        response = supabase_admin.storage.from_(bucket_name).upload(
             filename, 
-            file.file.read(),
-            {"content-type": file.content_type}
+            content,
+            {"content-type": file.content_type, "upsert": "false"}
         )
         
-        
-        base_url = supabase_admin.supabase_url
-        image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
-
-        
-        await log_activity(
-            current_user["id"], current_user["email"], current_user["role"],
-            "upload", f"{image_type.value}_image", None, 
-            {"filename": filename, "size": file.size}, 
-            None
-        )
-        
-        return {
-            "image_url": image_url,
-            "filename": filename,
-            "type": image_type.value
-        }
+        # Check for upload errors
+        if hasattr(response, 'error') and response.error:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Storage upload failed: {response.error}"
+            )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
+        error_msg = str(e)
+        
+        # Handle specific Supabase errors
+        if "duplicate" in error_msg.lower():
+            raise HTTPException(status_code=409, detail="File already exists")
+        elif "bucket" in error_msg.lower() or "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Storage bucket '{bucket_name}' not found. Create it in Supabase Dashboard."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Upload failed: {error_msg}")
+    
+    # Construct public URL
+    base_url = supabase_admin.supabase_url
+    image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
+    
+    # Log activity
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "upload", f"{image_type.value}_image", None, 
+        {
+            "filename": filename, 
+            "size": file_size,
+            "bucket": bucket_name
+        }, 
+        None
+    )
+    
+    return {
+        "image_url": image_url,
+        "filename": filename,
+        "type": image_type.value,
+        "size": file_size
+    }
 
 
 @router.post("/banners", response_model=dict)
