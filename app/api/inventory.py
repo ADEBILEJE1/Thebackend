@@ -543,15 +543,12 @@ async def update_product(
     update: ProductUpdate,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    # Get current product for audit trail
+    # Check product exists
     current_product = supabase.table("products").select("*").eq("id", product_id).execute()
     if not current_product.data:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    current_data = current_product.data[0]
-    
     updates = {}
-    
     for k, v in update.dict().items():
         if v is not None and k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit"]:
             updates[k] = v
@@ -560,23 +557,20 @@ async def update_product(
         updates["updated_by"] = current_user["id"]
         updates["updated_at"] = datetime.utcnow().isoformat()
         
-        result = supabase.table("products").update(updates).eq("id", product_id).execute()
-        if not result.data:
-            raise HTTPException(status_code=404, detail="Product not found")
+        # Use supabase_admin and remove the check
+        supabase_admin.table("products").update(updates).eq("id", product_id).execute()
     
-    # Handle options update if provided
+    # Handle options
     if update.options is not None:
-        # Delete existing options
         supabase_admin.table("product_options").delete().eq("product_id", product_id).execute()
         
-        # Insert new options
         if update.options:
             for option in update.options:
-                option_data = {
-                    **option.dict(),
-                    "product_id": product_id
-                }
+                option_data = {**option.dict(), "product_id": product_id}
                 supabase_admin.table("product_options").insert(option_data).execute()
+    
+    # Invalidate cache
+    invalidate_product_cache(product_id)
     
     return {"message": "Product updated"}
 
@@ -585,108 +579,7 @@ async def update_product(
 
 
 
-# @router.post("/products/{product_id}/stock")
-# async def update_stock(
-#    product_id: str,
-#    stock: StockUpdate,
-#    request: Request,
-#    current_user: dict = Depends(require_inventory_staff)
-# ):
-#    # Get current product
-#    product = supabase.table("products").select("*").eq("id", product_id).execute()
-#    if not product.data:
-#        raise HTTPException(status_code=404, detail="Product not found")
-   
-#    current_units = product.data[0]["units"]
-#    low_threshold = product.data[0]["low_stock_threshold"]
-#    product_name = product.data[0]["name"]
-#    current_price = float(product.data[0]["price"])
-   
-#    # Calculate new units
-#    if stock.operation == "add":
-#        new_units = current_units + stock.quantity
-#    else:  # remove
-#        if stock.quantity > current_units:
-#            raise HTTPException(
-#                status_code=status.HTTP_400_BAD_REQUEST,
-#                detail=f"Cannot remove {stock.quantity} units. Only {current_units} available"
-#            )
-#        new_units = current_units - stock.quantity
-   
-#    # Determine new status
-#    if new_units == 0:
-#        new_status = StockStatus.OUT_OF_STOCK
-#    elif new_units <= low_threshold:
-#        new_status = StockStatus.LOW_STOCK
-#    else:
-#        new_status = StockStatus.IN_STOCK
-   
-#    # Update product
-#    product_update = {
-#        "units": new_units,
-#        "status": new_status,
-#        "updated_by": current_user["id"],
-#        "updated_at": datetime.utcnow().isoformat()
-#    }
-   
-#    # Add price update if provided
-#    if stock.price:
-#        product_update["price"] = float(stock.price)
-   
-#    supabase.table("products").update(product_update).eq("id", product_id).execute()
-   
-#    # Log stock entry
-#    stock_entry = {
-#        "product_id": product_id,
-#        "quantity": stock.quantity,
-#        "entry_type": stock.operation,
-#        "notes": stock.notes,
-#        "entered_by": current_user["id"]
-#    }
-   
-#    supabase_admin.table("stock_entries").insert(stock_entry).execute()
-   
-#    # Invalidate cache
-#    invalidate_product_cache(product_id)
-   
-#    # Update low stock alerts cache if needed
-#    if new_status in [StockStatus.LOW_STOCK, StockStatus.OUT_OF_STOCK]:
-#        redis_client.delete(CacheKeys.LOW_STOCK_ALERTS)
-   
-#    # Enhanced activity logging
-#    log_data = {
-#        "product_name": product_name,
-#        "quantity": stock.quantity,
-#        "previous_units": current_units,
-#        "new_units": new_units,
-#        "new_status": new_status,
-#        "notes": stock.notes,
-#        "operation": stock.operation
-#    }
-   
-#    if stock.price:
-#        log_data["previous_price"] = current_price
-#        log_data["new_price"] = float(stock.price)
-#        log_data["price_change"] = float(stock.price) - current_price
-   
-#    await log_activity(
-#        current_user["id"], current_user["email"], current_user["role"],
-#        f"stock_{stock.operation}", "product", product_id,
-#        log_data,
-#        request
-#    )
-   
-#    # Prepare return data
-#    return_data = {
-#        "message": f"Stock {stock.operation}ed successfully",
-#        "current_units": new_units,
-#        "status": new_status
-#    }
-   
-#    if stock.price:
-#        return_data["new_price"] = float(stock.price)
-   
-#    return return_data
+
 
 
 @router.post("/products/{product_id}/stock")
@@ -1535,62 +1428,7 @@ async def get_sku_products(
 
 
 
-# @router.post("/upload-image")
-# async def upload_image(
-#     file: UploadFile = File(...),
-#     image_type: ImageType = ImageType.PRODUCT,
-#     current_user: dict = Depends(require_inventory_staff)
-# ):
-#     # Type-specific validation
-#     size_limits = {
-#         ImageType.PRODUCT: 5 * 1024 * 1024,   # 5MB
-#         ImageType.CATEGORY: 3 * 1024 * 1024,  # 3MB  
-#         ImageType.BANNER: 10 * 1024 * 1024    # 10MB
-#     }
-    
-#     # Validate file type
-#     if file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
-#         raise HTTPException(status_code=400, detail="Invalid file type")
-    
-#     # Validate file size
-#     if file.size > size_limits[image_type]:
-#         max_mb = size_limits[image_type] / (1024 * 1024)
-#         raise HTTPException(status_code=400, detail=f"File too large. Max {max_mb}MB for {image_type}")
-    
-#     # Generate unique filename
-#     file_extension = file.filename.split('.')[-1].lower()
-#     filename = f"{uuid.uuid4()}.{file_extension}"
-    
-#     # Upload to Supabase Storage
-#     try:
-#         bucket_name = f"{image_type.value}-images"
-        
-#         supabase_admin.storage.from_(bucket_name).upload(
-#             filename, 
-#             file.file.read(),
-#             {"content-type": file.content_type}
-#         )
-        
-        
-#         base_url = supabase_admin.supabase_url
-#         image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
 
-        
-#         await log_activity(
-#             current_user["id"], current_user["email"], current_user["role"],
-#             "upload", f"{image_type.value}_image", None, 
-#             {"filename": filename, "size": file.size}, 
-#             None
-#         )
-        
-    #     return {
-    #         "image_url": image_url,
-    #         "filename": filename,
-    #         "type": image_type.value
-    #     }
-        
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/upload-image")
