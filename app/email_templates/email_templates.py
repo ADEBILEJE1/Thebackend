@@ -234,7 +234,6 @@ def get_forgot_password_template(reset_link: str, user_name: str) -> str:
             }}
             .info-box {{
                 background: #f9f9f9;
-                border-left: 4px solid #f0f0f0;
                 padding: 16px 20px;
                 border-radius: 4px;
                 margin: 24px 0;
