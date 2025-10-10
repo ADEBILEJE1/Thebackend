@@ -1018,27 +1018,125 @@ async def get_order_history(
 
 
 
+# @router.get("/orders/tracking")
+# async def get_all_orders_tracking(session_token: str = Query(...)):
+#     """Get tracking status for all customer orders"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+    
+#     orders = supabase_admin.table("orders").select("""
+#         *, 
+#         customer_addresses(full_address, delivery_areas(name, estimated_time))
+#     """).eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
+    
+#     tracking_orders = []
+#     for order_data in orders.data:
+#         # Fetch order items
+#         order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+        
+#         # Format items with options
+#         formatted_items = []
+#         for item in order_items.data:
+#             options_result = supabase_admin.table("order_item_options").select(
+#                 "*, product_options(id, name)"
+#             ).eq("order_item_id", item["id"]).execute()
+            
+#             formatted_options = [
+#                 {
+#                     "option_id": opt["product_options"]["id"],
+#                     "option_name": opt["product_options"]["name"]
+#                 }
+#                 for opt in options_result.data
+#             ]
+            
+#             formatted_items.append({
+#                 **item,
+#                 "options": formatted_options
+#             })
+        
+#         # Separate main items and extras
+#         main_items = [item for item in formatted_items if not item.get("is_extra")]
+#         extras = [item for item in formatted_items if item.get("is_extra")]
+        
+#         order_status = order_data["status"]
+#         tracking_stages = {
+#             "payment_confirmation": order_status in ["confirmed", "preparing", "out_for_delivery", "completed"],
+#             "processed": order_status in ["preparing", "out_for_delivery", "completed"],
+#             "out_for_delivery": order_status in ["out_for_delivery", "completed"]
+#         }
+        
+#         # Get delivery info
+#         delivery_info = None
+#         delivery_estimate = None
+        
+#         if order_data.get("customer_addresses"):
+#             delivery_info = {
+#                 "address": order_data["customer_addresses"]["full_address"],
+#                 "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+#             }
+            
+#             # Calculate delivery estimate
+#             delivery_estimate = DeliveryService.calculate_delivery_estimate(
+#                 formatted_items,
+#                 order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+#             )
+        
+#         tracking_orders.append({
+#             "order": {
+#                 "id": order_data["id"],
+#                 "order_number": order_data["order_number"],
+#                 "status": order_status,
+#                 "total": float(order_data["total"]),
+#                 "delivery_fee": float(order_data.get("delivery_fee", 0)),
+#                 "created_at": order_data["created_at"],
+#                 "monnify_transaction_ref": order_data.get("monnify_transaction_ref"),
+#                 "items": main_items,
+#                 "extras": extras
+#             },
+#             "delivery_info": delivery_info,
+#             "delivery_estimate": delivery_estimate,
+#             "tracking_stages": tracking_stages,
+#             "current_stage": (
+#                 "out_for_delivery" if order_status == "completed" else
+#                 "processed" if order_status == "preparing" else
+#                 "payment_confirmation" if order_status == "confirmed" else
+#                 "pending"
+#             )
+#         })
+    
+#     return {"orders": tracking_orders}
+
+
 @router.get("/orders/tracking")
 async def get_all_orders_tracking(session_token: str = Query(...)):
-    """Get tracking status for all customer orders"""
+    """Get tracking status for all customer orders with caching"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
+    # Check cache with customer-specific key
+    cache_key = f"tracking:{session_data['customer_id']}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return cached
     
+    # Fetch orders with related data
     orders = supabase_admin.table("orders").select("""
         *, 
         customer_addresses(full_address, delivery_areas(name, estimated_time))
     """).eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
     
     tracking_orders = []
+    
     for order_data in orders.data:
         # Fetch order items
-        order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+        order_items_result = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
         
         # Format items with options
         formatted_items = []
-        for item in order_items.data:
+        for item in order_items_result.data:
             options_result = supabase_admin.table("order_item_options").select(
                 "*, product_options(id, name)"
             ).eq("order_item_id", item["id"]).execute()
@@ -1061,11 +1159,26 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
         extras = [item for item in formatted_items if item.get("is_extra")]
         
         order_status = order_data["status"]
+        
+        # Define tracking stages based on status
         tracking_stages = {
             "payment_confirmation": order_status in ["confirmed", "preparing", "out_for_delivery", "completed"],
             "processed": order_status in ["preparing", "out_for_delivery", "completed"],
-            "out_for_delivery": order_status in ["out_for_delivery", "completed"]
+            "out_for_delivery": order_status in ["out_for_delivery", "completed"],
+            "completed": order_status == "completed"
         }
+        
+        # Determine current stage
+        if order_status == "completed":
+            current_stage = "completed"
+        elif order_status == "out_for_delivery":
+            current_stage = "out_for_delivery"
+        elif order_status == "preparing":
+            current_stage = "processed"
+        elif order_status == "confirmed":
+            current_stage = "payment_confirmation"
+        else:
+            current_stage = "pending"
         
         # Get delivery info
         delivery_info = None
@@ -1088,27 +1201,31 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
                 "id": order_data["id"],
                 "order_number": order_data["order_number"],
                 "status": order_status,
+                "subtotal": float(order_data.get("subtotal", 0)),
+                "tax": float(order_data.get("tax", 0)),
                 "total": float(order_data["total"]),
                 "delivery_fee": float(order_data.get("delivery_fee", 0)),
                 "created_at": order_data["created_at"],
+                "confirmed_at": order_data.get("confirmed_at"),
+                "preparing_at": order_data.get("preparing_at"),
+                "completed_at": order_data.get("completed_at"),
                 "monnify_transaction_ref": order_data.get("monnify_transaction_ref"),
+                "payment_reference": order_data.get("payment_reference"),
                 "items": main_items,
                 "extras": extras
             },
             "delivery_info": delivery_info,
             "delivery_estimate": delivery_estimate,
             "tracking_stages": tracking_stages,
-            "current_stage": (
-                "out_for_delivery" if order_status == "completed" else
-                "processed" if order_status == "preparing" else
-                "payment_confirmation" if order_status == "confirmed" else
-                "pending"
-            )
+            "current_stage": current_stage
         })
     
-    return {"orders": tracking_orders}
-
-
+    result = {"orders": tracking_orders}
+    
+    # Cache for 30 seconds - short cache for near real-time updates
+    redis_client.set(cache_key, result, 30)
+    
+    return result
 
 
 

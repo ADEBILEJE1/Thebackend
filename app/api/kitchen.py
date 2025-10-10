@@ -88,6 +88,15 @@ def calculate_order_total(items: List[dict]) -> dict:
     total = subtotal + tax
     return {"subtotal": subtotal, "tax": tax, "total": total}
 
+
+def invalidate_customer_tracking_cache(order_ids: List[str]):
+    """Invalidate tracking cache for customers of these orders"""
+    for order_id in order_ids:
+        order = supabase_admin.table("orders").select("website_customer_id").eq("id", order_id).execute()
+        if order.data and order.data[0].get("website_customer_id"):
+            customer_id = order.data[0]["website_customer_id"]
+            redis_client.delete(f"tracking:{customer_id}")
+
 async def check_product_availability(items: List[dict]) -> List[dict]:
     """Check if products are available and have sufficient stock"""
     processed_items = []
@@ -350,12 +359,12 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
 
 
 
+# In kitchen.py - mark_batch_ready
 @router.post("/chef/batch-ready")
 async def mark_batch_ready(
     batch_id: str,
     current_user: dict = Depends(require_chef_staff)
 ):
-    """Mark entire batch as completed - all orders in batch"""
     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
     
     if not orders.data:
@@ -364,14 +373,12 @@ async def mark_batch_ready(
     order_ids = [o["id"] for o in orders.data]
     completed_at = datetime.utcnow().isoformat()
     
-    # Mark all orders in batch as completed
     supabase_admin.table("orders").update({
         "status": "completed",
         "completed_at": completed_at,
         "updated_at": completed_at
     }).in_("id", order_ids).execute()
     
-    # Send notifications for online orders
     for order in orders.data:
         if order["order_type"] == "online" and order.get("customer_email"):
             send_order_ready_notification.delay(
@@ -383,10 +390,13 @@ async def mark_batch_ready(
     for order_id in order_ids:
         invalidate_order_cache(order_id)
     
-    # ✅ Notify each order individually
+    # Clear customer tracking cache
+    invalidate_customer_tracking_cache(order_ids)
+    
+    # Notify each order
     for order in orders.data:
         await notify_order_update(
-            order["id"],  # ← order_id, not batch_id
+            order["id"],
             "order_completed",
             {
                 "order_id": order["id"],
@@ -396,6 +406,7 @@ async def mark_batch_ready(
         )
     
     return {"message": f"Batch {batch_id} completed - {len(orders.data)} orders marked ready"}
+
 
 
 @router.get("/queue/history")
@@ -814,6 +825,9 @@ async def start_batch_preparation(
         "preparing_at": datetime.utcnow().isoformat()
     }).in_("id", order_ids).execute()
     
+    # Clear customer tracking cache
+    invalidate_customer_tracking_cache(order_ids)
+    
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "start_preparation", "batch", None,
@@ -821,10 +835,10 @@ async def start_batch_preparation(
         request
     )
     
-    # ✅ Notify each order
+    # Notify each order
     for order in orders.data:
         await notify_order_update(
-            order["id"],  # ← order_id
+            order["id"],
             "status_update",
             {
                 "order_id": order["id"],
