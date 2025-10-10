@@ -309,6 +309,47 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
 
 
 
+# @router.post("/chef/batch-ready")
+# async def mark_batch_ready(
+#     batch_id: str,
+#     current_user: dict = Depends(require_chef_staff)
+# ):
+#     """Mark entire batch as completed - all orders in batch"""
+#     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
+    
+#     if not orders.data:
+#         raise HTTPException(status_code=404, detail="Batch not found or already completed")
+    
+#     order_ids = [o["id"] for o in orders.data]
+#     completed_at = datetime.utcnow().isoformat()
+    
+#     # Mark all orders in batch as completed
+#     supabase_admin.table("orders").update({
+#         "status": "completed",
+#         "completed_at": completed_at,
+#         "updated_at": completed_at
+#     }).in_("id", order_ids).execute()
+    
+#     # Send notifications for online orders
+#     for order in orders.data:
+#         if order["order_type"] == "online" and order.get("customer_email"):
+#             send_order_ready_notification.delay(
+#                 order["order_number"],
+#                 order["customer_email"]
+#             )
+    
+#     # Invalidate caches
+#     for order_id in order_ids:
+#         invalidate_order_cache(order_id)
+    
+#     # Notify via WebSocket
+#     await notify_order_update(batch_id, "batch_completed", {"batch_id": batch_id, "order_count": len(orders.data)})
+    
+#     return {"message": f"Batch {batch_id} completed - {len(orders.data)} orders marked ready"}
+
+
+
+
 @router.post("/chef/batch-ready")
 async def mark_batch_ready(
     batch_id: str,
@@ -342,8 +383,17 @@ async def mark_batch_ready(
     for order_id in order_ids:
         invalidate_order_cache(order_id)
     
-    # Notify via WebSocket
-    await notify_order_update(batch_id, "batch_completed", {"batch_id": batch_id, "order_count": len(orders.data)})
+    # ✅ Notify each order individually
+    for order in orders.data:
+        await notify_order_update(
+            order["id"],  # ← order_id, not batch_id
+            "order_completed",
+            {
+                "order_id": order["id"],
+                "order_number": order["order_number"],
+                "status": "completed"
+            }
+        )
     
     return {"message": f"Batch {batch_id} completed - {len(orders.data)} orders marked ready"}
 
@@ -715,13 +765,43 @@ async def get_individual_chef_analytics(chef_id: str, days: int = 30) -> Dict[st
 
 
 
+# @router.post("/kitchen/start-batch/{batch_id}")
+# async def start_batch_preparation(
+#     batch_id: str,
+#     request: Request,
+#     current_user: dict = Depends(require_chef_staff)
+# ):
+#     """Change batch status from confirmed to preparing"""
+#     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "confirmed").execute()
+    
+#     if not orders.data:
+#         raise HTTPException(status_code=404, detail="No confirmed orders found for this batch")
+    
+#     order_ids = [o["id"] for o in orders.data]
+    
+#     # Update all orders in batch to preparing
+#     supabase_admin.table("orders").update({
+#         "status": "preparing",
+#         "preparing_at": datetime.utcnow().isoformat()
+#     }).in_("id", order_ids).execute()
+    
+#     await log_activity(
+#         current_user["id"], current_user["email"], current_user["role"],
+#         "start_preparation", "batch", None,
+#         {"batch_id": batch_id, "order_count": len(orders.data)},
+#         request
+#     )
+    
+#     await notify_order_update(batch_id, "batch_started", {"batch_id": batch_id})
+    
+#     return {"message": f"Batch {batch_id} preparation started", "orders_count": len(orders.data)}
+
 @router.post("/kitchen/start-batch/{batch_id}")
 async def start_batch_preparation(
     batch_id: str,
     request: Request,
     current_user: dict = Depends(require_chef_staff)
 ):
-    """Change batch status from confirmed to preparing"""
     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "confirmed").execute()
     
     if not orders.data:
@@ -729,7 +809,6 @@ async def start_batch_preparation(
     
     order_ids = [o["id"] for o in orders.data]
     
-    # Update all orders in batch to preparing
     supabase_admin.table("orders").update({
         "status": "preparing",
         "preparing_at": datetime.utcnow().isoformat()
@@ -742,6 +821,15 @@ async def start_batch_preparation(
         request
     )
     
-    await notify_order_update(batch_id, "batch_started", {"batch_id": batch_id})
+    # ✅ Notify each order
+    for order in orders.data:
+        await notify_order_update(
+            order["id"],  # ← order_id
+            "status_update",
+            {
+                "order_id": order["id"],
+                "status": "preparing"
+            }
+        )
     
     return {"message": f"Batch {batch_id} preparation started", "orders_count": len(orders.data)}

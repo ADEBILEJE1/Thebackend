@@ -3,15 +3,7 @@ from typing import Dict, Set
 import json
 from datetime import datetime
 from ..database import supabase
-from ..core.permissions import (
-    get_current_user, 
-    require_super_admin, 
-    require_manager_up, 
-    require_staff,
-    require_inventory_staff,
-    require_sales_staff,
-    require_chef_staff
-)
+from ..services.redis import redis_client
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
@@ -20,7 +12,8 @@ class ConnectionManager:
         self.active_connections: Dict[str, Set[WebSocket]] = {
             "sales": set(),
             "kitchen": set(),
-            "admin": set()
+            "admin": set(),
+            "website": set()  # ← Added
         }
     
     async def connect(self, websocket: WebSocket, channel: str):
@@ -50,17 +43,44 @@ manager = ConnectionManager()
 @router.websocket("/orders")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: str = Query(None),
+    session_token: str = Query(None),
     channel: str = Query(...)
 ):
-    # Validate token using Supabase
+    """WebSocket endpoint for staff and website customers"""
+    
+    # Website customer authentication
+    if channel == "website":
+        if not session_token:
+            await websocket.close(code=1008, reason="Session token required")
+            return
+        
+        # Validate session token
+        session_data = redis_client.get(f"customer_session:{session_token}")
+        if not session_data:
+            await websocket.close(code=1008, reason="Invalid session")
+            return
+        
+        await manager.connect(websocket, "website")
+        
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            manager.disconnect(websocket, "website")
+        return
+    
+    # Staff authentication (existing code)
+    if not token:
+        await websocket.close(code=1008, reason="Token required")
+        return
+    
     try:
         user = supabase.auth.get_user(token)
         if not user:
             await websocket.close(code=1008, reason="Invalid token")
             return
         
-        # Get user role
         profile = supabase.table("profiles").select("role").eq("id", user.user.id).execute()
         if not profile.data:
             await websocket.close(code=1008, reason="User not found")
@@ -68,7 +88,6 @@ async def websocket_endpoint(
         
         user_role = profile.data[0]["role"]
         
-        # Validate channel access
         channel_permissions = {
             "sales": ["sales", "manager", "super_admin"],
             "kitchen": ["chef", "manager", "super_admin"],
@@ -90,6 +109,7 @@ async def websocket_endpoint(
         await websocket.close(code=1008, reason="Authentication failed")
 
 async def notify_order_update(order_id: str, event_type: str, data: dict):
+    """Notify relevant channels about order updates"""
     message = {
         "event": event_type,
         "order_id": order_id,
@@ -97,10 +117,21 @@ async def notify_order_update(order_id: str, event_type: str, data: dict):
         "timestamp": datetime.utcnow().isoformat()
     }
     
+    # Route to appropriate channels
     if event_type == "new_order":
         await manager.send_to_channel(message, "kitchen")
         await manager.send_to_channel(message, "sales")
-    elif event_type == "order_ready":
-        await manager.send_to_channel(message, "sales")
     
+    elif event_type in ["order_completed", "batch_completed", "order_ready"]:
+        await manager.send_to_channel(message, "sales")
+        await manager.send_to_channel(message, "website")  # ← Notify customers
+    
+    elif event_type == "batch_started":
+        await manager.send_to_channel(message, "kitchen")
+        await manager.send_to_channel(message, "website")  # ← Notify customers
+    
+    elif event_type == "status_update":
+        await manager.send_to_channel(message, "website")  # ← Notify customers
+    
+    # Always notify admin
     await manager.send_to_channel(message, "admin")
