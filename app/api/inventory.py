@@ -1599,120 +1599,47 @@ async def upload_image(
     image_type: ImageType = ImageType.PRODUCT,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    # Type-specific validation
     size_limits = {
         ImageType.PRODUCT: 20 * 1024 * 1024,
         ImageType.CATEGORY: 10 * 1024 * 1024,  
-        ImageType.BANNER: 25 * 1024 * 1024   
+        ImageType.BANNER: 25 * 1024 * 1024
     }
-
-
-    filename = f"{uuid.uuid4()}.{file_extension}"
-    bucket_name = f"{image_type.value}-images"
     
-    print(f"🔍 Attempting upload to bucket: {bucket_name}")
-    print(f"🔍 Filename: {filename}")
-    print(f"🔍 File size: {file_size} bytes")
-    
-    # Upload to Supabase Storage
-    try:
-        response = supabase_admin.storage.from_(bucket_name).upload(
-            filename, 
-            content,
-            {"content-type": file.content_type, "upsert": "false"}
-        )
-        
-        print(f"🔍 Upload response: {response}")
-        
-        # Check for upload errors
-        if hasattr(response, 'error') and response.error:
-            print(f"❌ Upload error: {response.error}")
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Storage upload failed: {response.error}"
-            )
-        
-        # Check response data
-        if hasattr(response, 'data'):
-            print(f"✅ Upload data: {response.data}")
-        
-    except Exception as e:
-        print(f"❌ Exception during upload: {str(e)}")
-        print(f"❌ Exception type: {type(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-    
-    # Validate file type
     if file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
-        raise HTTPException(status_code=400, detail="Invalid file type. Must be JPEG, PNG, or WebP")
+        raise HTTPException(status_code=400, detail="Invalid file type")
     
-    # Block base64 strings
-    if file.content_type == "application/octet-stream":
-        raise HTTPException(status_code=400, detail="Send actual file, not base64 data")
-    
-    # Read file content
-    try:
-        content = await file.read()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
-    
-    # Validate file size
+    content = await file.read()
     file_size = len(content)
+    
     if file_size > size_limits[image_type]:
         max_mb = size_limits[image_type] / (1024 * 1024)
-        raise HTTPException(status_code=400, detail=f"File too large. Max {max_mb}MB for {image_type}")
+        raise HTTPException(status_code=400, detail=f"File too large. Max {max_mb}MB")
     
-    # Generate unique filename
     file_extension = file.filename.split('.')[-1].lower()
     if file_extension not in ['jpg', 'jpeg', 'png', 'webp']:
         file_extension = 'jpg'
     
     filename = f"{uuid.uuid4()}.{file_extension}"
     bucket_name = f"{image_type.value}-images"
-
-   
     
-    # Upload to Supabase Storage
+    # Upload - simplified without error checking wrapper
     try:
-        response = supabase_admin.storage.from_(bucket_name).upload(
-            filename, 
-            content,
-            {"content-type": file.content_type, "upsert": "false"}
+        supabase_admin.storage.from_(bucket_name).upload(
+            path=filename,
+            file=content,
+            file_options={"content-type": file.content_type}
         )
-        
-        # Check for upload errors
-        if hasattr(response, 'error') and response.error:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Storage upload failed: {response.error}"
-            )
-        
     except Exception as e:
-        error_msg = str(e)
-        
-        # Handle specific Supabase errors
-        if "duplicate" in error_msg.lower():
-            raise HTTPException(status_code=409, detail="File already exists")
-        elif "bucket" in error_msg.lower() or "not found" in error_msg.lower():
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Storage bucket '{bucket_name}' not found. Create it in Supabase Dashboard."
-            )
-        else:
-            raise HTTPException(status_code=500, detail=f"Upload failed: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
-    # Construct public URL
+    # Construct URL
     base_url = supabase_admin.supabase_url
     image_url = f"{base_url}/storage/v1/object/public/{bucket_name}/{filename}"
     
-    # Log activity
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "upload", f"{image_type.value}_image", None, 
-        {
-            "filename": filename, 
-            "size": file_size,
-            "bucket": bucket_name
-        }, 
+        {"filename": filename, "size": file_size, "bucket": bucket_name}, 
         None
     )
     
