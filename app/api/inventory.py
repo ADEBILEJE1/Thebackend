@@ -1634,7 +1634,7 @@ async def upload_image(
     filename = f"{uuid.uuid4()}.{file_extension}"
     bucket_name = f"{image_type.value}-images"
 
-    await InventoryService.ensure_bucket_exists(bucket_name)
+   
     
     # Upload to Supabase Storage
     try:

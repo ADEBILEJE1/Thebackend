@@ -768,23 +768,4 @@ class InventoryService:
             "daily_average_cost": float(total_packaging_cost / ((end_date - start_date).days + 1))
         }
     
-    @staticmethod
-    async def ensure_bucket_exists(bucket_name: str):
-        """Create bucket if it doesn't exist - only runs once per bucket"""
-        from ..database import supabase_admin
-        from fastapi import HTTPException
-        
-        try:
-            buckets = supabase_admin.storage.list_buckets()
-            bucket_exists = any(b['name'] == bucket_name for b in buckets)
-            
-            if not bucket_exists:
-                supabase_admin.storage.create_bucket(
-                    bucket_name,
-                    options={"public": True}
-                )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Bucket error: {str(e)}"
-            )
+   
