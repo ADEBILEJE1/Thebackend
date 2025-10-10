@@ -218,7 +218,7 @@ class DeliveryService:
         - Total = cooking + delivery
         
         Args:
-            order_items: List of items with preparation_time_minutes
+            order_items: List of items (needs product_id to fetch prep times)
             delivery_area_time: String like "20-30 minutes"
         
         Returns:
@@ -232,11 +232,29 @@ class DeliveryService:
         """
         import re
         
-        # Find longest cooking time (parallel cooking)
-        cooking_time = max(
-            (item.get("preparation_time_minutes", 15) for item in order_items),
-            default=15
-        )
+        # Fetch preparation times from database
+        product_ids = [item.get("product_id") for item in order_items if item.get("product_id")]
+        
+        cooking_time = 15  # Default fallback
+        
+        if product_ids:
+            # Batch fetch all product prep times
+            products = supabase.table("products").select(
+                "id, preparation_time_minutes"
+            ).in_("id", product_ids).execute()
+            
+            # Create prep time map
+            prep_time_map = {
+                p["id"]: p.get("preparation_time_minutes", 15) 
+                for p in products.data
+            }
+            
+            # Find longest cooking time (parallel cooking)
+            prep_times = [
+                prep_time_map.get(item.get("product_id"), 15) 
+                for item in order_items
+            ]
+            cooking_time = max(prep_times) if prep_times else 15
         
         # Parse delivery time range (e.g., "20-30 minutes" or "25 minutes")
         time_numbers = re.findall(r'\d+', delivery_area_time)
