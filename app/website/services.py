@@ -3,10 +3,15 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import re
 import uuid
+import ssl
+import resend
+import os
 import httpx
 from uuid import uuid4
 import random
 import string
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
 import math
 import requests
 import base64
@@ -15,6 +20,11 @@ from ..database import supabase
 from ..services.redis import redis_client
 from ..core.cache import CacheKeys
 from ..config import settings
+from ..email_templates.email_templates import get_otp_email_template
+
+
+
+resend.api_key = os.getenv("RESEND_API_KEY")
 
 
 class CustomerService:
@@ -70,15 +80,15 @@ class CustomerService:
     
     @staticmethod
     async def send_login_pin(email: str) -> bool:
-        """Generate and send login PIN to email"""
         pin = CustomerService.generate_pin()
-        
-        # Store PIN in Redis with 10-minute expiry
         redis_client.set(f"login_pin:{email}", pin, 600)
         
-        # TODO: Send email with PIN
-        # For now, just log it
-        print(f"Login PIN for {email}: {pin}")
+        resend.Emails.send({
+            "from": "noreply@lebanstreet.com",
+            "to": email,
+            "subject": "Your Verification Code",
+            "html": get_otp_email_template(pin, email.split('@')[0].title())
+        })
         
         return True
     
@@ -197,6 +207,62 @@ class DeliveryService:
             return "45-60 minutes"
         else:
             return "60-90 minutes"
+        
+
+    @staticmethod
+    def calculate_delivery_estimate(order_items: List[Dict], delivery_area_time: str) -> Dict[str, Any]:
+        """
+        Calculate total delivery estimate
+        - Cooking time = longest prep time (kitchen cooks in parallel)
+        - Delivery time = area's estimated time
+        - Total = cooking + delivery
+        
+        Args:
+            order_items: List of items with preparation_time_minutes
+            delivery_area_time: String like "20-30 minutes"
+        
+        Returns:
+            {
+                "cooking_time_minutes": int,
+                "delivery_time_range": str,
+                "total_estimate_min": int,
+                "total_estimate_max": int,
+                "total_estimate_display": str
+            }
+        """
+        import re
+        
+        # Find longest cooking time (parallel cooking)
+        cooking_time = max(
+            (item.get("preparation_time_minutes", 15) for item in order_items),
+            default=15
+        )
+        
+        # Parse delivery time range (e.g., "20-30 minutes" or "25 minutes")
+        time_numbers = re.findall(r'\d+', delivery_area_time)
+        
+        if len(time_numbers) >= 2:
+            delivery_min = int(time_numbers[0])
+            delivery_max = int(time_numbers[1])
+        elif len(time_numbers) == 1:
+            delivery_min = delivery_max = int(time_numbers[0])
+        else:
+            # Default if parsing fails
+            delivery_min = delivery_max = 30
+        
+        # Calculate total estimates
+        total_min = cooking_time + delivery_min
+        total_max = cooking_time + delivery_max
+        
+        return {
+            "cooking_time_minutes": cooking_time,
+            "delivery_time_range": delivery_area_time,
+            "delivery_time_min": delivery_min,
+            "delivery_time_max": delivery_max,
+            "total_estimate_min": total_min,
+            "total_estimate_max": total_max,
+            "total_estimate_display": f"{total_min}-{total_max} minutes"
+        }
 
 class CartService:
 
@@ -441,11 +507,44 @@ class AddressService:
         return result.data[0]
     
 class MonnifyService:
+
+
+    class TLSAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            ctx = ssl.create_default_context()
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            kwargs['ssl_context'] = ctx
+            return super().init_poolmanager(*args, **kwargs)
+
+
+
     @staticmethod
     def get_base_url() -> str:
         """Get base URL based on environment"""
         return settings.MONNIFY_BASE_URL
     
+    # @staticmethod
+    # async def get_access_token() -> str:
+    #     """Fetch access token from Monnify"""
+    #     credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
+    #     encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+    #     headers = {
+    #         "Authorization": f"Basic {encoded_credentials}",
+    #         "Content-Type": "application/json"
+    #     }
+
+    #     url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
+        
+    #     response = requests.post(url, headers=headers, timeout=30)
+    #     response.raise_for_status()
+
+    #     data = response.json()
+    #     print(f"DEBUG Access Token Response: {data}")
+
+    #     return data["responseBody"]["accessToken"]
+    
+
     @staticmethod
     async def get_access_token() -> str:
         """Fetch access token from Monnify"""
@@ -458,14 +557,98 @@ class MonnifyService:
         }
 
         url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
-        response = requests.post(url, headers=headers, timeout=30)
-        response.raise_for_status()
+        
+        ssl_context = ssl.create_default_context()
+        ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        
+        async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
+            response = await client.post(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            print(f"DEBUG Access Token Response: {data}")
+            return data["responseBody"]["accessToken"]
 
-        data = response.json()
-        print(f"DEBUG Access Token Response: {data}")
 
-        return data["responseBody"]["accessToken"]
     
+    # @staticmethod
+    # async def create_virtual_account(
+    #     amount: Decimal,
+    #     customer_email: str,
+    #     customer_name: str,
+    #     customer_phone: str,
+    #     payment_reference: str
+    # ) -> Dict[str, Any]:
+    #     access_token = await MonnifyService.get_access_token()
+        
+    #     headers = {
+    #         "Authorization": f"Bearer {access_token}",
+    #         "Content-Type": "application/json"
+    #     }
+
+    #     # Check if customer already has a reserved account
+    #     account_reference = f"CUST-{customer_email.split('@')[0]}"  # Constant per customer
+        
+    #     # Try to get existing account first
+    #     async with httpx.AsyncClient() as client:
+    #         try:
+    #             get_response = await client.get(
+    #                 f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
+    #                 headers=headers,
+    #                 timeout=30
+    #             )
+                
+    #             if get_response.status_code == 200:
+    #                 # Account exists, return it
+    #                 data = get_response.json()["responseBody"]
+    #                 account = data["accounts"][0]
+                    
+    #                 return {
+    #                     "payment_reference": payment_reference,
+    #                     "account_reference": account_reference,
+    #                     "account_number": account["accountNumber"],
+    #                     "account_name": account["accountName"],
+    #                     "bank_name": account["bankName"],
+    #                     "amount": amount,
+    #                     "expires_at": datetime.utcnow() + timedelta(hours=1)
+    #                 }
+    #         except:
+    #             pass  # Account doesn't exist, create new one
+
+    #     # Create new account
+    #     payload = {
+    #         "accountReference": account_reference,
+    #         "accountName": settings.MONNIFY_ACCOUNT_NAME,
+    #         "currencyCode": "NGN",
+    #         "contractCode": settings.MONNIFY_CONTRACT_CODE,
+    #         "customerEmail": customer_email,
+    #         "customerName": customer_name,
+    #         "preferredBanks": ["50515"], 
+    #         "getAllAvailableBanks": False
+    #     }
+
+    #     async with httpx.AsyncClient() as client:
+    #         response = await client.post(
+    #             f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts",
+    #             headers=headers,
+    #             json=payload,
+    #             timeout=30
+    #         )
+
+    #     response.raise_for_status()
+    #     data = response.json()["responseBody"]
+    #     account = data["accounts"][0]
+
+    #     return {
+    #         "payment_reference": payment_reference,
+    #         "account_reference": account_reference,
+    #         "account_number": account["accountNumber"],
+    #         "account_name": account["accountName"],
+    #         "bank_name": account["bankName"],
+    #         "amount": amount,
+    #         "expires_at": datetime.utcnow() + timedelta(hours=1)
+    #     }
+    
+
     @staticmethod
     async def create_virtual_account(
         amount: Decimal,
@@ -482,15 +665,18 @@ class MonnifyService:
         }
 
         # Check if customer already has a reserved account
-        account_reference = f"CUST-{customer_email.split('@')[0]}"  # Constant per customer
+        account_reference = f"CUST-{customer_email.split('@')[0]}"
+        
+        # SSL context
+        ssl_context = ssl.create_default_context()
+        ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
         
         # Try to get existing account first
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
             try:
                 get_response = await client.get(
                     f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
-                    headers=headers,
-                    timeout=30
+                    headers=headers
                 )
                 
                 if get_response.status_code == 200:
@@ -513,7 +699,7 @@ class MonnifyService:
         # Create new account
         payload = {
             "accountReference": account_reference,
-            "accountName": customer_name,
+            "accountName": "LEBANST KITCHEN",
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": customer_email,
@@ -522,12 +708,11 @@ class MonnifyService:
             "getAllAvailableBanks": False
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
             response = await client.post(
                 f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts",
                 headers=headers,
-                json=payload,
-                timeout=30
+                json=payload
             )
 
         response.raise_for_status()
@@ -543,10 +728,14 @@ class MonnifyService:
             "amount": amount,
             "expires_at": datetime.utcnow() + timedelta(hours=1)
         }
+
+
+
+
     
     # @staticmethod
-    # async def verify_payment(payment_reference: str) -> Dict[str, Any]:
-    #     """Verify payment status"""
+    # async def verify_payment(account_reference: str) -> Dict[str, Any]:
+    #     """Verify payment status by checking account transactions"""
     #     access_token = await MonnifyService.get_access_token()
         
     #     headers = {
@@ -555,24 +744,36 @@ class MonnifyService:
     #     }
         
     #     try:
-    #         response = requests.get(
-    #             f"{MonnifyService.get_base_url()}/api/v2/transactions/{payment_reference}",
+    #         # Get account details which includes transaction info
+    #         account_response = requests.get(
+    #             f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
     #             headers=headers,
     #             timeout=30
     #         )
             
-    #         if response.status_code == 404:
-    #             return {"paymentStatus": "PENDING"}
+    #         print(f"🔍 Account Response: {account_response.text}")
             
-    #         response.raise_for_status()
-    #         return response.json()["responseBody"]
+    #         if account_response.status_code == 200:
+    #             data = account_response.json()["responseBody"]
+                
+    #             # Check if there are transactions
+    #             if data.get("transactionCount", 0) > 0 and data.get("totalAmount", 0) > 0:
+    #                 # Account has transactions - payment is PAID
+    #                 return {
+    #                     "paymentStatus": "PAID",
+    #                     "transactionReference": account_reference,  # Use account ref for now
+    #                     "amountPaid": data.get("totalAmount"),
+    #                     "paidOn": data.get("createdOn")
+    #                 }
             
-    #     except requests.RequestException:
     #         return {"paymentStatus": "PENDING"}
+            
+    #     except Exception as e:
+    #         print(f"❌ Verification error: {str(e)}")
+    #         return {"paymentStatus": "PENDING"}
+        
 
 
-
-    
     @staticmethod
     async def verify_payment(account_reference: str) -> Dict[str, Any]:
         """Verify payment status by checking account transactions"""
@@ -583,15 +784,19 @@ class MonnifyService:
             "Content-Type": "application/json"
         }
         
+        # Create session with TLS adapter
+        session = requests.Session()
+        session.mount('https://', MonnifyService.TLSAdapter())
+        
         try:
             # Get account details which includes transaction info
-            account_response = requests.get(
+            account_response = session.get(
                 f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
                 headers=headers,
                 timeout=30
             )
             
-            print(f"🔍 Account Response: {account_response.text}")
+            print(f"📊 Account Response: {account_response.text}")
             
             if account_response.status_code == 200:
                 data = account_response.json()["responseBody"]
@@ -601,7 +806,7 @@ class MonnifyService:
                     # Account has transactions - payment is PAID
                     return {
                         "paymentStatus": "PAID",
-                        "transactionReference": account_reference,  # Use account ref for now
+                        "transactionReference": account_reference,
                         "amountPaid": data.get("totalAmount"),
                         "paidOn": data.get("createdOn")
                     }
@@ -611,7 +816,7 @@ class MonnifyService:
         except Exception as e:
             print(f"❌ Verification error: {str(e)}")
             return {"paymentStatus": "PENDING"}
-        
+
 
     @staticmethod
     async def process_webhook_payment(payload: Dict, account_reference: str, transaction_reference: str):

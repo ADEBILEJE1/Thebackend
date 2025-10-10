@@ -18,6 +18,7 @@ from .services import MonnifyService
 from .services import CartService
 from ..api.sales_service import SalesService
 from ..config import settings
+from .services import CustomerService, DeliveryService, CartService, AddressService
 
 router = APIRouter(prefix="/website", tags=["Website"])
 
@@ -412,7 +413,7 @@ async def complete_checkout(
         delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
         
         order_data = {
-            "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+            "order_number": f"TEMP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
             "order_type": "online",
             "status": "pending",
             "payment_status": "pending",
@@ -430,8 +431,8 @@ async def complete_checkout(
         created_order = supabase_admin.table("orders").insert(order_data).execute()
         order_id = created_order.data[0]["id"]
 
-        today = datetime.utcnow().strftime("%Y%m%d")
-        order_number = f"WEB-{today}-{str(order_id)[-6:].zfill(6)}"
+        datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        order_number = f"LEBANST-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
         updated_order = supabase_admin.table("orders").update({"order_number": order_number}).eq("id", order_id).execute()
 
         created_orders.append(updated_order.data[0])
@@ -594,6 +595,10 @@ async def verify_payment(account_reference: str):
             try:
                 created_orders = []
                 all_items = []
+
+
+                batch_id = CartService.generate_batch_id()
+                batch_created_at = datetime.utcnow().isoformat()
                
                 for order_data in payment_session["orders"]:
                     processed_items = await CartService.validate_cart_items(order_data["items"])
@@ -607,11 +612,15 @@ async def verify_payment(account_reference: str):
                     delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
                    
                     order_entry = {
-                        "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+                        # "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+                        "order_number": f"TEMP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
                         "order_type": "online",
                         "status": "confirmed",
                         "payment_status": "paid",
+                        "batch_id": batch_id,  
+                        "batch_created_at": batch_created_at, 
                         "payment_reference": payment_session["payment_reference"],
+                        "monnify_transaction_ref": payment_data.get("transactionReference"),
                         "subtotal": float(totals["subtotal"]),
                         "tax": float(totals["tax"]),
                         "delivery_fee": delivery_fee,
@@ -624,8 +633,8 @@ async def verify_payment(account_reference: str):
                     created_order = supabase_admin.table("orders").insert(order_entry).execute()
                     order_id = created_order.data[0]["id"]
 
-                    today = datetime.utcnow().strftime("%Y%m%d")
-                    order_number = f"WEB-{today}-{str(order_id)[-6:].zfill(6)}"
+                    datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                    order_number = f"LEBANST-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
 
                     updated_order = supabase_admin.table("orders").update({
                         "order_number": order_number
@@ -665,6 +674,7 @@ async def verify_payment(account_reference: str):
                 return {
                     "payment_status": "success",
                     "orders": created_orders,
+                    "tracking_references": [o["order_number"] for o in created_orders],
                     "payment_details": payment_data
                 }
             
@@ -858,21 +868,45 @@ async def get_order_history(
     limit: int = Query(20, le=100),
     offset: int = Query(0, ge=0)
 ):
-    """Get customer order history - only completed orders"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Get completed orders with delivery info
     orders = supabase_admin.table("orders").select("""
         *, 
         customer_addresses(full_address, delivery_areas(name))
     """).eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
     
-    # Get items for each order and include delivery fee
+    # Format items with options and extras
     for order in orders.data:
-        items = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
-        order["order_items"] = items.data
+        items_result = supabase_admin.table("order_items").select("*").eq("order_id", order["id"]).execute()
+        
+        formatted_items = []
+        for item in items_result.data:
+            # Fetch options for this item
+            options_result = supabase_admin.table("order_item_options").select(
+                "*, product_options(id, name)"
+            ).eq("order_item_id", item["id"]).execute()
+            
+            formatted_options = [
+                {
+                    "option_id": opt["product_options"]["id"],
+                    "option_name": opt["product_options"]["name"]
+                }
+                for opt in options_result.data
+            ]
+            
+            formatted_items.append({
+                **item,
+                "options": formatted_options
+            })
+        
+        # Separate main items and extras
+        main_items = [item for item in formatted_items if not item.get("is_extra")]
+        extras = [item for item in formatted_items if item.get("is_extra")]
+        
+        order["items"] = main_items
+        order["extras"] = extras
         order["delivery_fee"] = float(order.get("delivery_fee", 0))
     
     return {
@@ -899,22 +933,55 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
     
     tracking_orders = []
     for order_data in orders.data:
+        # Fetch order items
         order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+        
+        # Format items with options
+        formatted_items = []
+        for item in order_items.data:
+            options_result = supabase_admin.table("order_item_options").select(
+                "*, product_options(id, name)"
+            ).eq("order_item_id", item["id"]).execute()
+            
+            formatted_options = [
+                {
+                    "option_id": opt["product_options"]["id"],
+                    "option_name": opt["product_options"]["name"]
+                }
+                for opt in options_result.data
+            ]
+            
+            formatted_items.append({
+                **item,
+                "options": formatted_options
+            })
+        
+        # Separate main items and extras
+        main_items = [item for item in formatted_items if not item.get("is_extra")]
+        extras = [item for item in formatted_items if item.get("is_extra")]
         
         order_status = order_data["status"]
         tracking_stages = {
-            "payment_confirmation": order_status in ["confirmed", "preparing", "completed"],
-            "processed": order_status == "completed",
-            "out_for_delivery": order_status == "completed"
+            "payment_confirmation": order_status in ["confirmed", "preparing", "out_for_delivery", "completed"],
+            "processed": order_status in ["preparing", "out_for_delivery", "completed"],
+            "out_for_delivery": order_status in ["out_for_delivery", "completed"]
         }
         
         # Get delivery info
         delivery_info = None
+        delivery_estimate = None
+        
         if order_data.get("customer_addresses"):
             delivery_info = {
                 "address": order_data["customer_addresses"]["full_address"],
                 "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
             }
+            
+            # Calculate delivery estimate
+            delivery_estimate = DeliveryService.calculate_delivery_estimate(
+                formatted_items,
+                order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+            )
         
         tracking_orders.append({
             "order": {
@@ -924,13 +991,17 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
                 "total": float(order_data["total"]),
                 "delivery_fee": float(order_data.get("delivery_fee", 0)),
                 "created_at": order_data["created_at"],
-                "items": order_items.data
+                "monnify_transaction_ref": order_data.get("monnify_transaction_ref"),
+                "items": main_items,
+                "extras": extras
             },
             "delivery_info": delivery_info,
+            "delivery_estimate": delivery_estimate,
             "tracking_stages": tracking_stages,
             "current_stage": (
                 "out_for_delivery" if order_status == "completed" else
-                "payment_confirmation" if order_status in ["confirmed", "preparing"] else
+                "processed" if order_status == "preparing" else
+                "payment_confirmation" if order_status == "confirmed" else
                 "pending"
             )
         })

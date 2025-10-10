@@ -1047,7 +1047,7 @@ async def create_offline_order(
     order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
     
     order_entry = {
-        "order_number": order_number,
+        "order_number": f"TEMP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
         "display_number": display_number,
         "order_type": "offline",
         "order_placement_type": order_data.order_placement_type,
@@ -1068,6 +1068,15 @@ async def create_offline_order(
     
     created_order = supabase_admin.table("orders").insert(order_entry).execute()
     order_id = created_order.data[0]["id"]
+
+    # Generate final order number
+    datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    order_number = f"LEBANST-POS-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
+
+    # Update with final order number
+    supabase_admin.table("orders").update({"order_number": order_number}).eq("id", order_id).execute()
+
+   
     
     for item in processed_items:
         item_data = {

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Query
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional
@@ -21,9 +21,14 @@ from ..core.session import session_manager
 from ..core.rate_limiter import auth_limiter
 from ..core.cache import invalidate_user_cache
 from ..database import supabase, supabase_admin
+from ..email_templates.email_templates import (
+    get_forgot_password_template,
+    get_invitation_email_template
+)
 
 from ..models.user import UserRole
 from ..core.activity_logger import log_activity
+
 
 
 resend.api_key = os.getenv("RESEND_API_KEY")
@@ -85,18 +90,6 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 
-def send_invitation_email(email: str, token: str):
-    invitation_link = f"{os.getenv('RESEND_APP_URL')}/auth/set-password?token={token}"
-    
-    resend.Emails.send({
-        "from": "noreply@lebanstreet.com",
-        "to": email,
-        "subject": "You're invited!",
-        "html": f"<p>Click to register: <a href='{invitation_link}'>Join now</a></p>"
-    })
-
-
-
 @router.post("/invite", response_model=dict)
 async def invite_user(
     invitation: UserInvite,
@@ -132,11 +125,22 @@ async def invite_user(
     
     result = supabase_admin.table("invitations").insert(invitation_data).execute()
     
+    # Create invitation link - ADD THIS LINE
+    invitation_link = f"{os.getenv('RESEND_APP_URL')}/auth/set-password?token={token}"
+    
     # Send invitation email
-    send_invitation_email(invitation.email, token)
+    resend.Emails.send({
+        "from": "noreply@lebanstreet.com",
+        "to": invitation.email,
+        "subject": "You're Invited to Join LebanStreet",
+        "html": get_invitation_email_template(
+            invitation_link, 
+            invitation.role, 
+            current_user.get("full_name", "Admin")
+        )
+    })
     
     return {"message": "Invitation sent successfully"}
-
 
 
 
@@ -350,11 +354,9 @@ async def forgot_password(
 ):
     """Send password reset link via email"""
     
-    # Rate limiting
     await auth_limiter.check_rate_limit(request, request_data.email)
     
-    # Check if user exists
-    profile = supabase.table("profiles").select("id, is_active").eq("email", request_data.email).execute()
+    profile = supabase.table("profiles").select("id, is_active, full_name").eq("email", request_data.email).execute()
     
     if not profile.data:
         return {"message": "If the email exists, a reset link has been sent"}
@@ -366,15 +368,23 @@ async def forgot_password(
         )
     
     try:
-        # Send reset link (not OTP)
-        supabase.auth.reset_password_email(
-            request_data.email,
-            options={
-                "redirect_to": "https://yourdomain.com/reset-password"  # Your frontend reset page
-            }
-        )
+        # Generate reset token
+        reset_token = generate_invitation_token()  # Reuse existing function
         
-        # Log activity
+        # Store in Redis (30 min expiry)
+        from ..services.redis import redis_client
+        redis_client.set(f"password_reset:{reset_token}", profile.data[0]["id"], 1800)
+        
+        # Send via Resend
+        reset_link = f"{os.getenv('RESEND_APP_URL')}/auth/set-password?token={reset_token}"
+        
+        resend.Emails.send({
+            "from": "noreply@lebanstreet.com",
+            "to": request_data.email,
+            "subject": "Reset Your Password",
+            "html": get_forgot_password_template(reset_link, profile.data[0]['full_name'])
+        })
+        
         await log_activity(
             profile.data[0]["id"], request_data.email, "unknown",
             "forgot_password", "auth", None,
@@ -388,35 +398,39 @@ async def forgot_password(
         return {"message": "If the email exists, a reset link has been sent"}
 
 
+
 @router.post("/reset-password")
 async def reset_password(
     reset_data: ResetPasswordRequest,
-    request: Request
+    request: Request,
+    token: str = Query(...)
 ):
-    """Reset password using token from email link"""
+    """Reset password using token from email"""
     
-    # Rate limiting
     await auth_limiter.check_rate_limit(request, reset_data.email)
     
     try:
-        # The token comes from the URL in the email link
-        # User clicks link -> redirected to frontend -> frontend extracts token -> calls this endpoint
-        response = supabase.auth.update_user({
-            "password": reset_data.new_password
-        })
+        from ..services.redis import redis_client
         
-        if not response.user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired reset link"
-            )
+        # Validate token
+        user_id = redis_client.get(f"password_reset:{token}")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset link")
         
-        # Sign out all sessions
-        session_manager.destroy_all_user_sessions(response.user.id)
+        # Update password
+        supabase_admin.auth.admin.update_user_by_id(
+            user_id,
+            {"password": reset_data.new_password}
+        )
         
-        # Log activity
+        # Delete token
+        redis_client.delete(f"password_reset:{token}")
+        
+        # Destroy all sessions
+        session_manager.destroy_all_user_sessions(user_id)
+        
         await log_activity(
-            response.user.id, reset_data.email, "unknown",
+            user_id, reset_data.email, "unknown",
             "password_reset", "auth", None,
             {"ip": request.client.host},
             request
@@ -427,10 +441,8 @@ async def reset_password(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset link"
-        )
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
     
 
 @router.post("/select-dashboard")

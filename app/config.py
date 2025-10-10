@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     resend_api_key: str
     resend_app_url: str
 
+    MONNIFY_ACCOUNT_NAME: str = "LB" 
+
     MONNIFY_ENVIRONMENT: str = "sandbox"
     MONNIFY_API_KEY: str
     MONNIFY_SECRET_KEY: str
