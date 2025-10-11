@@ -1352,7 +1352,7 @@ async def recall_confirmed_order(
 @router.get("/batches")
 async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
     """Get order batches waiting for kitchen push - only confirmed status"""
-    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "confirmed").not_.is_("batch_id", "null").order("batch_created_at").execute()
+    result = supabase_admin.table("orders").select("*, order_items(*)").eq("status", "confirmed").eq("order_type", "online").not_.is_("batch_id", "null").order("batch_created_at").execute()
     
     # Group by batch_id
     batches = {}
