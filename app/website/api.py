@@ -6,7 +6,7 @@ import uuid
 import requests
 from uuid import uuid4
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import BackgroundTasks
 
 from .models import *
@@ -975,7 +975,7 @@ async def get_order_history(
     orders = supabase_admin.table("orders").select("""
         *, 
         customer_addresses(full_address, delivery_areas(name))
-    """).eq("website_customer_id", session_data["customer_id"]).eq("status", "completed").order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
+    """).eq("website_customer_id", session_data["customer_id"]).in_("status", ["completed", "delivered", "cancelled"]).order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
     
     # Format items with options and extras
     for order in orders.data:
@@ -1123,11 +1123,15 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
         return cached
     
     # Fetch orders with related data
+    thirty_mins_ago = (datetime.utcnow() - timedelta(minutes=30)).isoformat()
+
     orders = supabase_admin.table("orders").select("""
         *, 
         customer_addresses(full_address, delivery_areas(name, estimated_time))
-    """).eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
-    
+    """).eq("website_customer_id", session_data["customer_id"]).or_(
+        f"status.neq.completed,completed_at.gte.{thirty_mins_ago}"
+    ).order("created_at", desc=True).execute()
+        
     tracking_orders = []
     
     for order_data in orders.data:
