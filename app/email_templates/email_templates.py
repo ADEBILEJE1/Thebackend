@@ -430,7 +430,6 @@ def get_invitation_email_template(invitation_link: str, role: str, invited_by_na
             }}
             .info-box {{
                 background: #f9f9f9;
-                border-left: 4px solid #FE1B01;
                 padding: 16px 20px;
                 border-radius: 4px;
                 margin: 24px 0;

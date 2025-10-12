@@ -306,9 +306,12 @@ async def check_email_for_address(email_data: EmailCheck):
 @router.post("/addresses/verify-and-save")
 async def verify_pin_and_save_address(verify_data: PinVerifyAndAddress):
     """Verify PIN and save address"""
+    print(f"📥 Received data: {verify_data.dict()}")
+    
     is_valid = await CustomerService.verify_pin(verify_data.email, verify_data.pin)
     
     if not is_valid:
+        print(f"❌ Invalid PIN for {verify_data.email}")
         raise HTTPException(status_code=400, detail="Invalid or expired PIN")
     
     customer = supabase_admin.table("website_customers").select("*").eq("email", verify_data.email).execute()
