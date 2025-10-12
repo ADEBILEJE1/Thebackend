@@ -540,7 +540,7 @@ class AddressService:
             raise ValueError("Invalid area selected")
         
         
-        street_address = address_data["full_address"] 
+        street_address = address_data["street_address"]
         
         full_address = f"{street_address}, {area.data[0]['name']}"
         
