@@ -79,25 +79,34 @@ class CustomerService:
         return ''.join(random.choices(string.digits, k=4))
     
     @staticmethod
-    async def send_login_pin(email: str) -> bool:
+    def send_login_pin(email: str) -> bool:
         pin = CustomerService.generate_pin()
         redis_client.set(f"login_pin:{email}", pin, 600)
         
-        resend.Emails.send({
-            "from": "noreply@lebanstreet.com",
-            "to": email,
-            "subject": "Your Verification Code",
-            "html": get_otp_email_template(pin, email.split('@')[0].title())
-        })
-        
-        return True
-    
+        try:
+            resend.Emails.send({
+                "from": "noreply@lebanstreet.com",
+                "to": email,
+                "subject": "Your Verification Code",
+                "html": get_otp_email_template(pin, email.split('@')[0].title())
+            })
+            print(f"✅ PIN sent to {email}: {pin}")
+            return True
+        except Exception as e:
+            print(f"❌ Email send failed: {str(e)}")
+            return False
+
+
     @staticmethod
     async def verify_pin(email: str, pin: str) -> bool:
         """Verify login PIN"""
         stored_pin = redis_client.get(f"login_pin:{email}")
         
-        if stored_pin == pin:
+        # Handle bytes from Redis
+        if isinstance(stored_pin, bytes):
+            stored_pin = stored_pin.decode('utf-8')
+        
+        if stored_pin and stored_pin == pin:
             redis_client.delete(f"login_pin:{email}")
             return True
         
