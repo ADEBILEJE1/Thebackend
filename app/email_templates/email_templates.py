@@ -53,19 +53,18 @@ def get_otp_email_template(pin: str, customer_name: str = "Customer") -> str:
             .otp-code {{
                 font-size: 48px;
                 font-weight: 700;
-                color: #ffffff;
+                color: #FE1B01;
                 letter-spacing: 12px;
                 font-family: 'Courier New', monospace;
             }}
             .otp-label {{
-                color: #ffffff;
+                color: #FE1B01;
                 font-size: 14px;
                 margin-top: 12px;
                 opacity: 0.9;
             }}
             .info-box {{
                 background: #f9f9f9;
-                border-left: 4px solid #FE1B01;
                 padding: 16px 20px;
                 border-radius: 4px;
                 margin: 24px 0;
