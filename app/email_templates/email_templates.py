@@ -128,8 +128,8 @@ def get_otp_email_template(pin: str, customer_name: str = "Customer") -> str:
                 </div>
                 
                 <div class="info-box">
-                    <p>⏱️ This code will expire in <strong>10 minutes</strong></p>
-                    <p>🔒 Never share this code with anyone</p>
+                    <p> This code will expire in <strong>10 minutes</strong></p>
+                    <p> Never share this code with anyone</p>
                 </div>
                 
                 <p>If you didn't request this code, please ignore this email or contact our support team.</p>
@@ -304,8 +304,8 @@ def get_forgot_password_template(reset_link: str, user_name: str) -> str:
                 </div>
                 
                 <div class="info-box">
-                    <p>⏱️ This link will expire in <strong>30 minutes</strong></p>
-                    <p>🔒 For security, you'll be logged out of all devices after resetting</p>
+                    <p>⏱ This link will expire in <strong>30 minutes</strong></p>
+                    <p> For security, you'll be logged out of all devices after resetting</p>
                 </div>
                 
                 <p style="font-size: 14px;">If the button doesn't work, copy and paste this link into your browser:</p>
@@ -522,8 +522,8 @@ def get_invitation_email_template(invitation_link: str, role: str, invited_by_na
                 </div>
                 
                 <div class="info-box">
-                    <p>⏱️ This invitation expires in <strong>7 days</strong></p>
-                    <p>🔒 You'll create your own secure password during setup</p>
+                    <p> This invitation expires in <strong>7 days</strong></p>
+                    <p> You'll create your own secure password during setup</p>
                 </div>
                 
                 <div class="features">
