@@ -144,12 +144,7 @@ async def get_products_for_website(
     if cached:
         return cached
 
-    # Single query with all joins
-    query = supabase_admin.table("products").select("""
-        id, name, variant_name, price, description, image_url, units, 
-        low_stock_threshold, has_options, product_type, main_product_id, category_id,
-        categories(id, name)
-    """).eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
+    query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
 
     if category_id:
         query = query.eq("category_id", category_id)
@@ -158,28 +153,21 @@ async def get_products_for_website(
     if max_price:
         query = query.lte("price", max_price)
     
-    # Fetch main products only
     main_products = query.range(offset, offset + limit - 1).execute().data
     
     if not main_products:
         redis_client.set(cache_key, [], 300)
         return []
     
-    # Get all main product IDs
     main_product_ids = [p["id"] for p in main_products]
+    category_ids = list(set([p["category_id"] for p in main_products if p.get("category_id")]))
     
-    # Batch fetch extras for all main products
-    extras_result = supabase_admin.table("products").select("""
-        id, name, variant_name, price, description, image_url, units, 
-        low_stock_threshold, main_product_id
-    """).in_("main_product_id", main_product_ids).eq("is_available", True).execute()
+    # Batch fetch categories
+    categories_result = supabase_admin.table("categories").select("id, name").in_("id", category_ids).execute()
+    categories_map = {c["id"]: c for c in categories_result.data}
     
-    # Batch fetch options for main products
-    options_result = supabase_admin.table("product_options").select(
-        "product_id, id, name, display_order"
-    ).in_("product_id", main_product_ids).execute()
-    
-    # Map extras by main_product_id
+    # Batch fetch extras
+    extras_result = supabase_admin.table("products").select("*").in_("main_product_id", main_product_ids).eq("is_available", True).execute()
     extras_map = {}
     for extra in extras_result.data:
         main_id = extra["main_product_id"]
@@ -187,7 +175,8 @@ async def get_products_for_website(
             extras_map[main_id] = []
         extras_map[main_id].append(extra)
     
-    # Map options by product_id
+    # Batch fetch options
+    options_result = supabase_admin.table("product_options").select("*").in_("product_id", main_product_ids).execute()
     options_map = {}
     for opt in options_result.data:
         pid = opt["product_id"]
@@ -202,16 +191,14 @@ async def get_products_for_website(
         if product.get("variant_name"):
             display_name += f" - {product['variant_name']}"
         
-        category = product.get("categories") or {"id": product.get("category_id"), "name": "Uncategorized"}
+        category = categories_map.get(product.get("category_id"), {"id": None, "name": "Uncategorized"})
         
-        # Format options
         options = [
             {"id": o["id"], "name": o["name"]}
             for o in sorted(options_map.get(product["id"], []), 
-                          key=lambda x: (x.get("display_order", 999), x["name"]))
+                          key=lambda x: (x.get("display_order", 999), x.get("name", "")))
         ]
         
-        # Format extras
         extras = []
         for extra in extras_map.get(product["id"], []):
             extra_name = extra["name"]
@@ -241,7 +228,6 @@ async def get_products_for_website(
             "category": category
         })
     
-    # Sort by category name, then product name
     result.sort(key=lambda x: (x["category"]["name"], x["name"]))
     
     redis_client.set(cache_key, result, 300)
