@@ -172,7 +172,7 @@ class CustomerService:
         
         if len(existing.data) > 0:
             # Email exists - send PIN for verification
-            await CustomerService.send_login_pin(email)
+            CustomerService.send_login_pin(email)
             
             return {
                 "requires_pin": True,
