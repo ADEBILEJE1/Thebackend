@@ -504,6 +504,45 @@ async def create_product(
 
 
 
+# @router.get("/products", response_model=List[dict])
+# async def get_products(
+#     request: Request,
+#     category_id: Optional[str] = None,
+#     available_only: bool = False,
+#     include_out_of_stock: bool = True,
+#     current_user: dict = Depends(require_staff)
+# ):
+#     await default_limiter.check_rate_limit(request, current_user["id"])
+    
+#     cache_key = f"products:list:{category_id}:{available_only}:{include_out_of_stock}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     query = supabase.table("products").select("*, categories(*), suppliers(name)")
+    
+#     if category_id:
+#         query = query.eq("category_id", category_id)
+#     if available_only:
+#         query = query.eq("is_available", True)
+#     if not include_out_of_stock:
+#         query = query.neq("status", StockStatus.OUT_OF_STOCK)
+    
+#     result = query.order("name").execute()
+    
+#     # Add options to products that have them
+#     for product in result.data:
+#         if product.get("has_options"):
+#             options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order").order("name").execute()
+#             product["options"] = options.data
+#         else:
+#             product["options"] = []
+    
+#     redis_client.set(cache_key, result.data, 60)
+#     return result.data
+
+
+
 @router.get("/products", response_model=List[dict])
 async def get_products(
     request: Request,
@@ -519,7 +558,7 @@ async def get_products(
     if cached:
         return cached
     
-    query = supabase.table("products").select("*, categories(*), suppliers(name)")
+    query = supabase.table("products").select("*")
     
     if category_id:
         query = query.eq("category_id", category_id)
@@ -530,18 +569,50 @@ async def get_products(
     
     result = query.order("name").execute()
     
-    # Add options to products that have them
+    if not result.data:
+        redis_client.set(cache_key, [], 120)
+        return []
+    
+    # Batch fetch categories, suppliers, and options
+    category_ids = list(set([p["category_id"] for p in result.data if p.get("category_id")]))
+    supplier_ids = list(set([p["supplier_id"] for p in result.data if p.get("supplier_id")]))
+    product_ids = [p["id"] for p in result.data]
+    
+    categories_result = supabase.table("categories").select("*").in_("id", category_ids).execute()
+    suppliers_result = supabase.table("suppliers").select("id, name").in_("id", supplier_ids).execute()
+    options_result = supabase.table("product_options").select("*").in_("product_id", product_ids).execute()
+    
+    # Create lookup maps
+    categories_map = {c["id"]: c for c in categories_result.data}
+    suppliers_map = {s["id"]: s for s in suppliers_result.data}
+    options_map = {}
+    for opt in options_result.data:
+        pid = opt["product_id"]
+        if pid not in options_map:
+            options_map[pid] = []
+        options_map[pid].append(opt)
+    
+    # Attach related data
     for product in result.data:
+        product["categories"] = categories_map.get(product.get("category_id"))
+        product["suppliers"] = suppliers_map.get(product.get("supplier_id"))
+        
         if product.get("has_options"):
-            options = supabase.table("product_options").select("*").eq("product_id", product["id"]).order("display_order").order("name").execute()
-            product["options"] = options.data
+            product["options"] = sorted(
+                options_map.get(product["id"], []),
+                key=lambda x: (x.get("display_order", 999), x.get("name", ""))
+            )
         else:
             product["options"] = []
     
-    redis_client.set(cache_key, result.data, 60)
+    redis_client.set(cache_key, result.data, 120)
     return result.data
 
 
+
+# CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+# CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id);
+# CREATE INDEX IF NOT EXISTS idx_product_options_product_id_display ON product_options(product_id, display_order);
 
 
 @router.patch("/products/{product_id}")
