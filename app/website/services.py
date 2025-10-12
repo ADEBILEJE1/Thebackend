@@ -496,6 +496,36 @@ class CartService:
         return f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
 
 class AddressService:
+    # @staticmethod
+    # async def save_customer_address(customer_id: str, address_data: Dict) -> Dict:
+    #     """Save customer address with area"""
+    #     if address_data.get("is_default"):
+    #         supabase.table("customer_addresses").update({
+    #             "is_default": False
+    #         }).eq("customer_id", customer_id).execute()
+        
+    #     # Get area details for full address
+    #     area = supabase.table("delivery_areas").select("name").eq("id", address_data["area_id"]).execute()
+    #     if not area.data:
+    #         raise ValueError("Invalid area selected")
+        
+    #     # Compose full address
+    #     full_address = f"{address_data['street_address']}, {area.data[0]['name']}"
+        
+    #     address_entry = {
+    #         "customer_id": customer_id,
+    #         "name": address_data["name"],
+    #         "area_id": address_data["area_id"],
+    #         "street_address": address_data["street_address"],
+    #         "full_address": full_address,
+    #         "is_default": address_data.get("is_default", False)
+    #     }
+        
+    #     result = supabase.table("customer_addresses").insert(address_entry).execute()
+        # return result.data[0]
+    
+
+
     @staticmethod
     async def save_customer_address(customer_id: str, address_data: Dict) -> Dict:
         """Save customer address with area"""
@@ -509,21 +539,24 @@ class AddressService:
         if not area.data:
             raise ValueError("Invalid area selected")
         
-        # Compose full address
-        full_address = f"{address_data['street_address']}, {area.data[0]['name']}"
+        
+        street_address = address_data["full_address"] 
+        
+        full_address = f"{street_address}, {area.data[0]['name']}"
         
         address_entry = {
             "customer_id": customer_id,
             "name": address_data["name"],
             "area_id": address_data["area_id"],
-            "street_address": address_data["street_address"],
+            "street_address": street_address, # Save the street part explicitly
             "full_address": full_address,
             "is_default": address_data.get("is_default", False)
         }
         
         result = supabase.table("customer_addresses").insert(address_entry).execute()
         return result.data[0]
-    
+
+
     @staticmethod
     async def get_customer_addresses(customer_id: str) -> List[Dict]:
         """Get customer addresses with area details"""
