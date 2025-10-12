@@ -44,9 +44,7 @@ def get_otp_email_template(pin: str, customer_name: str = "Customer") -> str:
                 margin: 0 0 24px 0;
             }}
             .otp-box {{
-                background: linear-gradient(135deg, #FE1B01 0%, #ff4d36 100%);
-                border-radius: 12px;
-                padding: 32px;
+              
                 text-align: center;
                 margin: 32px 0;
             }}
@@ -218,8 +216,7 @@ def get_forgot_password_template(reset_link: str, user_name: str) -> str:
             .reset-button {{
                 display: inline-block;
                 padding: 16px 48px;
-                background: linear-gradient(135deg, #FE1B01 0%, #ff4d36 100%);
-                color: #ffffff;
+                color: #FE1B01;
                 text-decoration: none;
                 border-radius: 8px;
                 font-weight: 600;
