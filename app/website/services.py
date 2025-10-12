@@ -546,7 +546,7 @@ class AddressService:
         
         address_entry = {
             "customer_id": customer_id,
-            "name": address_data["name"],
+            "name": address_data.get("name", "N/A"),
             "area_id": address_data["area_id"],
             "street_address": street_address, # Save the street part explicitly
             "full_address": full_address,
