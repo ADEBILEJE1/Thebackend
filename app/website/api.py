@@ -144,7 +144,7 @@ async def get_products_for_website(
     if cached:
         return cached
 
-    query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main").neq("status", "out_of_stock")
+    query = supabase_admin.table("products").select("*").eq("is_available", True).eq("product_type", "main")
 
     if category_id:
         query = query.eq("category_id", category_id)
@@ -228,11 +228,16 @@ async def get_products_for_website(
             "category": category
         })
     
-    result.sort(key=lambda x: (x["category"]["name"], x["name"]))
+    # result.sort(key=lambda x: (x["category"]["name"], x["name"]))
     
     redis_client.set(cache_key, result, 300)
     return result
 
+
+
+# CREATE INDEX IF NOT EXISTS idx_products_available ON products(is_available, product_type, status);
+# CREATE INDEX IF NOT EXISTS idx_products_main_product_id ON products(main_product_id);
+# CREATE INDEX IF NOT EXISTS idx_product_options_product_id ON product_options(product_id);
 
 
 @router.get("/products/{product_id}/current-stock")
