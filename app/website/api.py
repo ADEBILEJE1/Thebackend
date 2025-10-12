@@ -1016,7 +1016,7 @@ async def get_order_history(
     orders = supabase_admin.table("orders").select("""
         *, 
         customer_addresses(full_address, delivery_areas(name))
-    """).eq("website_customer_id", session_data["customer_id"]).in_("status", ["completed", "delivered", "cancelled"]).order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
+    """).eq("website_customer_id", session_data["customer_id"]).in_("status", ["completed", "cancelled"]).order("completed_at", desc=True).range(offset, offset + limit - 1).execute()
     
     # Format items with options and extras
     for order in orders.data:
