@@ -102,11 +102,21 @@ class CustomerService:
         """Verify login PIN"""
         stored_pin = redis_client.get(f"login_pin:{email}")
         
-        # Handle bytes from Redis
-        if isinstance(stored_pin, bytes):
-            stored_pin = stored_pin.decode('utf-8')
+    
         
-        if stored_pin and stored_pin == pin:
+       
+        if stored_pin:
+          
+            if isinstance(stored_pin, bytes):
+                stored_pin = stored_pin.decode('utf-8').strip()
+            else:
+                stored_pin = stored_pin.strip()
+
+       
+        clean_pin = pin.strip()
+        
+       
+        if stored_pin and stored_pin == clean_pin:
             redis_client.delete(f"login_pin:{email}")
             return True
         
