@@ -118,16 +118,52 @@ class CustomerService:
         
         return session_token
 
+    # @staticmethod
+    # async def check_email_and_handle_auth(email: str, phone: str = None, full_name: str = None) -> Dict[str, Any]:
+    #     """Check if email exists and handle authentication accordingly"""
+    #     existing = supabase.table("website_customers").select("*").eq("email", email).execute()
+        
+    #     if len(existing.data) > 0:
+    #         # Email exists - require PIN verification
+    #         pin = CustomerService.generate_pin()
+    #         redis_client.set(f"login_pin:{email}", pin, 600)
+    #         print(f"PIN for {email}: {pin}")
+            
+    #         return {
+    #             "requires_pin": True,
+    #             "customer_id": existing.data[0]["id"],
+    #             "message": "Email found. PIN sent for verification."
+    #         }
+    #     else:
+    #         # New email - auto-register
+    #         if not full_name:
+    #             full_name = CustomerService.extract_name_from_email(email)
+            
+    #         customer_data = {
+    #             "email": email,
+    #             "full_name": full_name,
+    #             "phone": phone,
+    #             "last_seen": datetime.utcnow().isoformat()
+    #         }
+            
+    #         result = supabase.table("website_customers").insert(customer_data).execute()
+    #         session_token = await CustomerService.create_customer_session(result.data[0]["id"])
+            
+    #         return {
+    #             "requires_pin": False,
+    #             "customer": result.data[0],
+    #             "session_token": session_token,
+    #             "message": "Account created successfully."
+    #         }
+
     @staticmethod
     async def check_email_and_handle_auth(email: str, phone: str = None, full_name: str = None) -> Dict[str, Any]:
         """Check if email exists and handle authentication accordingly"""
         existing = supabase.table("website_customers").select("*").eq("email", email).execute()
         
         if len(existing.data) > 0:
-            # Email exists - require PIN verification
-            pin = CustomerService.generate_pin()
-            redis_client.set(f"login_pin:{email}", pin, 600)
-            print(f"PIN for {email}: {pin}")
+            # Email exists - send PIN for verification
+            await CustomerService.send_login_pin(email)
             
             return {
                 "requires_pin": True,
@@ -158,55 +194,55 @@ class CustomerService:
 
 
 class DeliveryService:
-    RESTAURANT_LAT = 7.3775  # Ibadan coordinates
-    RESTAURANT_LNG = 3.9470
+    # RESTAURANT_LAT = 7.3775  # Ibadan coordinates
+    # RESTAURANT_LNG = 3.9470
     
-    @staticmethod
-    def calculate_distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-        """Calculate distance between two points in kilometers"""
-        R = 6371  # Earth's radius in kilometers
+    # @staticmethod
+    # def calculate_distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    #     """Calculate distance between two points in kilometers"""
+    #     R = 6371  # Earth's radius in kilometers
         
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        delta_lat = math.radians(lat2 - lat1)
-        delta_lng = math.radians(lng2 - lng1)
+    #     lat1_rad = math.radians(lat1)
+    #     lat2_rad = math.radians(lat2)
+    #     delta_lat = math.radians(lat2 - lat1)
+    #     delta_lng = math.radians(lng2 - lng1)
         
-        a = (math.sin(delta_lat / 2) * math.sin(delta_lat / 2) +
-             math.cos(lat1_rad) * math.cos(lat2_rad) *
-             math.sin(delta_lng / 2) * math.sin(delta_lng / 2))
+    #     a = (math.sin(delta_lat / 2) * math.sin(delta_lat / 2) +
+    #          math.cos(lat1_rad) * math.cos(lat2_rad) *
+    #          math.sin(delta_lng / 2) * math.sin(delta_lng / 2))
         
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    #     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         
-        return R * c
+    #     return R * c
     
-    @staticmethod
-    def calculate_delivery_fee(distance_km: float) -> Decimal:
-        """Calculate delivery fee based on distance"""
-        if distance_km <= 5:
-            return Decimal('500')
-        elif distance_km <= 10:
-            return Decimal('1000')
-        elif distance_km <= 15:
-            return Decimal('1500')
-        elif distance_km <= 20:
-            return Decimal('2000')
-        else:
-            # ₦500 base + ₦250 per additional 5km
-            extra_distance = distance_km - 20
-            extra_fee = math.ceil(extra_distance / 5) * 250
-            return Decimal('2000') + Decimal(str(extra_fee))
+    # @staticmethod
+    # def calculate_delivery_fee(distance_km: float) -> Decimal:
+    #     """Calculate delivery fee based on distance"""
+    #     if distance_km <= 5:
+    #         return Decimal('500')
+    #     elif distance_km <= 10:
+    #         return Decimal('1000')
+    #     elif distance_km <= 15:
+    #         return Decimal('1500')
+    #     elif distance_km <= 20:
+    #         return Decimal('2000')
+    #     else:
+    #         # ₦500 base + ₦250 per additional 5km
+    #         extra_distance = distance_km - 20
+    #         extra_fee = math.ceil(extra_distance / 5) * 250
+    #         return Decimal('2000') + Decimal(str(extra_fee))
     
-    @staticmethod
-    def estimate_delivery_time(distance_km: float) -> str:
-        """Estimate delivery time based on distance"""
-        if distance_km <= 5:
-            return "20-30 minutes"
-        elif distance_km <= 10:
-            return "30-45 minutes"
-        elif distance_km <= 15:
-            return "45-60 minutes"
-        else:
-            return "60-90 minutes"
+    # @staticmethod
+    # def estimate_delivery_time(distance_km: float) -> str:
+    #     """Estimate delivery time based on distance"""
+    #     if distance_km <= 5:
+    #         return "20-30 minutes"
+    #     elif distance_km <= 10:
+    #         return "30-45 minutes"
+    #     elif distance_km <= 15:
+    #         return "45-60 minutes"
+    #     else:
+    #         return "60-90 minutes"
         
 
     @staticmethod
@@ -588,83 +624,7 @@ class MonnifyService:
 
 
     
-    # @staticmethod
-    # async def create_virtual_account(
-    #     amount: Decimal,
-    #     customer_email: str,
-    #     customer_name: str,
-    #     customer_phone: str,
-    #     payment_reference: str
-    # ) -> Dict[str, Any]:
-    #     access_token = await MonnifyService.get_access_token()
-        
-    #     headers = {
-    #         "Authorization": f"Bearer {access_token}",
-    #         "Content-Type": "application/json"
-    #     }
-
-    #     # Check if customer already has a reserved account
-    #     account_reference = f"CUST-{customer_email.split('@')[0]}"  # Constant per customer
-        
-    #     # Try to get existing account first
-    #     async with httpx.AsyncClient() as client:
-    #         try:
-    #             get_response = await client.get(
-    #                 f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
-    #                 headers=headers,
-    #                 timeout=30
-    #             )
-                
-    #             if get_response.status_code == 200:
-    #                 # Account exists, return it
-    #                 data = get_response.json()["responseBody"]
-    #                 account = data["accounts"][0]
-                    
-    #                 return {
-    #                     "payment_reference": payment_reference,
-    #                     "account_reference": account_reference,
-    #                     "account_number": account["accountNumber"],
-    #                     "account_name": account["accountName"],
-    #                     "bank_name": account["bankName"],
-    #                     "amount": amount,
-    #                     "expires_at": datetime.utcnow() + timedelta(hours=1)
-    #                 }
-    #         except:
-    #             pass  # Account doesn't exist, create new one
-
-    #     # Create new account
-    #     payload = {
-    #         "accountReference": account_reference,
-    #         "accountName": settings.MONNIFY_ACCOUNT_NAME,
-    #         "currencyCode": "NGN",
-    #         "contractCode": settings.MONNIFY_CONTRACT_CODE,
-    #         "customerEmail": customer_email,
-    #         "customerName": customer_name,
-    #         "preferredBanks": ["50515"], 
-    #         "getAllAvailableBanks": False
-    #     }
-
-    #     async with httpx.AsyncClient() as client:
-    #         response = await client.post(
-    #             f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts",
-    #             headers=headers,
-    #             json=payload,
-    #             timeout=30
-    #         )
-
-    #     response.raise_for_status()
-    #     data = response.json()["responseBody"]
-    #     account = data["accounts"][0]
-
-    #     return {
-    #         "payment_reference": payment_reference,
-    #         "account_reference": account_reference,
-    #         "account_number": account["accountNumber"],
-    #         "account_name": account["accountName"],
-    #         "bank_name": account["bankName"],
-    #         "amount": amount,
-    #         "expires_at": datetime.utcnow() + timedelta(hours=1)
-    #     }
+    
     
 
     @staticmethod
@@ -751,44 +711,7 @@ class MonnifyService:
 
 
     
-    # @staticmethod
-    # async def verify_payment(account_reference: str) -> Dict[str, Any]:
-    #     """Verify payment status by checking account transactions"""
-    #     access_token = await MonnifyService.get_access_token()
-        
-    #     headers = {
-    #         "Authorization": f"Bearer {access_token}",
-    #         "Content-Type": "application/json"
-    #     }
-        
-    #     try:
-    #         # Get account details which includes transaction info
-    #         account_response = requests.get(
-    #             f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
-    #             headers=headers,
-    #             timeout=30
-    #         )
-            
-    #         print(f"🔍 Account Response: {account_response.text}")
-            
-    #         if account_response.status_code == 200:
-    #             data = account_response.json()["responseBody"]
-                
-    #             # Check if there are transactions
-    #             if data.get("transactionCount", 0) > 0 and data.get("totalAmount", 0) > 0:
-    #                 # Account has transactions - payment is PAID
-    #                 return {
-    #                     "paymentStatus": "PAID",
-    #                     "transactionReference": account_reference,  # Use account ref for now
-    #                     "amountPaid": data.get("totalAmount"),
-    #                     "paidOn": data.get("createdOn")
-    #                 }
-            
-    #         return {"paymentStatus": "PENDING"}
-            
-    #     except Exception as e:
-    #         print(f"❌ Verification error: {str(e)}")
-    #         return {"paymentStatus": "PENDING"}
+   
         
 
 
