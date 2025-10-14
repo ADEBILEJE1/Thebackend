@@ -60,6 +60,7 @@ class ProductCreate(BaseModel):
     options: Optional[List[ProductOptionInline]] = []
 
 class ProductUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
     category_id: Optional[str] = None
     sku: Optional[str] = None
     supplier: Optional[str] = None
@@ -615,46 +616,95 @@ async def get_products(
 # CREATE INDEX IF NOT EXISTS idx_product_options_product_id_display ON product_options(product_id, display_order);
 
 
+# @router.patch("/products/{product_id}")
+# async def update_product(
+#     product_id: str,
+#     update: ProductUpdate,
+#     current_user: dict = Depends(require_inventory_staff)
+# ):
+#     # Check product exists
+#     current_product = supabase.table("products").select("*").eq("id", product_id).execute()
+#     if not current_product.data:
+#         raise HTTPException(status_code=404, detail="Product not found")
+    
+#     updates = {}
+#     for k, v in update.dict(exclude_unset=True).items():
+#         if v is not None and k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit"]:
+#             updates[k] = v
+    
+#     if updates:
+#         updates["updated_by"] = current_user["id"]
+#         updates["updated_at"] = datetime.utcnow().isoformat()
+        
+#         # Use supabase_admin and remove the check
+#         supabase_admin.table("products").update(updates).eq("id", product_id).execute()
+    
+#     # Handle options
+#     if update.options is not None:
+#         supabase_admin.table("product_options").delete().eq("product_id", product_id).execute()
+        
+#         if update.options:
+#             for option in update.options:
+#                 option_data = {**option.dict(), "product_id": product_id}
+#                 supabase_admin.table("product_options").insert(option_data).execute()
+    
+#     # Invalidate cache
+#     invalidate_product_cache(product_id)
+#     redis_client.delete_pattern("website:products:*")
+    
+#     return {"message": "Product updated"}
+
+
+
 @router.patch("/products/{product_id}")
 async def update_product(
     product_id: str,
     update: ProductUpdate,
     current_user: dict = Depends(require_inventory_staff)
 ):
-    # Check product exists
-    current_product = supabase.table("products").select("*").eq("id", product_id).execute()
+ 
+    current_product = supabase.table("products").select("name").eq("id", product_id).maybe_single().execute()
     if not current_product.data:
         raise HTTPException(status_code=404, detail="Product not found")
+
+    updates = update.dict(exclude_unset=True)
+
+  
+    if "name" in updates and updates["name"] != current_product.data["name"]:
+        existing = supabase.table("products").select("id", count='exact').eq("name", updates["name"]).neq("id", product_id).execute()
+        if existing.count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A product with this name already exists"
+            )
+
     
-    updates = {}
-    for k, v in update.dict(exclude_unset=True).items():
-        if v is not None and k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit"]:
-            updates[k] = v
+    final_updates = {
+        k: v for k, v in updates.items() 
+        if k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit"]
+    }
     
-    if updates:
-        updates["updated_by"] = current_user["id"]
-        updates["updated_at"] = datetime.utcnow().isoformat()
+   
+    if final_updates:
+        final_updates["updated_by"] = current_user["id"]
+        final_updates["updated_at"] = datetime.utcnow().isoformat()
         
-        # Use supabase_admin and remove the check
-        supabase_admin.table("products").update(updates).eq("id", product_id).execute()
+        supabase_admin.table("products").update(final_updates).eq("id", product_id).execute()
     
-    # Handle options
-    if update.options is not None:
+  
+    if "options" in updates and update.options is not None:
         supabase_admin.table("product_options").delete().eq("product_id", product_id).execute()
         
         if update.options:
-            for option in update.options:
-                option_data = {**option.dict(), "product_id": product_id}
-                supabase_admin.table("product_options").insert(option_data).execute()
+            option_data_list = [
+                {**option.dict(), "product_id": product_id} for option in update.options
+            ]
+            supabase_admin.table("product_options").insert(option_data_list).execute()
     
-    # Invalidate cache
     invalidate_product_cache(product_id)
     redis_client.delete_pattern("website:products:*")
     
     return {"message": "Product updated"}
-
-
-
 
 
 
