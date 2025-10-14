@@ -627,7 +627,7 @@ async def update_product(
         raise HTTPException(status_code=404, detail="Product not found")
     
     updates = {}
-    for k, v in update.dict().items():
+    for k, v in update.dict(exclude_unset=True).items():
         if v is not None and k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit"]:
             updates[k] = v
     
