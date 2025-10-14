@@ -315,7 +315,7 @@ async def update_category(
     current_user: dict = Depends(require_inventory_staff)
 ):
     updates = {}
-    for k, v in update.dict().items():
+    for k, v in update.dict(exclude_unset=True).items(): 
         if v is not None:
             updates[k] = v
     
