@@ -136,7 +136,7 @@ async def get_products_for_website(
     category_id: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
-    limit: int = Query(50, le=100),
+    limit: int = Query(1000, le=1000),
     offset: int = Query(0, ge=0)
 ):
     cache_key = f"website:products:{category_id}:{min_price}:{max_price}:{limit}:{offset}"
