@@ -222,12 +222,12 @@ class ImageType(str, Enum):
 
 class AreaCreate(BaseModel):
     name: str = Field(max_length=100)
-    delivery_fee: Decimal = Field(gt=0)
+    delivery_fee: Decimal = Field(ge=0)
     estimated_time: str = Field(max_length=50)
 
 class AreaUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
-    delivery_fee: Optional[Decimal] = Field(None, gt=0)
+    delivery_fee: Optional[Decimal] = Field(None, ge=0)
     estimated_time: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
 
