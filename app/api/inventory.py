@@ -718,6 +718,15 @@ async def update_stock(
    request: Request,
    current_user: dict = Depends(require_inventory_staff)
 ):
+   
+
+
+   if stock.operation == "add" and stock.price is None:
+       raise HTTPException(
+           status_code=400,
+           detail="Price is required when adding stock"
+       )
+   
    # Get current product
    product = supabase.table("products").select("*").eq("id", product_id).execute()
    if not product.data:

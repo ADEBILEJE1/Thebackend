@@ -2,6 +2,8 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 import uuid
+import pytz
+nigeria_tz = pytz.timezone('Africa/Lagos')
 from collections import defaultdict
 from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
@@ -105,7 +107,7 @@ class SalesService:
                 {"hour": hour, "orders": data["orders"], "revenue": float(data["revenue"])} 
                 for hour, data in sorted(hourly_sales.items())
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(nigeria_tz).isoformat()
         }
         
         # Cache for 30 seconds
@@ -118,7 +120,7 @@ class SalesService:
     @staticmethod
     async def get_revenue_analytics(days: int = 30) -> Dict[str, Any]:
         """Get detailed revenue analytics over specified period - unified view"""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(nigeria_tz)
         start_date = end_date - timedelta(days=days)
         
         # Get ALL orders - no user filtering
@@ -207,7 +209,7 @@ class SalesService:
     @staticmethod
     async def get_staff_performance(days: int = 30, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get sales staff performance metrics"""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(nigeria_tz)
         start_date = end_date - timedelta(days=days)
         
         # Get all sales staff
@@ -277,7 +279,7 @@ class SalesService:
     @staticmethod
     async def get_customer_analytics(days: int = 30) -> Dict[str, Any]:
         """Analyze customer behavior and patterns"""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(nigeria_tz)
         start_date = end_date - timedelta(days=days)
         
         # Get orders with customer info
@@ -364,7 +366,7 @@ class SalesService:
     @staticmethod
     async def get_product_sales_analysis(days: int = 30) -> Dict[str, Any]:
         """Analyze product sales performance"""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(nigeria_tz)
         start_date = end_date - timedelta(days=days)
         
         # Get order items with product details
@@ -684,7 +686,7 @@ class SalesService:
     @staticmethod
     async def get_individual_staff_analytics(staff_id: str, days: int = 30) -> Dict[str, Any]:
         """Get individual staff performance analytics"""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(nigeria_tz)
         start_date = end_date - timedelta(days=days)
         
         # Orders created by this staff

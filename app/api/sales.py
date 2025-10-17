@@ -322,6 +322,105 @@ async def get_products_for_website(
 # CREATE INDEX IF NOT EXISTS idx_categories_active ON categories(is_active) WHERE is_active = true;
 
 
+
+
+# @router.get("/products/search")
+# async def search_products_for_sales(
+#     search: str = Query(..., min_length=2),
+#     current_user: dict = Depends(require_sales_staff)
+# ):
+#     """
+#     Search for products for sales orders. Optimized for speed.
+#     Returns data in the same format as the main /sales/products endpoint.
+#     """
+#     cache_key = f"sales:products:search:{search.lower().strip()}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+
+#     search_term = f"%{search.lower().strip()}%"
+    
+    
+#     query = supabase_admin.table("products").select("*") \
+#         .eq("is_available", True) \
+#         .eq("product_type", "main") \
+#         .ilike("name", search_term)
+    
+#     products_result = query.limit(50).execute() 
+    
+#     if not products_result.data:
+#         redis_client.set(cache_key, [], 300)
+#         return []
+    
+    
+#     product_ids = [p["id"] for p in products_result.data]
+#     category_ids = list(set([p["category_id"] for p in products_result.data if p.get("category_id")]))
+    
+#     categories_result = supabase_admin.table("categories").select("id, name").in_("id", category_ids).execute()
+#     extras_result = supabase_admin.table("products").select("*").in_("main_product_id", product_ids).eq("is_available", True).execute()
+#     options_result = supabase_admin.table("product_options").select("*").in_("product_id", product_ids).execute()
+    
+#     # Map related data for quick lookups
+#     categories_map = {c["id"]: c for c in categories_result.data}
+#     extras_map = defaultdict(list)
+#     for extra in extras_result.data:
+#         extras_map[extra["main_product_id"]].append(extra)
+    
+#     options_map = defaultdict(list)
+#     for opt in options_result.data:
+#         options_map[opt["product_id"]].append(opt)
+    
+#     # Format response to match the existing /sales/products endpoint
+#     products = []
+#     for product in products_result.data:
+#         display_name = product["name"]
+#         if product.get("variant_name"):
+#             display_name += f" - {product['variant_name']}"
+        
+#         category = categories_map.get(product.get("category_id"), {"id": None, "name": "Uncategorized"})
+        
+#         formatted_extras = []
+#         for extra in extras_map.get(product["id"], []):
+#             extra_name = extra["name"]
+#             if extra.get("variant_name"):
+#                 extra_name += f" - {extra['variant_name']}"
+#             formatted_extras.append({
+#                 "id": extra["id"],
+#                 "name": extra_name,
+#                 "price": float(extra["price"]),
+#                 "description": extra["description"],
+#                 "image_url": extra["image_url"],
+#                 "available_stock": extra["units"],
+#                 "low_stock_threshold": extra["low_stock_threshold"]
+#             })
+        
+#         formatted_options = []
+#         for opt in sorted(options_map.get(product["id"], []), 
+#                          key=lambda x: (x.get("display_order", 999), x.get("name", ""))):
+#             formatted_options.append({
+#                 "id": opt["id"],
+#                 "name": opt["name"],
+#                 "price_modifier": float(opt.get("price_modifier", 0))
+#             })
+        
+#         products.append({
+#             "id": product["id"],
+#             "name": display_name,
+#             "price": float(product["price"]),
+#             "description": product["description"],
+#             "image_url": product["image_url"],
+#             "available_stock": product["units"],
+#             "low_stock_threshold": product["low_stock_threshold"],
+#             "has_options": product.get("has_options", False),
+#             "options": formatted_options,
+#             "extras": formatted_extras,
+#             "category": category
+#         })
+    
+#     redis_client.set(cache_key, products, 300)
+#     return products
+
+
 @router.get("/categories")
 async def get_categories_for_orders(
     current_user: dict = Depends(require_sales_staff)
