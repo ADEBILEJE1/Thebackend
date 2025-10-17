@@ -749,6 +749,9 @@ class SalesService:
     @staticmethod
     async def deduct_stock_immediately(items: List[Dict[str, Any]], user_id: str):
         """Deduct stock immediately for offline orders with real-time updates"""
+
+        user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
+        is_staff = len(user_check.data) > 0
         
         for item in items:
             # Get current product
@@ -779,7 +782,8 @@ class SalesService:
             supabase.table("products").update({
                 "units": new_units,
                 "status": new_status,
-                "updated_by": user_id,
+                # "updated_by": user_id,
+                "updated_by": user_id if is_staff else None, 
                 "updated_at": datetime.utcnow().isoformat()
             }).eq("id", item["product_id"]).execute()
             
