@@ -721,11 +721,12 @@ async def update_stock(
    
 
 
-   if stock.operation == "add" and stock.price is None:
-       raise HTTPException(
-           status_code=400,
-           detail="Price is required when adding stock"
-       )
+   if stock.operation == "add":
+       if stock.price is None:
+           raise HTTPException(
+               status_code=400,
+               detail="Price is required when adding stock"
+           )
    
    # Get current product
    product = supabase.table("products").select("*").eq("id", product_id).execute()
