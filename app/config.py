@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     MONNIFY_WEBHOOK_IP: str = "35.242.133.146"
     
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+
+    SPREADSHEET_API_KEY: str
     
     # Dynamic property based on environment
     @property
