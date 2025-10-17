@@ -76,7 +76,7 @@ class ProductUpdate(BaseModel):
 class StockUpdate(BaseModel):
     quantity: int = Field(gt=0)
     operation: str = Field(pattern="^(add|remove)$")
-    price: Optional[Decimal] = Field(ge=0, default=None)
+    price: Optional[Decimal] = Field(gt=0, default=None)
     tax_per_unit: Optional[Decimal] = Field(ge=0, default=None) 
     notes: Optional[str] = None
     change_reason: Optional[str] = None 
