@@ -1066,7 +1066,7 @@ async def get_kitchen_slip_view(
 
 
 
-@router.get("/kitchen/order/{order_id}/customer-receipt")
+@router.get("/kitchen/{order_id}/customer-receipt")
 async def print_customer_receipt_by_order(
     order_id: str,
     request: Request,
