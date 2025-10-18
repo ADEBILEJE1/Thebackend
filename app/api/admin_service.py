@@ -743,7 +743,7 @@ class AdminService:
                 "inactive_users": [
                     u for u in user_details 
                     if not u["last_activity"] or 
-                    datetime.fromisoformat(u["last_activity"]).replace(tzinfo=None) < get_nigerian_time() - timedelta(days=7)
+                    datetime.fromisoformat(u["last_activity"]).replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) < get_nigerian_time() - timedelta(days=7)
                 ]
             }
         }
