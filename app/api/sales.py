@@ -1813,7 +1813,7 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 
 
 
-@router.get("/api/reports/all-orders", dependencies=[Depends(get_api_key)])
+@router.get("/reports/all-orders", dependencies=[Depends(get_api_key)])
 async def get_all_orders_report():
     """Read-only endpoint for spreadsheet integration with flattened data."""
     
