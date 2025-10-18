@@ -2057,7 +2057,7 @@ async def get_spreadsheet_orders():
 
 
 
-@router.get("/batches/{batch_id}/customer-receipt")
+@router.get("/orders/{batch_id}/customer-receipt")
 async def print_batch_customer_receipt(
     batch_id: str,
     request: Request,
