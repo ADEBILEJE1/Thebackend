@@ -1417,6 +1417,36 @@ async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
     return list(batches.values())
 
 
+# @router.get("/batches/{batch_id}/details")
+# async def get_batch_details(
+#     batch_id: str,
+#     current_user: dict = Depends(require_sales_staff)
+# ):
+#     """Get detailed information about a specific batch"""
+#     orders = supabase_admin.table("orders").select("""
+#         *, 
+#         order_items(*),
+#         customer_addresses(full_address, delivery_areas(name, estimated_time)),
+#         website_customers(full_name, email, phone)
+#     """).eq("batch_id", batch_id).execute()
+    
+#     if not orders.data:
+#         raise HTTPException(status_code=404, detail="Batch not found")
+
+#     # Fetch options
+#     for order in orders.data:
+#         for item in order["order_items"]:
+#             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+#             item["options"] = options_result.data
+
+
+
+
+
+
+
+
+
 @router.get("/batches/{batch_id}/details")
 async def get_batch_details(
     batch_id: str,
@@ -1433,9 +1463,13 @@ async def get_batch_details(
     if not orders.data:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # Fetch options
+    # Fetch options for each item
     for order in orders.data:
-        for item in order["order_items"]:
+        # Handle missing order_items
+        if "order_items" not in order or order["order_items"] is None:
+            order["order_items"] = []
+        
+        for item in order.get("order_items", []):
             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
             item["options"] = options_result.data
     
