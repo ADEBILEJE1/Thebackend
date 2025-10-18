@@ -1946,6 +1946,16 @@ async def print_customer_receipt(
     current_user: dict = Depends(require_sales_staff)
 ):
     """Generate a printable HTML receipt for the customer after order confirmation."""
+
+
+    try:
+        order_result = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
+    except:
+        order_result = supabase_admin.table("orders").select("*, order_items(*)").eq("order_number", order_id).execute()
+    
+    if not order_result.data:
+        raise HTTPException(status_code=404, detail="Order not found")
+
     order_result = supabase_admin.table("orders").select("*, order_items(*)").eq("order_number", order_id).or_(f"id.eq.{order_id}").execute()
 
     if not order_result.data:
