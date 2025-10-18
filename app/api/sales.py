@@ -2174,7 +2174,7 @@ async def print_batch_customer_receipt(
 
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
-        "print", "customer_receipt", batch_id, {"order_number": order["order_number"]}, 
+        "print", "batch_receipt", None, {"batch_id": batch_id}, 
         request
     )
 
