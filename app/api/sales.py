@@ -1417,33 +1417,6 @@ async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
     return list(batches.values())
 
 
-# @router.get("/batches/{batch_id}/details")
-# async def get_batch_details(
-#     batch_id: str,
-#     current_user: dict = Depends(require_sales_staff)
-# ):
-#     """Get detailed information about a specific batch"""
-#     orders = supabase_admin.table("orders").select("""
-#         *, 
-#         order_items(*),
-#         customer_addresses(full_address, delivery_areas(name, estimated_time)),
-#         website_customers(full_name, email, phone)
-#     """).eq("batch_id", batch_id).execute()
-    
-#     if not orders.data:
-#         raise HTTPException(status_code=404, detail="Batch not found")
-
-#     # Fetch options
-#     for order in orders.data:
-#         for item in order["order_items"]:
-#             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
-#             item["options"] = options_result.data
-
-
-
-
-
-
 
 
 
@@ -1475,10 +1448,12 @@ async def get_batch_details(
     
     # Extract comprehensive customer and delivery info
     first_order = orders.data[0]
+    website_customer = first_order.get("website_customers") or {}
+
     customer_info = {
-        "name": first_order.get("customer_name") or (first_order.get("website_customers", {}) or {}).get("full_name"),
-        "phone": first_order.get("customer_phone") or (first_order.get("website_customers", {}) or {}).get("phone"),
-        "email": first_order.get("customer_email") or (first_order.get("website_customers", {}) or {}).get("email")
+        "name": first_order.get("customer_name") or website_customer.get("full_name") or "N/A",
+        "phone": first_order.get("customer_phone") or website_customer.get("phone") or "N/A",
+        "email": first_order.get("customer_email") or website_customer.get("email") or "N/A"
     }
     
     delivery_info = first_order.get("customer_addresses")
