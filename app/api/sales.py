@@ -1817,8 +1817,8 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 async def get_all_orders_report():
     """Read-only endpoint for spreadsheet integration with flattened data."""
     
-    # Fetch data from the database with related tables
-    result = await supabase_admin.table("orders").select("""
+    # Remove await - supabase_admin calls are synchronous
+    result = supabase_admin.table("orders").select("""
         id, order_number, display_number, order_type, status, payment_status, payment_method,
         subtotal, tax, delivery_fee, total, notes, created_at, confirmed_at, preparing_at, completed_at,
         batch_id, customer_name,
@@ -1830,15 +1830,13 @@ async def get_all_orders_report():
     if not result.data:
         return []
 
-    # Process the data into a flat list for the spreadsheet
+    # Rest of code stays the same
     flattened_data = []
     for order in result.data:
-        # Combine product names and quantities into single strings
         items = order.get("order_items", [])
         product_names = ", ".join([str(item.get("product_name", "")) for item in items])
         product_quantities = ", ".join([str(item.get("quantity", 0)) for item in items])
 
-        # Safely get nested customer and address info
         customer = order.get("website_customers") or {}
         address = order.get("customer_addresses") or {}
         delivery_area = address.get("delivery_areas") or {}
@@ -1851,29 +1849,19 @@ async def get_all_orders_report():
             "status": order.get("status"),
             "created_at": order.get("created_at"),
             "completed_at": order.get("completed_at"),
-            
-            # Customer Details
-            "full_name": customer.get("full_name") or order.get("customer_name"), # Merges online and offline names
+            "full_name": customer.get("full_name") or order.get("customer_name"),
             "email": customer.get("email"),
             "phone": customer.get("phone"),
-            
-            # Delivery Details
             "full_address": address.get("full_address"),
             "delivery_area": delivery_area.get("name"),
-            
-            # Items (Combined)
             "product_names": product_names,
             "product_quantities": product_quantities,
-            
-            # Financials
             "payment_status": order.get("payment_status"),
             "payment_method": order.get("payment_method"),
             "subtotal": order.get("subtotal"),
             "tax": order.get("tax"),
             "delivery_fee": order.get("delivery_fee"),
             "total_price": order.get("total"),
-            
-            # Other
             "notes": order.get("notes"),
             "batch_id": order.get("batch_id"),
         }
