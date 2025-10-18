@@ -609,8 +609,7 @@ async def complete_checkout(
         
         created_orders.append(updated_order.data[0])
     
-    # Deduct stock once for all orders
-    await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
+
     
     return {
         "message": "Orders created successfully",

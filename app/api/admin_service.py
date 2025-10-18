@@ -2,6 +2,11 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from collections import defaultdict
+
+import pytz
+
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
 from ..core.cache import CacheKeys
@@ -13,44 +18,184 @@ from .sales_service import SalesService
 from .inventory_service import InventoryService
 
 
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
+
 
 class AdminService:
     """Service class for super admin dashboard operations - includes all manager functionality"""
     
+    # @staticmethod
+    # async def get_admin_dashboard_overview(user_role: str) -> Dict[str, Any]:
+    #     """Get comprehensive admin dashboard overview"""
+    #     cache_key = f"admin:dashboard:overview:{user_role}"
+    #     cached = redis_client.get(cache_key)
+    #     if cached:
+    #         return cached
+        
+    #     today = date.today()
+    #     start_of_day = datetime.combine(today, datetime.min.time())
+        
+    #     # System health metrics
+    #     system_health = await AdminService.get_system_health()
+        
+    #     # Business metrics (inherited from manager/sales)
+    #     sales_overview = await SalesService.get_sales_dashboard_overview(user_role)
+    #     inventory_overview = await InventoryService.get_dashboard_overview()
+        
+    #     # Get packaging analytics for today
+    #     packaging_analytics = await InventoryService.get_packaging_analytics("overall")
+
+
+    #     refund_analytics = await AdminService.get_refund_analytics("overall")
+        
+    #     # User activity metrics
+    #     active_sessions = session_manager.get_active_sessions()
+        
+    #     # Today's system activity
+    #     today_activities = supabase.table("activity_logs").select("*").gte("created_at", start_of_day.isoformat()).execute()
+        
+    #     # Critical alerts
+    #     critical_alerts = []
+        
+    #     # Low stock alerts
+    #     low_stock_items = supabase.table("products").select("name, units").eq("status", "low_stock").execute()
+    #     if low_stock_items.data:
+    #         critical_alerts.append({
+    #             "type": "inventory",
+    #             "severity": "warning",
+    #             "message": f"{len(low_stock_items.data)} products are low on stock",
+    #             "count": len(low_stock_items.data)
+    #         })
+        
+    #     # Out of stock alerts
+    #     out_of_stock = supabase.table("products").select("name").eq("status", "out_of_stock").execute()
+    #     if out_of_stock.data:
+    #         critical_alerts.append({
+    #             "type": "inventory",
+    #             "severity": "critical",
+    #             "message": f"{len(out_of_stock.data)} products are out of stock",
+    #             "count": len(out_of_stock.data)
+    #         })
+        
+    #     # Failed order alerts (pending too long)
+    #     old_pending = supabase.table("orders").select("order_number").eq("status", "pending").lt("created_at", (get_nigerian_time() - timedelta(hours=1)).isoformat()).execute()
+    #     if old_pending.data:
+    #         critical_alerts.append({
+    #             "type": "orders",
+    #             "severity": "warning", 
+    #             "message": f"{len(old_pending.data)} orders pending for over 1 hour",
+    #             "count": len(old_pending.data)
+    #         })
+        
+    #     # Inactive staff alert
+    #     week_ago = (get_nigerian_time() - timedelta(days=7)).isoformat()
+    #     inactive_staff = supabase.table("profiles").select("email, role").eq("is_active", True).lt("last_login", week_ago).execute()
+    #     if inactive_staff.data:
+    #         critical_alerts.append({
+    #             "type": "staff",
+    #             "severity": "info",
+    #             "message": f"{len(inactive_staff.data)} staff haven't logged in for 7+ days",
+    #             "count": len(inactive_staff.data)
+    #         })
+        
+    #     dashboard_data = {
+    #         "system_overview": {
+    #             "system_health": system_health["status"],
+    #             "active_sessions": active_sessions,
+    #             "redis_status": system_health["services"]["redis"],
+    #             "database_status": system_health["services"]["database"],
+    #             "total_activities_today": len(today_activities.data)
+    #         },
+    #         "business_metrics": {
+    #             "todays_revenue": sales_overview["summary"]["total_revenue"],
+    #             "todays_orders": sales_overview["summary"]["total_orders"],
+    #             "completion_rate": sales_overview["order_breakdown"]["completion_rate"],
+    #             "inventory_value": inventory_overview["summary"]["total_inventory_value"],
+    #             "products_in_stock": inventory_overview["summary"]["stock_status"]["in_stock"]
+    #         },
+    #         "packaging_analytics": packaging_analytics,
+    #         "refund_analytics": refund_analytics,
+    #         "critical_alerts": critical_alerts,
+    #         "quick_stats": {
+    #             "total_users": await AdminService.get_total_users_count(),
+    #             "active_staff_today": len([a for a in today_activities.data if a["user_role"] != UserRole.SUPER_ADMIN]),
+    #             "system_uptime": system_health.get("uptime", "Unknown"),
+    #             "cache_hit_rate": await AdminService.get_cache_metrics()
+    #         },
+    #         "timestamp": get_nigerian_time().isoformat()
+    #     }
+        
+    #     # Cache for 1 minute
+    #     redis_client.set(cache_key, dashboard_data, 60)
+        
+    #     return dashboard_data
+
+
+
     @staticmethod
-    async def get_admin_dashboard_overview(user_role: str) -> Dict[str, Any]:
+    async def get_admin_dashboard_overview(
+        user_role: str, 
+        date_from: Optional[date] = None, 
+        date_to: Optional[date] = None
+    ) -> Dict[str, Any]:
         """Get comprehensive admin dashboard overview"""
-        cache_key = f"admin:dashboard:overview:{user_role}"
+        
+        # Set date range - default to today if not provided
+        if not date_from or not date_to:
+            today = date.today()
+            start_date = datetime.combine(today, datetime.min.time())
+            end_date = datetime.combine(today, datetime.max.time())
+        else:
+            start_date = datetime.combine(date_from, datetime.min.time())
+            end_date = datetime.combine(date_to, datetime.max.time())
+        
+        cache_key = f"admin:dashboard:overview:{user_role}:{start_date.date()}:{end_date.date()}"
         cached = redis_client.get(cache_key)
         if cached:
             return cached
         
-        today = date.today()
-        start_of_day = datetime.combine(today, datetime.min.time())
-        
-        # System health metrics
+        # System health metrics (always current)
         system_health = await AdminService.get_system_health()
         
-        # Business metrics (inherited from manager/sales)
+        # Business metrics for date range
         sales_overview = await SalesService.get_sales_dashboard_overview(user_role)
         inventory_overview = await InventoryService.get_dashboard_overview()
         
-        # Get packaging analytics for today
-        packaging_analytics = await InventoryService.get_packaging_analytics("overall")
-
-
-        refund_analytics = await AdminService.get_refund_analytics("overall")
+        # Use date range for analytics
+        packaging_analytics = await InventoryService.get_packaging_analytics(
+            "daily" if start_date.date() == end_date.date() else "monthly",
+            start_date.date(),
+            end_date.date()
+        )
         
-        # User activity metrics
+        refund_analytics = await AdminService.get_refund_analytics(
+            "daily" if start_date.date() == end_date.date() else "monthly",
+            start_date.date(),
+            end_date.date()
+        )
+        
+        # User activity metrics for date range
         active_sessions = session_manager.get_active_sessions()
         
-        # Today's system activity
-        today_activities = supabase.table("activity_logs").select("*").gte("created_at", start_of_day.isoformat()).execute()
+        # Activities in date range
+        activities = supabase.table("activity_logs").select("*").gte(
+            "created_at", start_date.isoformat()
+        ).lte("created_at", end_date.isoformat()).execute()
         
-        # Critical alerts
+        # Get orders for the date range
+        orders = supabase.table("orders").select("total, status").gte(
+            "created_at", start_date.isoformat()
+        ).lte("created_at", end_date.isoformat()).neq("status", "cancelled").execute()
+        
+        period_revenue = sum(Decimal(str(o["total"])) for o in orders.data)
+        period_orders = len(orders.data)
+        completed = len([o for o in orders.data if o["status"] == "completed"])
+        completion_rate = round((completed / period_orders * 100), 2) if period_orders > 0 else 0
+        
+        # Critical alerts (use date range)
         critical_alerts = []
         
-        # Low stock alerts
         low_stock_items = supabase.table("products").select("name, units").eq("status", "low_stock").execute()
         if low_stock_items.data:
             critical_alerts.append({
@@ -60,7 +205,6 @@ class AdminService:
                 "count": len(low_stock_items.data)
             })
         
-        # Out of stock alerts
         out_of_stock = supabase.table("products").select("name").eq("status", "out_of_stock").execute()
         if out_of_stock.data:
             critical_alerts.append({
@@ -70,8 +214,9 @@ class AdminService:
                 "count": len(out_of_stock.data)
             })
         
-        # Failed order alerts (pending too long)
-        old_pending = supabase.table("orders").select("order_number").eq("status", "pending").lt("created_at", (datetime.utcnow() - timedelta(hours=1)).isoformat()).execute()
+        old_pending = supabase.table("orders").select("order_number").eq(
+            "status", "pending"
+        ).lt("created_at", (get_nigerian_time() - timedelta(hours=1)).isoformat()).execute()
         if old_pending.data:
             critical_alerts.append({
                 "type": "orders",
@@ -80,8 +225,7 @@ class AdminService:
                 "count": len(old_pending.data)
             })
         
-        # Inactive staff alert
-        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        week_ago = (get_nigerian_time() - timedelta(days=7)).isoformat()
         inactive_staff = supabase.table("profiles").select("email, role").eq("is_active", True).lt("last_login", week_ago).execute()
         if inactive_staff.data:
             critical_alerts.append({
@@ -92,17 +236,22 @@ class AdminService:
             })
         
         dashboard_data = {
+            "period": {
+                "start": start_date.date(),
+                "end": end_date.date(),
+                "is_custom_range": date_from is not None and date_to is not None
+            },
             "system_overview": {
                 "system_health": system_health["status"],
                 "active_sessions": active_sessions,
                 "redis_status": system_health["services"]["redis"],
                 "database_status": system_health["services"]["database"],
-                "total_activities_today": len(today_activities.data)
+                "total_activities_period": len(activities.data)
             },
             "business_metrics": {
-                "todays_revenue": sales_overview["summary"]["total_revenue"],
-                "todays_orders": sales_overview["summary"]["total_orders"],
-                "completion_rate": sales_overview["order_breakdown"]["completion_rate"],
+                "period_revenue": float(period_revenue),
+                "period_orders": period_orders,
+                "completion_rate": completion_rate,
                 "inventory_value": inventory_overview["summary"]["total_inventory_value"],
                 "products_in_stock": inventory_overview["summary"]["stock_status"]["in_stock"]
             },
@@ -111,24 +260,25 @@ class AdminService:
             "critical_alerts": critical_alerts,
             "quick_stats": {
                 "total_users": await AdminService.get_total_users_count(),
-                "active_staff_today": len([a for a in today_activities.data if a["user_role"] != UserRole.SUPER_ADMIN]),
+                "active_staff_period": len([a for a in activities.data if a["user_role"] != UserRole.SUPER_ADMIN]),
                 "system_uptime": system_health.get("uptime", "Unknown"),
                 "cache_hit_rate": await AdminService.get_cache_metrics()
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         }
         
         # Cache for 1 minute
         redis_client.set(cache_key, dashboard_data, 60)
         
         return dashboard_data
+
     
     @staticmethod
     async def get_system_health() -> Dict[str, Any]:
         """Get comprehensive system health metrics"""
         health_data = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_nigerian_time().isoformat(),
             "services": {
                 "database": "connected",
                 "redis": "disconnected"
@@ -382,7 +532,7 @@ class AdminService:
     @staticmethod
     async def get_comprehensive_analytics(days: int = 30) -> Dict[str, Any]:
         """Get comprehensive business analytics for admin review"""
-        end_date = datetime.utcnow()
+        end_date = get_nigerian_time()
         start_date = end_date - timedelta(days=days)
         
         # Get all business data
@@ -448,7 +598,7 @@ class AdminService:
     @staticmethod
     async def get_security_overview(days: int = 7) -> Dict[str, Any]:
         """Get security and access control overview"""
-        end_date = datetime.utcnow()
+        end_date = get_nigerian_time()
         start_date = end_date - timedelta(days=days)
         
         # Get security-related activities
@@ -536,7 +686,7 @@ class AdminService:
         users = users_result.data
         
         # Get recent activity for each user
-        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        week_ago = (get_nigerian_time() - timedelta(days=7)).isoformat()
         recent_activity = supabase.table("activity_logs").select("user_id, action, created_at").gte("created_at", week_ago).execute()
         
         activity_by_user = defaultdict(list)
@@ -593,7 +743,7 @@ class AdminService:
                 "inactive_users": [
                     u for u in user_details 
                     if not u["last_activity"] or 
-                    datetime.fromisoformat(u["last_activity"]).replace(tzinfo=None) < datetime.utcnow() - timedelta(days=7)
+                    datetime.fromisoformat(u["last_activity"]).replace(tzinfo=None) < get_nigerian_time() - timedelta(days=7)
                 ]
             }
         }

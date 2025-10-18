@@ -2,6 +2,11 @@ from fastapi import APIRouter, HTTPException, status, Depends, Request, Backgrou
 from typing import List, Optional
 from decimal import Decimal
 from datetime import datetime, date, timedelta
+
+import pytz
+
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from pydantic import BaseModel, Field, validator, EmailStr
 from .admin_service import AdminService
 from ..models.user import UserRole
@@ -16,6 +21,10 @@ from ..core.rate_limiter import default_limiter
 from ..services.redis import redis_client
 from ..database import supabase, supabase_admin
 
+
+
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
 
 
 class BulkUserAction(BaseModel):
@@ -80,6 +89,8 @@ router = APIRouter(prefix="/admin", tags=["Administration"])
 @router.get("/dashboard")
 async def get_admin_dashboard(
     request: Request,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     current_user: dict = Depends(require_manager_up)
 ):
     """Get comprehensive admin dashboard overview"""
@@ -261,7 +272,7 @@ async def get_realtime_metrics(
         return cached
     
     # Get real-time data
-    current_time = datetime.utcnow()
+    current_time = get_nigerian_time()
     hour_ago = current_time - timedelta(hours=1)
     
     # Recent orders
@@ -357,11 +368,11 @@ async def get_critical_alerts(
             "message": f"{len(out_of_stock.data)} products are completely out of stock",
             "details": [f"{p['name']} ({p['categories']['name']})" for p in out_of_stock.data[:5]],
             "count": len(out_of_stock.data),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         })
     
     # Old pending orders
-    old_pending = supabase.table("orders").select("order_number, created_at").eq("status", "pending").lt("created_at", (datetime.utcnow() - timedelta(hours=2)).isoformat()).execute()
+    old_pending = supabase.table("orders").select("order_number, created_at").eq("status", "pending").lt("created_at", (get_nigerian_time() - timedelta(hours=2)).isoformat()).execute()
     if old_pending.data:
         alerts.append({
             "type": "orders",
@@ -370,11 +381,11 @@ async def get_critical_alerts(
             "message": f"{len(old_pending.data)} orders have been pending for over 2 hours",
             "details": [f"Order {o['order_number']}" for o in old_pending.data[:5]],
             "count": len(old_pending.data),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         })
     
     # Failed activities (potential issues)
-    failed_activities = supabase.table("activity_logs").select("resource, action, user_email").gte("created_at", (datetime.utcnow() - timedelta(hours=24)).isoformat()).execute()
+    failed_activities = supabase.table("activity_logs").select("resource, action, user_email").gte("created_at", (get_nigerian_time() - timedelta(hours=24)).isoformat()).execute()
     if failed_activities.data and len(failed_activities.data) > 10:
         alerts.append({
             "type": "system",
@@ -383,11 +394,11 @@ async def get_critical_alerts(
             "message": f"{len(failed_activities.data)} errors recorded in the last 24 hours",
             "details": [f"{a['action']} on {a['resource']}" for a in failed_activities.data[:5]],
             "count": len(failed_activities.data),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         })
     
     # Inactive staff
-    inactive_staff = supabase.table("profiles").select("email, role, last_login").eq("is_active", True).lt("last_login", (datetime.utcnow() - timedelta(days=7)).isoformat()).execute()
+    inactive_staff = supabase.table("profiles").select("email, role, last_login").eq("is_active", True).lt("last_login", (get_nigerian_time() - timedelta(days=7)).isoformat()).execute()
     if inactive_staff.data and len(inactive_staff.data) > 3:
         alerts.append({
             "type": "staff",
@@ -396,7 +407,7 @@ async def get_critical_alerts(
             "message": f"{len(inactive_staff.data)} staff haven't logged in for 7+ days",
             "details": [f"{s['email']} ({s['role']})" for s in inactive_staff.data[:5]],
             "count": len(inactive_staff.data),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         })
     
     alerts_data = {
@@ -426,7 +437,7 @@ async def get_performance_summary(
     if hours > 168:  # Max 1 week
         raise HTTPException(status_code=400, detail="Maximum 168 hours (1 week) allowed")
     
-    end_time = datetime.utcnow()
+    end_time = get_nigerian_time()
     start_time = end_time - timedelta(hours=hours)
     
     # Get performance data
@@ -534,7 +545,7 @@ async def bulk_user_action(
                 is_active = action == "activate"
                 supabase.table("profiles").update({
                     "is_active": is_active,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": get_nigerian_time().isoformat()
                 }).eq("id", user_id).execute()
                 
                 results["successful"].append({
@@ -631,7 +642,7 @@ async def update_user_status(
     
     supabase.table("profiles").update({
         "is_active": is_active,
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_nigerian_time().isoformat()
     }).eq("id", user_id).execute()
     
     await log_activity(
@@ -888,7 +899,7 @@ async def update_staff_salary(
         updates["is_active"] = update_data.is_active
     
     if updates:
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = get_nigerian_time().isoformat()
         supabase.table("staff_salaries").update(updates).eq("id", salary_id).execute()
         
         await log_activity(
@@ -933,7 +944,7 @@ async def delete_staff_salary(
     
     result = supabase.table("staff_salaries").update({
         "is_active": False,
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_nigerian_time().isoformat()
     }).eq("id", salary_id).execute()
     
     if not result.data:
@@ -1045,7 +1056,7 @@ async def update_expenditure_category(
     updates = {k: v for k, v in update_data.dict().items() if v is not None}
     
     if updates:
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = get_nigerian_time().isoformat()
         result = supabase.table("expenditure_categories").update(updates).eq("id", category_id).execute()
         
         if not result.data:
