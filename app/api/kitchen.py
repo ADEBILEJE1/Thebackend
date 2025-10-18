@@ -1086,7 +1086,7 @@ async def print_customer_receipt_by_order(
     all_order_items = [item for order in orders_result.data for item in order.get("order_items", [])]
     if all_order_items:
         all_item_ids = [item['id'] for item in all_order_items]
-        options_result = supabase_admin.table("order_item_options").select("*, product_options(name, price_modifier)").in_("order_item_id", all_item_ids).execute()
+        options_result = supabase_admin.table("order_item_options").select("*, product_options(name)").in_("order_item_id", all_item_ids).execute()
         
         options_map = {}
         for opt in options_result.data:
@@ -1112,8 +1112,8 @@ async def print_customer_receipt_by_order(
             for option in item.get("options", []):
                 opt_details = option.get("product_options")
                 if opt_details:
-                    price_mod = Decimal(opt_details.get("price_modifier", 0))
-                    items_html += f'<tr><td class="sub-item-desc">- {opt_details["name"]}</td><td class="sub-item-price">{format_currency(price_mod) if price_mod > 0 else ""}</td></tr>'
+                    items_html += f'<tr><td class="sub-item-desc">- {opt_details["name"]}</td><td class="sub-item-price"></td></tr>'
+
 
             # Notes row
             if item.get("notes"):
