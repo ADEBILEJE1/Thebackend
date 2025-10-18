@@ -1066,18 +1066,19 @@ async def get_kitchen_slip_view(
 
 
 
-@router.get("/kitchen/{order_id}/customer-receipt")
-async def get_customer_receipt(order_id: str):
-    """
-    Generates a combined printable HTML page with customer receipts for all orders in a batch.
-    It automatically selects the correct receipt format (online vs. offline).
-    """
+@router.get("/kitchen/order/{order_id}/customer-receipt")
+async def print_customer_receipt_by_order(
+    order_id: str,
+    request: Request,
+    current_user: dict = Depends(require_chef_staff)
+):
+    """Generate customer receipt for a single order"""
     orders_result = supabase_admin.table("orders").select(
         "*, order_items(*), customer_addresses(full_address), website_customers(full_name, phone)"
     ).eq("id", order_id).execute()
 
     if not orders_result.data:
-        raise HTTPException(status_code=404, detail="No orders found for this batch")
+        raise HTTPException(status_code=404, detail="Order not found")
 
     all_receipts_html = []
     
