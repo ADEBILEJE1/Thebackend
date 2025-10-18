@@ -796,7 +796,7 @@ async def update_stock(
        if effective_timestamp:
            if effective_timestamp.tzinfo:
                effective_timestamp = effective_timestamp.replace(tzinfo=None)
-           if effective_timestamp > get_nigerian_time():
+           if effective_timestamp.replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) > get_nigerian_time():
                raise HTTPException(status_code=400, detail="Cannot set future effective date")
        else:
            effective_timestamp = get_nigerian_time()
@@ -1989,7 +1989,7 @@ async def update_raw_material_stock(
         
         effective_timestamp = effective_timestamp.replace(tzinfo=None)
     
-    if effective_timestamp > get_nigerian_time():
+    if effective_timestamp > get_nigerian_time().replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="Cannot set future effective date")
     
     
@@ -2450,7 +2450,7 @@ async def set_packaging_costs(
     """Set or update packaging cost per order"""
     
     effective_timestamp = cost_data.effective_date or get_nigerian_time()
-    if effective_timestamp > get_nigerian_time():
+    if effective_timestamp > get_nigerian_time().replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="Cannot set future effective date")
     
     cost_entry = {
@@ -2486,7 +2486,7 @@ async def record_wastage(
     
     
     wastage_timestamp = wastage.wastage_date or get_nigerian_time()
-    if wastage_timestamp > get_nigerian_time():
+    if wastage_timestamp > get_nigerian_time().replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="Cannot set future wastage date")
     
     if wastage.wastage_type == WastageType.RAW_MATERIAL:
