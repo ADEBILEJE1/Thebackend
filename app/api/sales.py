@@ -7,6 +7,10 @@ import uuid
 from collections import defaultdict
 from fastapi import Security, HTTPException, Depends
 from fastapi.security import APIKeyHeader
+
+import pytz
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from ..config import settings
 from .sales_service import SalesService
 from fastapi.responses import HTMLResponse
@@ -66,6 +70,10 @@ def format_currency(amount):
     if amount is None:
         return ""
     return f"N{Decimal(amount):,.2f}"
+    
+
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
 
 
 
@@ -577,7 +585,7 @@ async def get_sales_stock_alerts(
             "critical_reorders": len([a for a in critical_alerts if a["type"] == "critical_reorder"])
         },
         "recommendations": product_data["sales_recommendations"]["immediate_actions"][:5],
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_nigerian_time().isoformat()
     }
     
     # Cache for 2 minutes
@@ -731,7 +739,7 @@ async def get_peak_hours_analysis(
     if days > 90:
         raise HTTPException(status_code=400, detail="Maximum 90 days allowed")
     
-    end_date = datetime.utcnow()
+    end_date = get_nigerian_time()
     start_date = end_date - timedelta(days=days)
     
     # Get orders in date range
@@ -797,7 +805,7 @@ async def get_completion_rates(
     if days > 365:
         raise HTTPException(status_code=400, detail="Maximum 365 days allowed")
     
-    end_date = datetime.utcnow()
+    end_date = get_nigerian_time()
     start_date = end_date - timedelta(days=days)
     
     # Get orders with status breakdown
@@ -886,7 +894,7 @@ async def push_order_to_kitchen(
     
     supabase_admin.table("orders").update({
         "status": "preparing",
-        "preparing_at": datetime.utcnow().isoformat()
+        "preparing_at": get_nigerian_time().isoformat()
     }).eq("id", order_id).execute()
     
     
@@ -1083,12 +1091,12 @@ async def create_offline_order(
     )
     
     batch_id = SalesService.generate_batch_id()
-    batch_created_at = datetime.utcnow().isoformat()
+    batch_created_at = get_nigerian_time().isoformat()
     display_number = SalesService.get_next_display_number()
-    order_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
+    order_number = f"ORD-{get_nigerian_time().strftime('%Y%m%d')}-{random.randint(100, 999):03d}"
     
     order_entry = {
-        "order_number": f"TEMP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
         "display_number": display_number,
         "order_type": "offline",
         "order_placement_type": order_data.order_placement_type,
@@ -1111,7 +1119,7 @@ async def create_offline_order(
     order_id = created_order.data[0]["id"]
 
     # Generate final order number
-    datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    datetime_str = get_nigerian_time().strftime("%Y%m%d%H%M%S")
     order_number = f"LEBANST-POS-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
 
     # Update with final order number
@@ -1180,7 +1188,7 @@ async def confirm_order_payment(
     supabase_admin.table("orders").update({
         "status": "confirmed",
         "payment_status": "paid",
-        "preparing_at": datetime.utcnow().isoformat()
+        "preparing_at": get_nigerian_time().isoformat()
     }).eq("id", order_id).execute()
     
     # Deduct stock immediately with real-time updates
@@ -1566,7 +1574,7 @@ async def push_batch_to_kitchen(
     # Update all orders to preparing
     supabase.table("orders").update({
         "status": "preparing",
-        "preparing_at": datetime.utcnow().isoformat()
+        "preparing_at": get_nigerian_time().isoformat()
     }).in_("id", order_ids).execute()
     
     # Stock already deducted during confirmation - no deduction here
@@ -1705,7 +1713,7 @@ async def process_refund(
                 "units": new_units,
                 "status": new_status,
                 "updated_by": current_user["id"],
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": get_nigerian_time().isoformat()
             }).eq("id", refund_item["product_id"]).execute()
             
             # Log stock restoration
@@ -1759,7 +1767,7 @@ async def get_refunds_summary(
 ):
     """Get refunds summary and analytics"""
     
-    end_date = datetime.utcnow()
+    end_date = get_nigerian_time()
     start_date = end_date - timedelta(days=days)
     
     refunds = supabase_admin.table("refunds").select("*").gte("created_at", start_date.isoformat()).execute()

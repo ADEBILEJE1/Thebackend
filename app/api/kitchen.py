@@ -5,6 +5,10 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, validator, EmailStr
 from fastapi.responses import HTMLResponse
 
+import pytz
+
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from ..models.order import OrderType, OrderStatus, PaymentStatus
 from ..models.user import UserRole
 from ..core.permissions import (
@@ -26,6 +30,9 @@ from ..models.order import OrderType, OrderStatus, PaymentStatus, PaymentMethod
 from ..models.inventory import StockStatus
 
 
+
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
 
 class OrderItemCreate(BaseModel):
     product_id: str
@@ -159,7 +166,7 @@ async def deduct_stock(items: List[dict]):
         supabase.table("products").update({
             "units": new_units,
             "status": new_status,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_nigerian_time().isoformat()
         }).eq("id", item["product_id"]).execute()
 
         # Track low stock items
@@ -337,7 +344,7 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
 #         raise HTTPException(status_code=404, detail="Batch not found or already completed")
     
 #     order_ids = [o["id"] for o in orders.data]
-#     completed_at = datetime.utcnow().isoformat()
+#     completed_at = get_nigerian_time().isoformat()
     
 #     # Mark all orders in batch as completed
 #     supabase_admin.table("orders").update({
@@ -378,7 +385,7 @@ async def mark_batch_ready(
         raise HTTPException(status_code=404, detail="Batch not found or already completed")
     
     order_ids = [o["id"] for o in orders.data]
-    completed_at = datetime.utcnow().isoformat()
+    completed_at = get_nigerian_time().isoformat()
     
     supabase_admin.table("orders").update({
         "status": "completed",
@@ -538,10 +545,10 @@ async def update_order_status(
         )
 
     # Update status with timestamp
-    update_data = {"status": new_status, "updated_at": datetime.utcnow().isoformat()}
+    update_data = {"status": new_status, "updated_at": get_nigerian_time().isoformat()}
 
     if new_status == OrderStatus.COMPLETED:
-        update_data["completed_at"] = datetime.utcnow().isoformat()
+        update_data["completed_at"] = get_nigerian_time().isoformat()
         # Send notification to customer if online order
         if order.data[0]["order_type"] == OrderType.ONLINE and order.data[0].get("customer_email"):
             send_order_ready_notification.delay(
@@ -581,8 +588,8 @@ async def mark_order_ready(
    # Update to completed (not ready)
    update_data = {
        "status": "completed",
-       "completed_at": datetime.utcnow().isoformat(),
-       "updated_at": datetime.utcnow().isoformat()
+       "completed_at": get_nigerian_time().isoformat(),
+       "updated_at": get_nigerian_time().isoformat()
    }
 
    supabase.table("orders").update(update_data).eq("id", order.data[0]["id"]).execute()
@@ -637,7 +644,7 @@ async def get_today_stats(
         "total_revenue": sum(float(o["total"]) for o in orders.data if o["status"] != OrderStatus.CANCELLED),
         "online_orders": len([o for o in orders.data if o["order_type"] == OrderType.ONLINE]),
         "offline_orders": len([o for o in orders.data if o["order_type"] == OrderType.OFFLINE]),
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_nigerian_time().isoformat()
     }
 
     # Cache for 30 seconds
@@ -724,7 +731,7 @@ async def get_chef_analytics(
 @staticmethod
 async def get_individual_chef_analytics(chef_id: str, days: int = 30) -> Dict[str, Any]:
     """Get individual chef performance analytics"""
-    end_date = datetime.utcnow()
+    end_date = get_nigerian_time()
     start_date = end_date - timedelta(days=days)
     
     # Get orders completed by this chef (from activity logs)
@@ -800,7 +807,7 @@ async def get_individual_chef_analytics(chef_id: str, days: int = 30) -> Dict[st
 #     # Update all orders in batch to preparing
 #     supabase_admin.table("orders").update({
 #         "status": "preparing",
-#         "preparing_at": datetime.utcnow().isoformat()
+#         "preparing_at": get_nigerian_time().isoformat()
 #     }).in_("id", order_ids).execute()
     
 #     await log_activity(
@@ -829,7 +836,7 @@ async def start_batch_preparation(
     
     supabase_admin.table("orders").update({
         "status": "preparing",
-        "preparing_at": datetime.utcnow().isoformat()
+        "preparing_at": get_nigerian_time().isoformat()
     }).in_("id", order_ids).execute()
     
     # Clear customer tracking cache

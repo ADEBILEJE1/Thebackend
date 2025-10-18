@@ -6,6 +6,10 @@ from enum  import Enum
 from decimal import Decimal
 import uuid
 
+import pytz
+
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from ..models.inventory import StockStatus
 from ..core.permissions import (
     get_current_user, 
@@ -269,6 +273,12 @@ class RawMaterialStockUpdate(BaseModel):
     effective_date: Optional[datetime] = None
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
+
+
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
+
+
 
 # Categories
 @router.post("/categories", response_model=dict)
@@ -634,7 +644,7 @@ async def get_products(
     
 #     if updates:
 #         updates["updated_by"] = current_user["id"]
-#         updates["updated_at"] = datetime.utcnow().isoformat()
+#         updates["updated_at"] = get_nigerian_time().isoformat()
         
 #         # Use supabase_admin and remove the check
 #         supabase_admin.table("products").update(updates).eq("id", product_id).execute()
@@ -687,7 +697,7 @@ async def update_product(
    
     if final_updates:
         final_updates["updated_by"] = current_user["id"]
-        final_updates["updated_at"] = datetime.utcnow().isoformat()
+        final_updates["updated_at"] = get_nigerian_time().isoformat()
         
         supabase_admin.table("products").update(final_updates).eq("id", product_id).execute()
     
@@ -763,7 +773,7 @@ async def update_stock(
        "units": new_units,
        "status": new_status,
        "updated_by": current_user["id"],
-       "updated_at": datetime.utcnow().isoformat()
+       "updated_at": get_nigerian_time().isoformat()
    }
    
    # Track price/tax changes (independent of stock operation)
@@ -786,10 +796,10 @@ async def update_stock(
        if effective_timestamp:
            if effective_timestamp.tzinfo:
                effective_timestamp = effective_timestamp.replace(tzinfo=None)
-           if effective_timestamp > datetime.utcnow():
+           if effective_timestamp > get_nigerian_time():
                raise HTTPException(status_code=400, detail="Cannot set future effective date")
        else:
-           effective_timestamp = datetime.utcnow()
+           effective_timestamp = get_nigerian_time()
        
        audit_data = {
            "product_id": product_id,
@@ -903,7 +913,7 @@ async def toggle_availability(
     update = {
         "is_available": availability.is_available,
         "updated_by": current_user["id"],
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_nigerian_time().isoformat()
     }
     
     result = supabase_admin.table("products").update(update).eq("id", product_id).execute()
@@ -1203,7 +1213,7 @@ async def get_enhanced_alerts(
     
     if include_predictions:
         # Get sales velocity for predictions
-        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        seven_days_ago = (get_nigerian_time() - timedelta(days=7)).isoformat()
         
         for product in standard_alerts.data:
             # Get recent sales
@@ -1246,7 +1256,7 @@ async def get_category_performance_comparison(
     categories = supabase.table("categories").select("*").eq("is_active", True).execute()
     
     comparison_data = []
-    start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    start_date = (get_nigerian_time() - timedelta(days=days)).isoformat()
     
     for category in categories.data:
         # Get products in category
@@ -1371,7 +1381,7 @@ async def get_stock_optimization(
             "overstock_items": low_performers[-3:] if low_performers else [],
             "total_reorder_cost": reorder_suggestions["summary"]["total_estimated_cost"]
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_nigerian_time().isoformat()
     }
     
     # Cache for 10 minutes
@@ -1479,7 +1489,7 @@ async def update_sku_code(
    updates = {k: v for k, v in update.dict().items() if v is not None}
    
    if updates:
-       updates["updated_at"] = datetime.utcnow().isoformat()
+       updates["updated_at"] = get_nigerian_time().isoformat()
        result = supabase.table("sku_codes").update(updates).eq("id", sku_id).execute()
        if not result.data:
            raise HTTPException(status_code=404, detail="SKU code not found")
@@ -1663,7 +1673,7 @@ async def update_banner(
     updates = {k: v for k, v in update.dict().items() if v is not None}
     
     if updates:
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = get_nigerian_time().isoformat()
         result = supabase.table("banners").update(updates).eq("id", banner_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Banner not found")
@@ -1974,18 +1984,18 @@ async def update_raw_material_stock(
         transaction_type = TransactionType.USAGE
     
     
-    effective_timestamp = stock.effective_date or datetime.utcnow()
+    effective_timestamp = stock.effective_date or get_nigerian_time()
     if stock.effective_date:
         
         effective_timestamp = effective_timestamp.replace(tzinfo=None)
     
-    if effective_timestamp > datetime.utcnow():
+    if effective_timestamp > get_nigerian_time():
         raise HTTPException(status_code=400, detail="Cannot set future effective date")
     
     
     supabase.table("raw_materials").update({
         "current_quantity": float(new_qty),
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_nigerian_time().isoformat()
     }).eq("id", material_id).execute()
     
     
@@ -2056,7 +2066,7 @@ async def create_transaction(
     # Update material quantity
     supabase.table("raw_materials").update({
         "current_quantity": float(new_qty),
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_nigerian_time().isoformat()
     }).eq("id", transaction.material_id).execute()
     
     # Record transaction
@@ -2309,7 +2319,7 @@ async def get_raw_materials_dashboard(
             "out_of_stock": out_of_stock
         },
         "recent_transactions": recent.data,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_nigerian_time().isoformat()
     }
     
     redis_client.set(cache_key, dashboard_data, 300)
@@ -2339,7 +2349,7 @@ async def update_raw_material(
     updates = {k: v for k, v in update.dict().items() if v is not None}
     
     if updates:
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = get_nigerian_time().isoformat()
         result = supabase.table("raw_materials").update(updates).eq("id", material_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Raw material not found")
@@ -2399,7 +2409,7 @@ async def update_area(
         updates["delivery_fee"] = float(updates["delivery_fee"])
     
     if updates:
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = get_nigerian_time().isoformat()
         result = supabase.table("delivery_areas").update(updates).eq("id", area_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Area not found")
@@ -2439,8 +2449,8 @@ async def set_packaging_costs(
 ):
     """Set or update packaging cost per order"""
     
-    effective_timestamp = cost_data.effective_date or datetime.utcnow()
-    if effective_timestamp > datetime.utcnow():
+    effective_timestamp = cost_data.effective_date or get_nigerian_time()
+    if effective_timestamp > get_nigerian_time():
         raise HTTPException(status_code=400, detail="Cannot set future effective date")
     
     cost_entry = {
@@ -2475,8 +2485,8 @@ async def record_wastage(
     """Record wastage for raw materials or finished products with optional backdating"""
     
     
-    wastage_timestamp = wastage.wastage_date or datetime.utcnow()
-    if wastage_timestamp > datetime.utcnow():
+    wastage_timestamp = wastage.wastage_date or get_nigerian_time()
+    if wastage_timestamp > get_nigerian_time():
         raise HTTPException(status_code=400, detail="Cannot set future wastage date")
     
     if wastage.wastage_type == WastageType.RAW_MATERIAL:
@@ -2496,7 +2506,7 @@ async def record_wastage(
         new_qty = current_qty - wastage.quantity
         supabase.table("raw_materials").update({
             "current_quantity": float(new_qty),
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_nigerian_time().isoformat()
         }).eq("id", wastage.item_id).execute()
         
         
@@ -2538,7 +2548,7 @@ async def record_wastage(
             "units": new_units,
             "status": new_status,
             "updated_by": current_user["id"],
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_nigerian_time().isoformat()
         }).eq("id", wastage.item_id).execute()
         
         

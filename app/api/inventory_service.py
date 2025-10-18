@@ -3,12 +3,20 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 from collections import defaultdict
 from sqlalchemy import text
+
+import pytz
+
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from ..database import supabase
 from ..services.redis import redis_client
 from ..core.cache import CacheKeys
 from ..models.inventory import StockStatus
 from ..models.user import UserRole
 
+
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
 
 class InventoryService:
     """Service class for inventory dashboard operations"""
@@ -80,7 +88,7 @@ class InventoryService:
             },
             "critical_items": critical_items,
             "recent_movements": recent_movements,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         }
         
         # Cache for 2 minutes
@@ -90,7 +98,7 @@ class InventoryService:
     @staticmethod
     async def get_stock_movement_trends(days: int = 30) -> Dict[str, Any]:
         """Analyze stock movement trends over specified days"""
-        end_date = datetime.utcnow()
+        end_date = get_nigerian_time()
         start_date = end_date - timedelta(days=days)
         
         # Get stock entries in date range
@@ -227,7 +235,7 @@ class InventoryService:
             "total_inventory_value": float(total_value),
             "total_units": total_units,
             "category_breakdown": sorted(valuation_data, key=lambda x: x["total_value"], reverse=True),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         }
     
     @staticmethod
@@ -291,7 +299,7 @@ class InventoryService:
                     "units": new_units,
                     "status": new_status,
                     "updated_by": user_id,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": get_nigerian_time().isoformat()
                 }
                 
                 supabase.table("products").update(product_update).eq("id", product_id).execute()
@@ -338,7 +346,7 @@ class InventoryService:
         all_products = products_result.data
         
         # Get comprehensive sales data for the last 30 days
-        thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        thirty_days_ago = (get_nigerian_time() - timedelta(days=30)).isoformat()
         
         # Get all order items to calculate real sales velocity
         all_sales_result = supabase.table("order_items").select(
@@ -458,13 +466,13 @@ class InventoryService:
                     for s in suggestions if s["current_stock"] <= 0
                 )
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_nigerian_time().isoformat()
         }
     
     @staticmethod
     async def get_product_performance(days: int = 30) -> Dict[str, Any]:
         """Analyze product performance based on sales data"""
-        end_date = datetime.utcnow()
+        end_date = get_nigerian_time()
         start_date = end_date - timedelta(days=days)
         
         # Get order items with product and order details
@@ -560,7 +568,7 @@ class InventoryService:
     @staticmethod
     async def get_wastage_analysis(days: int = 30) -> Dict[str, Any]:
         """Analyze product wastage and expired items"""
-        end_date = datetime.utcnow()
+        end_date = get_nigerian_time()
         start_date = end_date - timedelta(days=days)
         
         # Get stock entries marked as wastage/expired
@@ -670,7 +678,7 @@ class InventoryService:
     @staticmethod
     async def get_individual_inventory_analytics(staff_id: str, days: int = 30) -> Dict[str, Any]:
         """Get individual inventory staff performance analytics"""
-        end_date = datetime.utcnow()
+        end_date = get_nigerian_time()
         start_date = end_date - timedelta(days=days)
         
         # Stock entries by this staff

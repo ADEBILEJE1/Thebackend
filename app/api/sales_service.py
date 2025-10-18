@@ -2,8 +2,10 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 import uuid
+
 import pytz
-nigeria_tz = pytz.timezone('Africa/Lagos')
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from collections import defaultdict
 from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
@@ -11,6 +13,10 @@ from ..core.cache import CacheKeys
 from ..models.order import OrderType, OrderStatus, PaymentStatus
 from ..models.user import UserRole
 
+
+
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
 
 class SalesService:
     """Service class for sales dashboard operations"""
@@ -30,7 +36,7 @@ class SalesService:
         from decimal import Decimal
         
         nigeria_tz = pytz.timezone('Africa/Lagos')
-        today_nigeria = datetime.now(nigeria_tz).date()
+        today_nigeria = datetime.now(NIGERIA_TZ).date()
         start_of_day = datetime.combine(today_nigeria, datetime.min.time())
         start_of_day_utc = nigeria_tz.localize(start_of_day).astimezone(pytz.UTC)
         
@@ -107,7 +113,7 @@ class SalesService:
                 {"hour": hour, "orders": data["orders"], "revenue": float(data["revenue"])} 
                 for hour, data in sorted(hourly_sales.items())
             ],
-            "timestamp": datetime.now(nigeria_tz).isoformat()
+            "timestamp": datetime.now(NIGERIA_TZ).isoformat()
         }
         
         # Cache for 30 seconds
@@ -120,7 +126,7 @@ class SalesService:
     @staticmethod
     async def get_revenue_analytics(days: int = 30) -> Dict[str, Any]:
         """Get detailed revenue analytics over specified period - unified view"""
-        end_date = datetime.now(nigeria_tz)
+        end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
         # Get ALL orders - no user filtering
@@ -209,7 +215,7 @@ class SalesService:
     @staticmethod
     async def get_staff_performance(days: int = 30, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get sales staff performance metrics"""
-        end_date = datetime.now(nigeria_tz)
+        end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
         # Get all sales staff
@@ -279,7 +285,7 @@ class SalesService:
     @staticmethod
     async def get_customer_analytics(days: int = 30) -> Dict[str, Any]:
         """Analyze customer behavior and patterns"""
-        end_date = datetime.now(nigeria_tz)
+        end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
         # Get orders with customer info
@@ -366,7 +372,7 @@ class SalesService:
     @staticmethod
     async def get_product_sales_analysis(days: int = 30) -> Dict[str, Any]:
         """Analyze product sales performance"""
-        end_date = datetime.now(nigeria_tz)
+        end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
         # Get order items with product details
@@ -513,14 +519,14 @@ class SalesService:
         
         today = date.today()
         start_of_day = datetime.combine(today, datetime.min.time())
-        current_hour = datetime.utcnow().hour
+        current_hour = get_nigerian_time().hour
         
         # Get today's orders
         orders_result = supabase.table("orders").select("*").gte("created_at", start_of_day.isoformat()).execute()
         orders = orders_result.data
         
         # Current hour metrics
-        current_hour_start = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        current_hour_start = get_nigerian_time().replace(minute=0, second=0, microsecond=0)
         last_hour_start = current_hour_start - timedelta(hours=1)  # ADD THIS LINE
         
         current_hour_orders = [
@@ -541,7 +547,7 @@ class SalesService:
         active_orders = [o for o in orders if o["status"] in ["pending", "preparing"]]
         
         live_data = {
-            "current_time": datetime.utcnow().isoformat(),
+            "current_time": get_nigerian_time().isoformat(),
             "today_summary": {
                 "total_orders": len(orders),
                 "total_revenue": sum(float(o["total"]) for o in orders if o["status"] != "cancelled"),
@@ -686,7 +692,7 @@ class SalesService:
     @staticmethod
     async def get_individual_staff_analytics(staff_id: str, days: int = 30) -> Dict[str, Any]:
         """Get individual staff performance analytics"""
-        end_date = datetime.now(nigeria_tz)
+        end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
         # Orders created by this staff
@@ -784,7 +790,7 @@ class SalesService:
                 "status": new_status,
                 # "updated_by": user_id,
                 "updated_by": user_id if is_staff else None, 
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": get_nigerian_time().isoformat()
             }).eq("id", item["product_id"]).execute()
             
             # Log stock entry
@@ -826,7 +832,7 @@ class SalesService:
                     "units": new_units,
                     "status": new_status,
                     "updated_by": user_id,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": get_nigerian_time().isoformat()
                 }).eq("id", item["product_id"]).execute()
                 
                 # Log stock restoration
@@ -847,7 +853,7 @@ class SalesService:
     @staticmethod
     def generate_batch_id() -> str:
         """Generate unique batch ID for order grouping"""
-        return f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
+        return f"BATCH-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
     
     @staticmethod
     def get_next_display_number():

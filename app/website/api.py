@@ -9,6 +9,9 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from fastapi import BackgroundTasks
 
+import pytz
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService
 # from ..database import supabase
@@ -26,7 +29,8 @@ router = APIRouter(prefix="/website", tags=["Website"])
 
 
 
-
+def get_nigerian_time():
+    return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
 
 
 
@@ -542,7 +546,7 @@ async def complete_checkout(
         raise HTTPException(status_code=401, detail="Invalid session")
     
     batch_id = CartService.generate_batch_id()
-    batch_created_at = datetime.utcnow().isoformat()
+    batch_created_at = get_nigerian_time().isoformat()
     
     created_orders = []
     all_items = []  # Collect all items for stock deduction
@@ -557,7 +561,7 @@ async def complete_checkout(
         delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
         
         order_data = {
-            "order_number": f"TEMP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
             "order_type": "online",
             "status": "pending",
             "payment_status": "pending",
@@ -640,7 +644,7 @@ async def create_payment_account(
         )
     # ========== END VALIDATION ==========
     
-    # payment_reference = f"tranx-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid4())[:6]}"
+    # payment_reference = f"tranx-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}-{str(uuid4())[:6]}"
     payment_reference = f"tranx-{str(uuid4())}"
     
     try:
@@ -658,7 +662,7 @@ async def create_payment_account(
             "orders": [order.dict() for order in payment_data.orders],
             "amount": float(payment_data.total_amount),
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": get_nigerian_time().isoformat()
         }
         
         redis_client.set(f"payment:{account_data['account_reference']}", payment_session, 3600)
@@ -742,7 +746,7 @@ async def verify_payment(account_reference: str):
 
 
                 batch_id = CartService.generate_batch_id()
-                batch_created_at = datetime.utcnow().isoformat()
+                batch_created_at = get_nigerian_time().isoformat()
                
                 for order_data in payment_session["orders"]:
                     processed_items = await CartService.validate_cart_items(order_data["items"])
@@ -756,8 +760,8 @@ async def verify_payment(account_reference: str):
                     delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
                    
                     order_entry = {
-                        # "order_number": f"WEB-{datetime.now().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
-                        "order_number": f"TEMP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                        # "order_number": f"WEB-{get_nigerian_time().strftime('%Y%m%d')}-{len(created_orders)+1:03d}",
+                        "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
                         "order_type": "online",
                         "status": "confirmed",
                         "payment_status": "paid",
@@ -771,7 +775,7 @@ async def verify_payment(account_reference: str):
                         "total": float(totals["total"]) + delivery_fee,
                         "website_customer_id": payment_session["customer_id"],
                         "delivery_address_id": order_data["delivery_address_id"],
-                        "confirmed_at": datetime.utcnow().isoformat()
+                        "confirmed_at": get_nigerian_time().isoformat()
                     }
                    
                     created_order = supabase_admin.table("orders").insert(order_entry).execute()
@@ -812,7 +816,7 @@ async def verify_payment(account_reference: str):
                 # Mark as completed
                 payment_session["status"] = "completed"
                 payment_session["orders_created"] = [o["id"] for o in created_orders]
-                payment_session["completed_at"] = datetime.utcnow().isoformat()
+                payment_session["completed_at"] = get_nigerian_time().isoformat()
                 redis_client.set(f"payment:{account_reference}", payment_session, 86400)
                
                 return {
@@ -857,9 +861,9 @@ async def bypass_payment_create(
         import json
         session_data = json.loads(session_data.decode("utf-8"))
 
-    payment_reference = f"BYPASS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
+    payment_reference = f"BYPASS-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
     batch_id = CartService.generate_batch_id()
-    batch_created_at = datetime.utcnow().isoformat()
+    batch_created_at = get_nigerian_time().isoformat()
 
     created_orders = []
     all_items = []  # Collect all items outside loop
@@ -886,7 +890,7 @@ async def bypass_payment_create(
             "total": float(totals["total"]) + delivery_fee,
             "website_customer_id": session_data["customer_id"],
             "delivery_address_id": order_data.delivery_address_id,
-            "confirmed_at": datetime.utcnow().isoformat()
+            "confirmed_at": get_nigerian_time().isoformat()
         }
 
         created_order = supabase_admin.table("orders").insert(order_entry).execute()

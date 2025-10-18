@@ -31,6 +31,8 @@ from ..email_templates.email_templates import get_otp_email_template
 resend.api_key = os.getenv("RESEND_API_KEY")
 
 
+
+
 class CustomerService:
     @staticmethod
     def extract_name_from_email(email: str) -> str:
