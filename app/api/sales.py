@@ -1420,6 +1420,62 @@ async def get_order_batches(current_user: dict = Depends(require_sales_staff)):
 
 
 
+# @router.get("/batches/{batch_id}/details")
+# async def get_batch_details(
+#     batch_id: str,
+#     current_user: dict = Depends(require_sales_staff)
+# ):
+#     """Get detailed information about a specific batch"""
+#     orders = supabase_admin.table("orders").select("""
+#         *, 
+#         order_items(*),
+#         customer_addresses(full_address, delivery_areas(name, estimated_time)),
+#         website_customers(full_name, email, phone)
+#     """).eq("batch_id", batch_id).execute()
+    
+#     if not orders.data:
+#         raise HTTPException(status_code=404, detail="Batch not found")
+
+#     # Fetch options for each item
+#     for order in orders.data:
+#         # Handle missing order_items
+#         if "order_items" not in order or order["order_items"] is None:
+#             order["order_items"] = []
+        
+#         for item in order.get("order_items", []):
+#             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
+#             item["options"] = options_result.data
+    
+#     # Extract comprehensive customer and delivery info
+#     first_order = orders.data[0]
+#     website_customer = first_order.get("website_customers") or {}
+
+#     customer_info = {
+#         "name": first_order.get("customer_name") or website_customer.get("full_name") or "N/A",
+#         "phone": first_order.get("customer_phone") or website_customer.get("phone") or "N/A",
+#         "email": first_order.get("customer_email") or website_customer.get("email") or "N/A"
+#     }
+    
+#     delivery_info = first_order.get("customer_addresses")
+    
+#     total_items = sum(len(order.get("order_items") or []) for order in orders.data)
+#     total_amount = sum(float(order["total"]) for order in orders.data)
+    
+#     return {
+#         "batch_id": batch_id,
+#         "orders": orders.data,
+#         "customer_info": customer_info,
+#         "delivery_info": delivery_info,
+#         "summary": {
+#             "order_count": len(orders.data),
+#             "total_items": total_items,
+#             "total_amount": total_amount,
+#             "status": orders.data[0]["status"] if orders.data else None,
+#             "batch_created_at": orders.data[0]["batch_created_at"] if orders.data else None
+#         }
+#     }
+
+
 @router.get("/batches/{batch_id}/details")
 async def get_batch_details(
     batch_id: str,
@@ -1438,7 +1494,6 @@ async def get_batch_details(
 
     # Fetch options for each item
     for order in orders.data:
-        # Handle missing order_items
         if "order_items" not in order or order["order_items"] is None:
             order["order_items"] = []
         
@@ -1446,19 +1501,31 @@ async def get_batch_details(
             options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
             item["options"] = options_result.data
     
-    # Extract comprehensive customer and delivery info
+    # Extract customer info
     first_order = orders.data[0]
-    website_customer = first_order.get("website_customers") or {}
-
-    customer_info = {
-        "name": first_order.get("customer_name") or website_customer.get("full_name") or "N/A",
-        "phone": first_order.get("customer_phone") or website_customer.get("phone") or "N/A",
-        "email": first_order.get("customer_email") or website_customer.get("email") or "N/A"
-    }
+    
+    # For online orders, fetch customer directly if join failed
+    customer_info = {}
+    if first_order.get("website_customer_id"):
+        customer = supabase_admin.table("website_customers").select("*").eq("id", first_order["website_customer_id"]).execute()
+        if customer.data:
+            customer_info = {
+                "name": customer.data[0].get("full_name"),
+                "phone": customer.data[0].get("phone"),
+                "email": customer.data[0].get("email")
+            }
+    else:
+        # Offline order
+        customer_info = {
+            "name": first_order.get("customer_name") or "N/A",
+            "phone": first_order.get("customer_phone") or "N/A",
+            "email": first_order.get("customer_email") or "N/A"
+        }
     
     delivery_info = first_order.get("customer_addresses")
     
-    total_items = sum(len(order.get("order_items") or []) for order in orders.data)
+    # Calculate totals correctly
+    total_items = sum(len(order.get("order_items", [])) for order in orders.data)
     total_amount = sum(float(order["total"]) for order in orders.data)
     
     return {
@@ -1474,7 +1541,6 @@ async def get_batch_details(
             "batch_created_at": orders.data[0]["batch_created_at"] if orders.data else None
         }
     }
-
 
 
 @router.post("/batches/{batch_id}/push-to-kitchen")

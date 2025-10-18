@@ -1454,3 +1454,24 @@ async def check_transactions(account_reference: str):
     )
     
     return response.json()
+
+
+@router.post("/auth/restore-session")
+async def restore_session_from_email(email: str):
+    """Restore session using email if token is lost"""
+    customer = supabase_admin.table("website_customers").select("*").eq("email", email).execute()
+    
+    if not customer.data:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    # Create new session
+    session_token = await CustomerService.create_customer_session(customer.data[0]["id"])
+    
+    # Get addresses
+    addresses = await AddressService.get_customer_addresses(customer.data[0]["id"])
+    
+    return {
+        "session_token": session_token,
+        "customer": customer.data[0],
+        "addresses": addresses
+    }
