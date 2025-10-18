@@ -15,6 +15,10 @@ from urllib3.poolmanager import PoolManager
 import math
 import requests
 import base64
+
+import pytz
+NIGERIA_TZ = pytz.timezone('Africa/Lagos')
+
 from datetime import datetime, timedelta
 from ..database import supabase
 from ..services.redis import redis_client
@@ -54,7 +58,7 @@ class CustomerService:
         if existing.data:
             # Update last_seen
             supabase.table("website_customers").update({
-                "last_seen": datetime.utcnow().isoformat()
+                "last_seen": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
             }).eq("id", existing.data[0]["id"]).execute()
             
             return existing.data[0]
@@ -67,7 +71,7 @@ class CustomerService:
             "email": email,
             "full_name": full_name,
             "phone": phone,
-            "last_seen": datetime.utcnow().isoformat()
+            "last_seen": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
         }
         
         result = supabase.table("website_customers").insert(customer_data).execute()
@@ -124,7 +128,7 @@ class CustomerService:
         # Store session with 5-year expiry
         session_data = {
             "customer_id": customer_id,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
         }
         
         redis_client.set(f"customer_session:{session_token}", session_data, 60*60*24*365*5)
@@ -156,7 +160,7 @@ class CustomerService:
     #             "email": email,
     #             "full_name": full_name,
     #             "phone": phone,
-    #             "last_seen": datetime.utcnow().isoformat()
+    #             "last_seen": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
     #         }
             
     #         result = supabase.table("website_customers").insert(customer_data).execute()
@@ -192,7 +196,7 @@ class CustomerService:
                 "email": email,
                 "full_name": full_name,
                 "phone": phone,
-                "last_seen": datetime.utcnow().isoformat()
+                "last_seen": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
             }
             
             result = supabase.table("website_customers").insert(customer_data).execute()
@@ -715,7 +719,7 @@ class MonnifyService:
                         "account_name": account["accountName"],
                         "bank_name": account["bankName"],
                         "amount": amount,
-                        "expires_at": datetime.utcnow() + timedelta(hours=1)
+                        "expires_at": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) + timedelta(minutes=5)
                     }
             except:
                 pass  # Account doesn't exist, create new one
@@ -831,7 +835,7 @@ class MonnifyService:
             payment_session["webhook_status"] = payment_status
             payment_session["webhook_data"] = payload
             payment_session["transaction_reference"] = transaction_reference
-            payment_session["webhook_received_at"] = datetime.utcnow().isoformat()
+            payment_session["webhook_received_at"] = datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
             
             redis_client.set(f"payment:{account_reference}", payment_session, 3600)
             
