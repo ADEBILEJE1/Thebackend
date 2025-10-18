@@ -357,8 +357,11 @@ class AdminService:
             end_date = date_to
         
         # Get orders with items and categories
-        orders = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
-
+        orders = supabase_admin.table("orders").select("*").gte(
+            "created_at", start_date.isoformat()
+        ).lte(
+            "created_at", f"{end_date.isoformat()}T23:59:59"
+        ).eq("payment_status", "paid").neq("status", "cancelled").execute()
         # Fetch order_items separately
         for order in orders.data:
             items = supabase_admin.table("order_items").select("*, products(categories(name))").eq("order_id", order["id"]).execute()
@@ -1274,7 +1277,11 @@ class AdminService:
         
         # Get daily revenue breakdown
         daily_revenue = defaultdict(Decimal)
-        orders = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
+        orders = supabase_admin.table("orders").select("*").gte(
+            "created_at", start_date.isoformat()
+        ).lte(
+            "created_at", f"{end_date.isoformat()}T23:59:59"
+        ).eq("payment_status", "paid").neq("status", "cancelled").execute()
         
         for order in orders.data:
             order_date = order["created_at"][:10]
