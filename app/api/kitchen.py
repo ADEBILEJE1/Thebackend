@@ -913,7 +913,7 @@ async def get_kitchen_slip_view(
             
     # Format date and time
     created_dt = datetime.fromisoformat(order['created_at'])
-    order_day = created_dt.strftime('%A').upper()
+    order_date = created_dt.strftime('%d/%m/%Y')
     order_time = created_dt.strftime('%I:%M %p')
 
     html_receipt = f"""
@@ -1031,7 +1031,7 @@ async def get_kitchen_slip_view(
             <div><strong>BATCH:</strong> {order.get('batch_id', 'N/A')}</div>
             <div><strong>TYPE:</strong> {(order.get('order_placement_type') or order.get('order_type') or "").upper()}</div>
             <div><strong>CUSTOMER:</strong> {order.get('customer_name', 'WALK-IN')}</div>
-            <div><strong>DAY:</strong> {order_day}</div>
+            <div><strong>DATE:</strong> {order_date}</div>
             <div><strong>TIME:</strong> {order_time}</div>
         </div>
 
@@ -1120,7 +1120,7 @@ async def print_customer_receipt_by_order(
                 items_html += f'<tr><td class="item-notes" colspan="2">NOTES: {item["notes"]}</td></tr>'
 
         created_dt = datetime.fromisoformat(order['created_at'])
-        order_day = created_dt.strftime('%A').upper()
+        order_date = created_dt.strftime('%d/%m/%Y')
         order_time = created_dt.strftime('%I:%M %p')
 
         # OFFLINE RECEIPT
@@ -1135,9 +1135,9 @@ async def print_customer_receipt_by_order(
                     <div class="order-info">
                         <div><strong>ORDER:</strong> {order.get('order_number', '')}</div>
                         <div><strong>BATCH:</strong> {order.get('batch_id', 'N/A')}</div>
-                        <div><strong>TYPE:</strong> {order.get('order_placement_type', '').upper()}</div>
+                        <div><strong>TYPE:</strong> {(order.get('order_placement_type') or '').upper()}</div>
                         <div><strong>CUSTOMER:</strong> {order.get('customer_name', 'WALK-IN')}</div>
-                        <div><strong>DAY:</strong> {order_day}</div>
+                        <div><strong>DATE:</strong> {order_date}</div>
                         <div><strong>TIME:</strong> {order_time}</div>
                     </div>
                     <table><tbody>{items_html}</tbody></table>
@@ -1169,8 +1169,8 @@ async def print_customer_receipt_by_order(
                     <div class="order-info">
                         <div><strong>ORDER:</strong> {order.get('order_number', '')}</div>
                         <div><strong>BATCH:</strong> {order.get('batch_id', 'N/A')}</div>
-                        <div><strong>TYPE:</strong> {order.get('order_placement_type', '').upper()}</div>
-                        <div><strong>DAY:</strong> {order_day}</div>
+                        <div><strong>TYPE:</strong> {(order.get('order_placement_type') or '').upper()}</div>
+                        <div><strong>DATE:</strong> {order_date}</div>
                         <div><strong>TIME:</strong> {order_time}</div>
                     </div>
                     <table><tbody>{items_html}</tbody></table>
