@@ -213,55 +213,7 @@ class CustomerService:
 
 
 class DeliveryService:
-    # RESTAURANT_LAT = 7.3775  # Ibadan coordinates
-    # RESTAURANT_LNG = 3.9470
     
-    # @staticmethod
-    # def calculate_distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    #     """Calculate distance between two points in kilometers"""
-    #     R = 6371  # Earth's radius in kilometers
-        
-    #     lat1_rad = math.radians(lat1)
-    #     lat2_rad = math.radians(lat2)
-    #     delta_lat = math.radians(lat2 - lat1)
-    #     delta_lng = math.radians(lng2 - lng1)
-        
-    #     a = (math.sin(delta_lat / 2) * math.sin(delta_lat / 2) +
-    #          math.cos(lat1_rad) * math.cos(lat2_rad) *
-    #          math.sin(delta_lng / 2) * math.sin(delta_lng / 2))
-        
-    #     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        
-    #     return R * c
-    
-    # @staticmethod
-    # def calculate_delivery_fee(distance_km: float) -> Decimal:
-    #     """Calculate delivery fee based on distance"""
-    #     if distance_km <= 5:
-    #         return Decimal('500')
-    #     elif distance_km <= 10:
-    #         return Decimal('1000')
-    #     elif distance_km <= 15:
-    #         return Decimal('1500')
-    #     elif distance_km <= 20:
-    #         return Decimal('2000')
-    #     else:
-    #         # ₦500 base + ₦250 per additional 5km
-    #         extra_distance = distance_km - 20
-    #         extra_fee = math.ceil(extra_distance / 5) * 250
-    #         return Decimal('2000') + Decimal(str(extra_fee))
-    
-    # @staticmethod
-    # def estimate_delivery_time(distance_km: float) -> str:
-    #     """Estimate delivery time based on distance"""
-    #     if distance_km <= 5:
-    #         return "20-30 minutes"
-    #     elif distance_km <= 10:
-    #         return "30-45 minutes"
-    #     elif distance_km <= 15:
-    #         return "45-60 minutes"
-    #     else:
-    #         return "60-90 minutes"
         
 
     @staticmethod

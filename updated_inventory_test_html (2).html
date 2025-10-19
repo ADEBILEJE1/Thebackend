@@ -1,188 +1,101 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <style>
-        @media print {
-            * {
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }
-            body {
-                margin: 0;
-                padding: 20px;
-                font-family: Arial, sans-serif;
-                color: #000;
-                text-transform: uppercase;
-            }
-            @page {
-                size: 80mm auto;
-                margin: 0;
-            }
-        }
-        body {
-            width: 80mm;
-            margin: 0 auto;
-            padding: 10mm;
-            font-family: Arial, sans-serif;
-            text-transform: uppercase;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 20px;
-            border-bottom: 3px solid #000;
-            padding-bottom: 15px;
-        }
-        .title {
-            font-size: 24px;
-            font-weight: 900;
-            margin: 10px 0;
-        }
-        .order-info {
-            font-size: 14px;
-            font-weight: 700;
-            margin: 15px 0;
-            padding: 10px;
-            background: #f0f0f0;
-            border: 2px solid #000;
-        }
-        .display-number {
-            font-size: 48px;
-            font-weight: 900;
-            text-align: center;
-            margin: 20px 0;
-            padding: 20px;
-            border: 4px solid #000;
-            background: #000;
-            color: #fff;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-        }
-        td {
-            padding: 8px 0;
-            border-bottom: 1px dashed #000;
-        }
-        .main-item-desc {
-            font-weight: 900; 
-            font-size: 18px;
-            border-top: 3px solid #000;
-            padding-top: 12px;
-        }
-        .main-item-price {
-            font-weight: 900;
-            font-size: 18px;
-            border-top: 3px solid #000;
-            padding-top: 12px;
-            text-align: right;
-        }
-        .sub-item-desc {
-            padding-left: 25px !important; 
-            font-size: 16px;
-        }
-        .sub-item-price {
-            font-size: 16px;
-            text-align: right;
-        }
-        .item-notes {
-            padding-left: 25px !important; 
-            font-style: italic; 
-            font-size: 14px;
-        }
-        .totals-section {
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 3px solid #000;
-        }
-        .totals-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 16px;
-            font-weight: 700;
-            padding: 4px 0;
-        }
-        .total-final {
-            font-size: 20px;
-            font-weight: 900;
-            border-top: 3px solid #000;
-            margin-top: 5px;
-            padding-top: 10px;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 25px;
-            padding-top: 15px;
-            border-top: 3px solid #000;
-            font-size: 12px;
-            font-weight: 700;
-        }
-    </style>
+    <title>Revenue Analytics Test</title>
 </head>
 <body>
-    <div class="header">
-        <div class="title">CUSTOMER RECEIPT</div>
-    </div>
+    <h3>Login</h3>
+    <input type="text" id="email" placeholder="Email" style="width:300px"><br><br>
+    <input type="password" id="password" placeholder="Password" style="width:300px"><br><br>
+    <input type="text" id="baseUrl" placeholder="Base URL" value="http://localhost:8000" style="width:300px"><br><br>
+    <button onclick="login()">Login</button>
+    <p id="loginStatus"></p>
 
-    <div class="display-number">#101</div>
+    <hr>
 
-    <div class="order-info">
-        <div><strong>ORDER:</strong> ORD-20251017-001</div>
-        <div><strong>BATCH:</strong> BATCH-12345</div>
-        <div><strong>TYPE:</strong> DINE-IN</div>
-        <div><strong>CUSTOMER:</strong> JOHN DOE</div>
-        <div><strong>DAY:</strong> FRIDAY</div>
-        <div><strong>TIME:</strong> 08:19 PM</div>
-    </div>
+    <h3>Revenue Analytics</h3>
+    <select id="period">
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly" selected>Monthly</option>
+        <option value="quarterly">Quarterly</option>
+        <option value="yearly">Yearly</option>
+    </select><br><br>
+    <input type="date" id="dateFrom" placeholder="Date From"><br><br>
+    <input type="date" id="dateTo" placeholder="Date To"><br><br>
+    <button onclick="getRevenue()">Get Revenue</button>
 
-    <table>
-        <tbody>
-            <tr>
-                <td class="main-item-desc">2X BEEF BURGER</td>
-                <td class="main-item-price">N20,000.00</td>
-            </tr>
-            <tr>
-                <td class="sub-item-desc">- EXTRA CHEESE</td>
-                <td class="sub-item-price">N1,000.00</td>
-            </tr>
-            <tr>
-                <td class="sub-item-desc">- NO ONIONS</td>
-                <td class="sub-item-price"></td>
-            </tr>
-            <tr>
-                <td class="item-notes" colspan="2">NOTES: CUT IN HALF</td>
-            </tr>
+    <hr>
 
-            <tr>
-                <td class="main-item-desc">1X FRIES</td>
-                <td class="main-item-price">N5,000.00</td>
-            </tr>
-            
-            <tr>
-                <td class="main-item-desc">1X COKE</td>
-                <td class="main-item-price">N2,500.00</td>
-            </tr>
-        </tbody>
-    </table>
+    <h3>Response</h3>
+    <pre id="response" style="border:1px solid #ccc; padding:10px; background:#f5f5f5"></pre>
 
-    <div class="totals-section">
-        <div class="totals-row">
-            <span>SUBTOTAL</span>
-            <span>N28,500.00</span>
-        </div>
-        <div class="totals-row">
-            <span>TAX</span>
-            <span>N2,280.00</span>
-        </div>
-        <div class="totals-row total-final">
-            <span>TOTAL</span>
-            <span>N30,780.00</span>
-        </div>
-    </div>
-    
-    <div class="footer">
-        <div>COOKING WITH LOVE FOR YOU</div>
-    </div>
+    <script>
+        let token = '';
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const baseUrl = document.getElementById('baseUrl').value;
+
+            console.log('=== LOGIN REQUEST ===');
+            console.log('Email:', email);
+            console.log('Base URL:', baseUrl);
+
+            try {
+                const res = await fetch(`${baseUrl}/auth/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, password})
+                });
+                
+                const data = await res.json();
+                console.log('Response Status:', res.status);
+                console.log('Response Data:', data);
+
+                if (data.access_token) {
+                    token = data.access_token;
+                    document.getElementById('loginStatus').innerText = 'Logged in successfully';
+                } else {
+                    document.getElementById('loginStatus').innerText = 'Login failed';
+                }
+            } catch (err) {
+                console.error('Error:', err);
+                document.getElementById('loginStatus').innerText = 'Error: ' + err.message;
+            }
+        }
+
+        async function getRevenue() {
+            const baseUrl = document.getElementById('baseUrl').value;
+            const period = document.getElementById('period').value;
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+
+            let url = `${baseUrl}/admin/analytics/revenue?period=${period}`;
+            if (dateFrom) url += `&date_from=${dateFrom}`;
+            if (dateTo) url += `&date_to=${dateTo}`;
+
+            console.log('=== REVENUE REQUEST ===');
+            console.log('URL:', url);
+            console.log('Token:', token ? 'Present' : 'Missing');
+
+            try {
+                const res = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await res.json();
+                console.log('Response Status:', res.status);
+                console.log('Response Data:', data);
+
+                document.getElementById('response').innerText = JSON.stringify(data, null, 2);
+            } catch (err) {
+                console.error('Error:', err);
+                document.getElementById('response').innerText = 'Error: ' + err.message;
+            }
+        }
+    </script>
 </body>
 </html>

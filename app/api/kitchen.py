@@ -1225,3 +1225,112 @@ async def print_customer_receipt_by_order(
     """
     
     return HTMLResponse(content=full_html)
+
+
+
+
+
+@router.get("/batches/{batch_id}/details")
+async def get_batch_details(
+    batch_id: str,
+    current_user: dict = Depends(require_chef_staff)
+):
+    """Get detailed information about a specific batch"""
+    orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).execute()
+    
+    if not orders.data:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Collect IDs for batch fetching
+    order_ids = [o["id"] for o in orders.data]
+    customer_ids = [o["website_customer_id"] for o in orders.data if o.get("website_customer_id")]
+    address_ids = [o["delivery_address_id"] for o in orders.data if o.get("delivery_address_id")]
+    
+    # Batch fetch items
+    items_result = supabase_admin.table("order_items").select("*").in_("order_id", order_ids).execute()
+    items_by_order = {}
+    all_item_ids = []
+    for item in items_result.data:
+        oid = item["order_id"]
+        if oid not in items_by_order:
+            items_by_order[oid] = []
+        items_by_order[oid].append(item)
+        all_item_ids.append(item["id"])
+    
+    # Batch fetch options
+    options_map = {}
+    if all_item_ids:
+        options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").in_("order_item_id", all_item_ids).execute()
+        for opt in options_result.data:
+            item_id = opt["order_item_id"]
+            if item_id not in options_map:
+                options_map[item_id] = []
+            options_map[item_id].append(opt)
+    
+    # Batch fetch customers
+    customers_map = {}
+    if customer_ids:
+        customers_result = supabase_admin.table("website_customers").select("*").in_("id", customer_ids).execute()
+        customers_map = {c["id"]: c for c in customers_result.data}
+    
+    # Batch fetch addresses
+    addresses_map = {}
+    if address_ids:
+        addresses_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(name, estimated_time)").in_("id", address_ids).execute()
+        addresses_map = {a["id"]: a for a in addresses_result.data}
+    
+    # Build formatted orders
+    formatted_orders = []
+    total_items = 0
+    total_amount = 0
+    
+    for order in orders.data:
+        # Attach items with options
+        order_items = items_by_order.get(order["id"], [])
+        for item in order_items:
+            item["options"] = options_map.get(item["id"], [])
+        
+        order["order_items"] = order_items
+        
+        # Customer info
+        customer = customers_map.get(order.get("website_customer_id"))
+        customer_info = {
+            "name": order.get("customer_name") or (customer.get("full_name") if customer else None),
+            "phone": order.get("customer_phone") or (customer.get("phone") if customer else None),
+            "email": order.get("customer_email") or (customer.get("email") if customer else None)
+        }
+        
+        # Address info
+        address = addresses_map.get(order.get("delivery_address_id"))
+        delivery_info = address if address else None
+        
+        formatted_orders.append({
+            "order_id": order["id"],
+            "order_number": order["order_number"],
+            "display_number": order.get("display_number"),
+            "status": order["status"],
+            "order_type": order["order_type"],
+            "order_placement_type": order.get("order_placement_type"),
+            "items": order_items,
+            "customer_info": customer_info,
+            "delivery_info": delivery_info,
+            "subtotal": order["subtotal"],
+            "tax": order["tax"],
+            "total": order["total"],
+            "created_at": order["created_at"]
+        })
+        
+        total_items += len(order_items)
+        total_amount += float(order["total"])
+    
+    return {
+        "batch_id": batch_id,
+        "orders": formatted_orders,
+        "summary": {
+            "order_count": len(formatted_orders),
+            "total_items": total_items,
+            "total_amount": total_amount,
+            "status": orders.data[0]["status"],
+            "batch_created_at": orders.data[0]["batch_created_at"]
+        }
+    }
