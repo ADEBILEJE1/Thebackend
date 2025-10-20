@@ -1632,7 +1632,7 @@ async def push_batch_to_kitchen(
     # Update all orders to preparing
     supabase.table("orders").update({
         "status": "transit",
-        # "preparing_at": get_nigerian_time().isoformat()
+        "preparing_at": get_nigerian_time().isoformat()
     }).in_("id", order_ids).execute()
     
     
