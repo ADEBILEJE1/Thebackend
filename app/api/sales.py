@@ -1664,7 +1664,7 @@ async def get_batch_history(
         order_items(*),
         customer_addresses(full_address, delivery_areas(name)),
         website_customers(full_name, email, phone)
-    """).not_.is_("batch_id", "null").in_("status", ["preparing", "completed"]).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+    """).not_.is_("batch_id", "null").in_("status", ["preparing", "transit", "completed"]).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     
     # Group by batch_id
     batches = {}
