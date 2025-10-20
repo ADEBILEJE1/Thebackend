@@ -894,7 +894,7 @@ async def push_order_to_kitchen(
     
     supabase_admin.table("orders").update({
         "status": "transit",
-        # "preparing_at": get_nigerian_time().isoformat()
+        "preparing_at": get_nigerian_time().isoformat()
     }).eq("id", order_id).execute()
     
     
