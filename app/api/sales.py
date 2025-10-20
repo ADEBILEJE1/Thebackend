@@ -1677,7 +1677,7 @@ async def get_batch_history(
                 "total_items": 0,
                 "status": order["status"],
                 "pushed_at": order["preparing_at"],
-                "completed_at": order.get("completed_at"),
+                "completed_at": order.get("completed_at") or "--/--/----",
                 "customer_info": {
                     "name": order.get("customer_name") or (order.get("website_customers", {}) or {}).get("full_name"),
                     "phone": order.get("customer_phone") or (order.get("website_customers", {}) or {}).get("phone")
