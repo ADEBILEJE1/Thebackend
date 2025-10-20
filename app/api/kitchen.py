@@ -246,7 +246,9 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
     """Get orders grouped by batches - optimized"""
     
     # Get all orders
-    result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+    # result = supabase_admin.table("orders").select("*").in_("status", ["confirmed", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+    result = supabase_admin.table("orders").select("*").in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+   
     
     if not result.data:
         return {"batches": []}
@@ -790,36 +792,6 @@ async def get_individual_chef_analytics(chef_id: str, days: int = 30) -> Dict[st
 
 
 
-# @router.post("/kitchen/start-batch/{batch_id}")
-# async def start_batch_preparation(
-#     batch_id: str,
-#     request: Request,
-#     current_user: dict = Depends(require_chef_staff)
-# ):
-#     """Change batch status from confirmed to preparing"""
-#     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "confirmed").execute()
-    
-#     if not orders.data:
-#         raise HTTPException(status_code=404, detail="No confirmed orders found for this batch")
-    
-#     order_ids = [o["id"] for o in orders.data]
-    
-#     # Update all orders in batch to preparing
-#     supabase_admin.table("orders").update({
-#         "status": "preparing",
-#         "preparing_at": get_nigerian_time().isoformat()
-#     }).in_("id", order_ids).execute()
-    
-#     await log_activity(
-#         current_user["id"], current_user["email"], current_user["role"],
-#         "start_preparation", "batch", None,
-#         {"batch_id": batch_id, "order_count": len(orders.data)},
-#         request
-#     )
-    
-#     await notify_order_update(batch_id, "batch_started", {"batch_id": batch_id})
-    
-#     return {"message": f"Batch {batch_id} preparation started", "orders_count": len(orders.data)}
 
 @router.post("/kitchen/start-batch/{batch_id}")
 async def start_batch_preparation(
@@ -827,7 +799,8 @@ async def start_batch_preparation(
     request: Request,
     current_user: dict = Depends(require_chef_staff)
 ):
-    orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "confirmed").execute()
+    # orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "confirmed").execute()
+    orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).eq("status", "transit").execute()
     
     if not orders.data:
         raise HTTPException(status_code=404, detail="No confirmed orders found for this batch")

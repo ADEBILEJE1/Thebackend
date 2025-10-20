@@ -11,6 +11,7 @@ class OrderType(str, Enum):
 class OrderStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
+    TRANSIT = "transit"
     PREPARING = "preparing"
     READY = "ready"
     COMPLETED = "completed"

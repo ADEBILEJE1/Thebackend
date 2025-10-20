@@ -893,8 +893,8 @@ async def push_order_to_kitchen(
         item["options"] = options_result.data
     
     supabase_admin.table("orders").update({
-        "status": "preparing",
-        "preparing_at": get_nigerian_time().isoformat()
+        "status": "transit",
+        # "preparing_at": get_nigerian_time().isoformat()
     }).eq("id", order_id).execute()
     
     
@@ -1186,7 +1186,8 @@ async def confirm_order_payment(
     
     # Update order status
     supabase_admin.table("orders").update({
-        "status": "confirmed",
+        # "status": "confirmed",
+        "status": "transit",  
         "payment_status": "paid",
         "preparing_at": get_nigerian_time().isoformat()
     }).eq("id", order_id).execute()
@@ -1630,11 +1631,11 @@ async def push_batch_to_kitchen(
     
     # Update all orders to preparing
     supabase.table("orders").update({
-        "status": "preparing",
-        "preparing_at": get_nigerian_time().isoformat()
+        "status": "transit",
+        # "preparing_at": get_nigerian_time().isoformat()
     }).in_("id", order_ids).execute()
     
-    # Stock already deducted during confirmation - no deduction here
+    
     
     # Notify kitchen
     # await notify_order_update(batch_id, "new_batch", {"batch_id": batch_id, "orders": orders.data})
