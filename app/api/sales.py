@@ -2068,7 +2068,7 @@ async def print_batch_customer_receipt(
 
 
 
-@router.get("/orders/{order_id}/customer-receipt")
+@router.get("/getorders/{order_id}/customer-receipt")
 async def print_order_customer_receipt(
     order_id: str,
     request: Request,
@@ -2178,3 +2178,8 @@ async def print_order_customer_receipt(
     )
 
     return HTMLResponse(content=html_content)
+
+
+
+
+
