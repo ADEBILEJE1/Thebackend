@@ -1071,6 +1071,8 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
             current_stage = "out_for_delivery"
         elif order_status == "preparing":
             current_stage = "processed"
+        elif order_status == "transit":
+             current_stage = "payment_confirmation"
         elif order_status == "confirmed":
             current_stage = "payment_confirmation"
         else:
