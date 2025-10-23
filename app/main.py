@@ -14,7 +14,10 @@ app = FastAPI(title="Leban Street API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://lebanstreet.com",
+        "https://www.lebanstreet.com"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,54 +73,13 @@ app.include_router(website_router)
 
 @app.get("/health")
 async def health_check():
-   from .services.redis import redis_client
-   
-   health = {
-       "status": "healthy",
-       "timestamp": datetime.utcnow().isoformat(),
-       "services": {
-           "database": "connected",
-           "redis": "disconnected"
-       }
-   }
-   
-   # Check Redis
-   try:
-       redis_client.client.ping()
-       health["services"]["redis"] = "connected"
-   except:
-       pass
-   
-   return health
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 
-@app.get("/debug-supabase")
-async def debug_supabase():
-    results = {}
-    
-    # Test regular client
-    try:
-        regular_test = supabase.table("profiles").select("id").limit(1).execute()
-        results["regular_client"] = "success"
-    except Exception as e:
-        results["regular_client"] = str(e)
-    
-    # Test admin client
-    try:
-        admin_test = supabase_admin.table("profiles").select("id").limit(1).execute()
-        results["admin_client"] = "success"
-    except Exception as e:
-        results["admin_client"] = str(e)
-    
-    # Test admin auth specifically
-    try:
-        auth_test = supabase_admin.auth.admin.list_users()
-        results["admin_auth"] = "success"
-    except Exception as e:
-        results["admin_auth"] = str(e)
-    
-    return results
 
 
 @app.get("/test-auth")

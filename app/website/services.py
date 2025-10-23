@@ -137,43 +137,7 @@ class CustomerService:
         
         return session_token
 
-    # @staticmethod
-    # async def check_email_and_handle_auth(email: str, phone: str = None, full_name: str = None) -> Dict[str, Any]:
-    #     """Check if email exists and handle authentication accordingly"""
-    #     existing = supabase.table("website_customers").select("*").eq("email", email).execute()
-        
-    #     if len(existing.data) > 0:
-    #         # Email exists - require PIN verification
-    #         pin = CustomerService.generate_pin()
-    #         redis_client.set(f"login_pin:{email}", pin, 600)
-    #         print(f"PIN for {email}: {pin}")
-            
-    #         return {
-    #             "requires_pin": True,
-    #             "customer_id": existing.data[0]["id"],
-    #             "message": "Email found. PIN sent for verification."
-    #         }
-    #     else:
-    #         # New email - auto-register
-    #         if not full_name:
-    #             full_name = CustomerService.extract_name_from_email(email)
-            
-    #         customer_data = {
-    #             "email": email,
-    #             "full_name": full_name,
-    #             "phone": phone,
-    #             "last_seen": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
-    #         }
-            
-    #         result = supabase.table("website_customers").insert(customer_data).execute()
-    #         session_token = await CustomerService.create_customer_session(result.data[0]["id"])
-            
-    #         return {
-    #             "requires_pin": False,
-    #             "customer": result.data[0],
-    #             "session_token": session_token,
-    #             "message": "Account created successfully."
-    #         }
+    
 
     @staticmethod
     async def check_email_and_handle_auth(email: str, phone: str = None, full_name: str = None) -> Dict[str, Any]:
@@ -454,34 +418,8 @@ class CartService:
         return f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
 
 class AddressService:
-    # @staticmethod
-    # async def save_customer_address(customer_id: str, address_data: Dict) -> Dict:
-    #     """Save customer address with area"""
-    #     if address_data.get("is_default"):
-    #         supabase.table("customer_addresses").update({
-    #             "is_default": False
-    #         }).eq("customer_id", customer_id).execute()
-        
-    #     # Get area details for full address
-    #     area = supabase.table("delivery_areas").select("name").eq("id", address_data["area_id"]).execute()
-    #     if not area.data:
-    #         raise ValueError("Invalid area selected")
-        
-    #     # Compose full address
-    #     full_address = f"{address_data['street_address']}, {area.data[0]['name']}"
-        
-    #     address_entry = {
-    #         "customer_id": customer_id,
-    #         "name": address_data["name"],
-    #         "area_id": address_data["area_id"],
-    #         "street_address": address_data["street_address"],
-    #         "full_address": full_address,
-    #         "is_default": address_data.get("is_default", False)
-    #     }
-        
-    #     result = supabase.table("customer_addresses").insert(address_entry).execute()
-        # return result.data[0]
-    
+   
+
 
 
     @staticmethod
@@ -581,26 +519,7 @@ class MonnifyService:
         """Get base URL based on environment"""
         return settings.MONNIFY_BASE_URL
     
-    # @staticmethod
-    # async def get_access_token() -> str:
-    #     """Fetch access token from Monnify"""
-    #     credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
-    #     encoded_credentials = base64.b64encode(credentials.encode()).decode()
-
-    #     headers = {
-    #         "Authorization": f"Basic {encoded_credentials}",
-    #         "Content-Type": "application/json"
-    #     }
-
-    #     url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
-        
-    #     response = requests.post(url, headers=headers, timeout=30)
-    #     response.raise_for_status()
-
-    #     data = response.json()
-    #     print(f"DEBUG Access Token Response: {data}")
-
-    #     return data["responseBody"]["accessToken"]
+   
     
 
     @staticmethod
@@ -830,3 +749,166 @@ class MonnifyService:
         # Secure comparison
         import hmac
         return hmac.compare_digest(computed_hash, received_hash)
+    
+
+
+class EmailService:
+    @staticmethod
+    async def send_welcome_email_task(customer_id: str, customer_email: str, customer_name: str):
+        """Background task to send welcome email"""
+        try:
+            # Check if this is first order
+            orders = supabase.table("orders").select("id").eq("website_customer_id", customer_id).eq("payment_status", "paid").execute()
+            
+            if len(orders.data) != 1:  
+                print(f"ℹ️ Not first order for {customer_email}, welcome email skipped.")
+                return
+            
+            # Check if already sent
+            email_sent_key = f"welcome_email_sent:{customer_id}"
+            if redis_client.get(email_sent_key):
+                print(f"ℹ️ Welcome email already sent to {customer_email}, skipped.")
+                return
+            
+            
+            logo_insta_svg = "data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjMDAwMDAwIiB3aWR0aD0iODAwcHgiIGhlaWdodD0iODAwcHgiIHZpZXdCb3g9IjAgMCAzMiAzMiIgaWQ9IkNhbWFkYV8xIiB2ZXJzaW9uPSIxLjEiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiPjxnPjxwYXRoIGQ9Ik0yMi4zLDguNGMtMC44LDAtMS40LDAuNi0xLjQsMS40YzAsMC44LDAuNiwxLjQsMS40LDEuNGMwLjgsMCwxLjQtMC42LDEuNC0xLjRDMjMuNyw5LDIzLjEsOC40LDIyLjMsOC40eiIvPjxwYXRoIGQ9Ik0xNiwxMC4yYy0zLjMsMC01LjksMi43LTUuOSw1LjlzMi43LDUuOSw1LjksNS45czUuOS0yLjcsNS45LTUuOVMxOS4zLDEwLjIsMTYsMTAuMnogTTE2LDE5LjljLTIuMSwwLTMuOC0xLjctMy44LTMuOGMwLTIuMSwxLjctMy44LDMuOC0zLjhjMi4xLDAsMy44LDEuNywzLjgsMy44QzE5LjgsMTguMiwxOC4xLDE5LjksMTYsMTkuOXoiLz48cGF0aCBkPSJNMjAuOCw0aC05LjVDNy4yLDQsNCw3LjIsNCwxMS4ydjkuNWMwLDQsMy4yLDcuMiw3LjIsNy4yaDkuNWM0LDAsNy4yLTMuMiw3LjItNy4ydi05LjVDMjgsNy4yLDI0LjgsNCwyMC44LDR6IE0yNS43LDIwLjhjMCwyLjctMi4yLDUtNSw1aC05LjVjLTIuNywwLTUtMi4yLTUtNXYtOS41YzAtMi43LDIuMi01LDUtNWg5LjVjMi43LDAsNSwyLjIsNSw1VjIwLjh6Ii8+PC9nPjwvc3ZnPg=="
+
+            
+            
+            html_content = f"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Welcome to Leban Street!</title>
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f4f4f4;
+                        font-family: Arial, sans-serif;
+                    }}
+                    .container {{
+                        width: 100%;
+                        max-width: 600px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }}
+                    .card {{
+                        background-color: #ffffff;
+                        border-radius: 16px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                    }}
+                    .header {{
+                        text-align: center;
+                        padding: 40px 20px 20px 20px;
+                    }}
+                    .content {{
+                        padding: 20px 40px 30px 40px;
+                        color: #333333;
+                        font-size: 16px;
+                        line-height: 1.6;
+                    }}
+                    .content h1 {{
+                        color: #000000;
+                        font-size: 24px;
+                        margin-top: 0;
+                        margin-bottom: 20px;
+                    }}
+                    .content p {{
+                        margin-bottom: 20px;
+                    }}
+                    .cta-button {{
+                        background-color: #FE1B01;
+                        color: #ffffff;
+                        padding: 14px 28px;
+                        text-decoration: none;
+                        border-radius: 8px;
+                        display: inline-block;
+                        font-weight: bold;
+                        font-size: 16px;
+                    }}
+                    .footer {{
+                        text-align: center;
+                        padding: 30px 20px;
+                        color: #777777;
+                        font-size: 12px;
+                    }}
+                    .socials img {{
+                        width: 24px;
+                        height: 24px;
+                        margin: 0 10px;
+                    }}
+                </style>
+            </head>
+            <body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: Arial, sans-serif;">
+                <table class="container" cellpadding="0" cellspacing="0" border="0" style="width: 100%; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <tr>
+                        <td>
+                            <table class="card" cellpadding="0" cellspacing="0" border="0" style="width: 100%; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                                <tr>
+                                    <td class="header" style="text-align: center; padding: 40px 20px 20px 20px;">
+                                        <div class="logo">
+                                            <svg width="61" height="72" viewBox="0 0 61 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M19.447 71.0973C13.3529 71.0973 7.07968 71.3943 2.38965 71.8993C0.597282 72.1074 -0.298902 71.216 0.089445 69.4333C1.07525 63.6696 3.16634 50.8942 3.16634 36.9004C3.16634 22.9069 1.10512 10.2204 0.089445 4.57541C-0.209282 2.70366 0.6869 1.6935 2.47927 1.9906C4.48074 2.28772 6.57183 2.49568 9.94745 2.49568C13.5322 2.49568 15.6233 2.28772 17.7144 1.90147C19.5964 1.6935 20.612 2.70366 20.1938 4.57541C19.208 10.1313 17.1169 23.0256 17.1169 36.9004C17.1169 43.4367 18.7002 58.9159 18.7002 58.9159C22.494 58.9159 49.5886 59.2131 59.0881 52.9738C60.1934 52.1715 60.6714 51.7854 60.7909 51.7854L61 51.8745C60.1038 57.7275 60.0142 63.5804 60.6116 69.5225C60.8208 71.3051 60.0142 72.1074 58.1322 71.9885C48.8717 71.3051 25.7203 71.0973 19.447 71.0973ZM26.4074 52.3499C24.7046 52.3499 23.8084 51.4587 24.0175 49.765C24.4058 46.2889 24.615 42.1294 24.615 38.6533C24.5253 36.5737 25.5112 36.0684 27.2139 37.0787C31.0078 39.0692 36.4744 41.0302 39.3722 41.0302C42.5686 41.0302 45.257 40.0498 45.257 37.5541C45.257 35.0583 38.5656 32.2062 33.6962 28.9379C27.0048 24.3626 23.7188 20.322 23.7188 14.0531C23.7188 5.25876 32.5013 0 43.1661 0C48.6625 0 51.142 0.891314 55.1152 0.802183C56.8177 0.802183 57.7139 1.60437 57.5048 3.38699C57.1165 7.16023 56.8177 12.419 56.9074 16.5785C56.997 18.8662 56.0112 19.1633 54.4281 17.5589C50.7537 13.9936 46.9598 12.003 44.1517 12.003C41.1646 12.003 38.8643 13.4886 38.8643 15.6574C38.8643 18.4205 43.9426 20.4111 48.4236 23.085C54.3982 26.7394 60.3727 31.3148 60.3727 38.2672C60.3727 46.8831 52.1876 53.0332 40.1489 53.0332C34.6522 53.0332 30.7689 52.439 26.3775 52.3499H26.4074Z" fill="#FF0000"/>
+                                                </svg>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="content" style="padding: 20px 40px 30px 40px; color: #333333; font-size: 16px; line-height: 1.6;">
+                                        <h1 style="color: #000000; font-size: 24px; margin-top: 0; margin-bottom: 20px;">Welcome to Leban Street!</h1>
+                                        <p style="margin-bottom: 20px;">Hi there,</p>
+                                        <p style="margin-bottom: 20px;">We’re so excited you chose us for your first order and we can’t wait for you to enjoy the bold, authentic flavors we’re known for.</p>
+                                        <p style="margin-bottom: 20px;">At Leban Street, we’re all about great food, good vibes, and keeping things fresh. New dishes and special offers drop regularly, so make sure to check back soon (or follow us on social media so you never miss a thing).</p>
+                                        <p style="margin-bottom: 30px;">Thanks again for joining the family, we’re glad to have you at our table.</p>
+                                        <p style="margin-bottom: 20px;">Warmly,<br>The Leban Street Team</p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding-bottom: 40px; text-align: center;">
+                                        <a href="https://lebanstreet.com" target="_blank" class="cta-button" style="background-color: #FE1B01; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">
+                                            Order Again
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            </td>
+                    </tr>
+                    <tr>
+                        <td class="footer" style="text-align: center; padding: 30px 20px; color: #777777; font-size: 12px;">
+                            <div class="socials" style="margin-bottom: 15px;">
+                                <a href="https://x.com/LebanStreetNG" target="_blank" style="text-decoration: none;">
+                                    <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MCA1MCIgd2lkdGg9IjUwcHgiIGhlaWdodD0iNTBweCI+PHBhdGggZmlsbD0iIzAwMDAwMCIgZD0iTSA2LjkxOTkyMTkgNiBMIDIxLjEzNjcxOSAyNi43MjY1NjIgTCA2LjIyODUxNTYgNDQgTCA5LjQwNjI5IDQ0IEwgMjIuNTQ0OTIyIDI4Ljc3NzM0NCBMIDMyLjk4NjMyOCA0NCBMIDQzIDQ4IEwgMjguMTIzMDQ3IDIyLjMxMjUgTCA0Mi4yMDMxMjUgNiBMIDM5LjAyNzM0NCA2IEwgMjYuNzE2Nzk3IDIwLjI2MTcxOSBMIDE2LjkzMzU5NCA2IEwgNi45MTk5MjE5IDYgeiIvPjwvc3ZnPg==" alt="X" style="width: 24px; height: 24px; margin: 0 10px;">
+                                </a>
+                                <a href="https://instagram.com/lebanstreet.ng" target="_blank" style="text-decoration: none;">
+                                    <img src="{logo_insta_svg}" alt="Instagram" style="width: 24px; height: 24px; margin: 0 10px;">
+                                </a>
+                            </div>
+                            <p style="margin: 5px 0;">&copy; {datetime.now().year} Leban Street. All rights reserved.</p>
+                            <a href="https://lebanstreet.com" target="_blank" style="color: #FE1B01; text-decoration: none; font-weight: bold;">lebanstreet.com</a>
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>
+            """
+            
+            resend.api_key = os.getenv("RESEND_API_KEY") 
+            
+            resend.Emails.send({
+                "from": "noreply@lebanstreet.com",
+                "to": customer_email,
+                "subject": "Welcome to Leban Street!", 
+                "html": html_content
+            })
+            
+            # Mark as sent
+            redis_client.set(email_sent_key, "true", 86400 * 365)  # 1 year
+            
+            print(f"✅ Welcome email sent to {customer_email}")
+            
+        except Exception as e:
+            print(f"❌ Welcome email failed for {customer_email}: {str(e)}")

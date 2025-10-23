@@ -13,15 +13,14 @@ import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
 
 from .models import *
-from .services import CustomerService, DeliveryService, CartService, AddressService
-# from ..database import supabase
+from .services import CustomerService, DeliveryService, CartService, AddressService, EmailService
 from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
 from .services import MonnifyService
 from .services import CartService
 from ..api.sales_service import SalesService
 from ..config import settings
-from .services import CustomerService, DeliveryService, CartService, AddressService
+
 
 router = APIRouter(prefix="/website", tags=["Website"])
 
@@ -679,7 +678,7 @@ async def create_payment_account(
 
 
 @router.get("/payment/verify/{account_reference}")  
-async def verify_payment(account_reference: str):  
+async def verify_payment(account_reference: str, background_tasks: BackgroundTasks):
     """Verify payment status"""
     try:
         payment_session = redis_client.get(f"payment:{account_reference}")
@@ -809,6 +808,16 @@ async def verify_payment(account_reference: str):
                             }).execute()
                    
                     created_orders.append(updated_order.data[0])
+
+                    customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
+                    if customer.data:
+                        background_tasks.add_task(
+                            EmailService.send_welcome_email_task,
+                            payment_session["customer_id"],
+                            customer.data[0]["email"],
+                            customer.data[0]["full_name"]
+                        )
+                    
 
                 await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
                
@@ -1065,95 +1074,6 @@ async def get_order_history(
 
 
 
-# @router.get("/orders/tracking")
-# async def get_all_orders_tracking(session_token: str = Query(...)):
-#     """Get tracking status for all customer orders"""
-#     session_data = redis_client.get(f"customer_session:{session_token}")
-#     if not session_data:
-#         raise HTTPException(status_code=401, detail="Invalid session")
-    
-    
-#     orders = supabase_admin.table("orders").select("""
-#         *, 
-#         customer_addresses(full_address, delivery_areas(name, estimated_time))
-#     """).eq("website_customer_id", session_data["customer_id"]).order("created_at", desc=True).execute()
-    
-#     tracking_orders = []
-#     for order_data in orders.data:
-#         # Fetch order items
-#         order_items = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
-        
-#         # Format items with options
-#         formatted_items = []
-#         for item in order_items.data:
-#             options_result = supabase_admin.table("order_item_options").select(
-#                 "*, product_options(id, name)"
-#             ).eq("order_item_id", item["id"]).execute()
-            
-#             formatted_options = [
-#                 {
-#                     "option_id": opt["product_options"]["id"],
-#                     "option_name": opt["product_options"]["name"]
-#                 }
-#                 for opt in options_result.data
-#             ]
-            
-#             formatted_items.append({
-#                 **item,
-#                 "options": formatted_options
-#             })
-        
-#         # Separate main items and extras
-#         main_items = [item for item in formatted_items if not item.get("is_extra")]
-#         extras = [item for item in formatted_items if item.get("is_extra")]
-        
-#         order_status = order_data["status"]
-#         tracking_stages = {
-#             "payment_confirmation": order_status in ["confirmed", "preparing", "out_for_delivery", "completed"],
-#             "processed": order_status in ["preparing", "out_for_delivery", "completed"],
-#             "out_for_delivery": order_status in ["out_for_delivery", "completed"]
-#         }
-        
-#         # Get delivery info
-#         delivery_info = None
-#         delivery_estimate = None
-        
-#         if order_data.get("customer_addresses"):
-#             delivery_info = {
-#                 "address": order_data["customer_addresses"]["full_address"],
-#                 "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
-#             }
-            
-#             # Calculate delivery estimate
-#             delivery_estimate = DeliveryService.calculate_delivery_estimate(
-#                 formatted_items,
-#                 order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
-#             )
-        
-#         tracking_orders.append({
-#             "order": {
-#                 "id": order_data["id"],
-#                 "order_number": order_data["order_number"],
-#                 "status": order_status,
-#                 "total": float(order_data["total"]),
-#                 "delivery_fee": float(order_data.get("delivery_fee", 0)),
-#                 "created_at": order_data["created_at"],
-#                 "monnify_transaction_ref": order_data.get("monnify_transaction_ref"),
-#                 "items": main_items,
-#                 "extras": extras
-#             },
-#             "delivery_info": delivery_info,
-#             "delivery_estimate": delivery_estimate,
-#             "tracking_stages": tracking_stages,
-#             "current_stage": (
-#                 "out_for_delivery" if order_status == "completed" else
-#                 "processed" if order_status == "preparing" else
-#                 "payment_confirmation" if order_status == "confirmed" else
-#                 "pending"
-#             )
-#         })
-    
-#     return {"orders": tracking_orders}
 
 
 @router.get("/orders/tracking")
@@ -1478,3 +1398,29 @@ async def restore_session_from_email(email: str):
         "customer": customer.data[0],
         "addresses": addresses
     }
+
+
+
+@router.post("/payment/send-welcome-email")
+async def send_welcome_email_background(
+    customer_id: str,
+    customer_email: str,
+    customer_name: str,
+    background_tasks: BackgroundTasks
+):
+    """Trigger welcome email for first-time customers"""
+    
+    # Check if welcome email already sent
+    email_sent_key = f"welcome_email_sent:{customer_id}"
+    if redis_client.get(email_sent_key):
+        return {"message": "Welcome email already sent"}
+    
+    # Add to background tasks
+    background_tasks.add_task(
+        EmailService.send_welcome_email_task,
+        customer_id,
+        customer_email,
+        customer_name
+    )
+    
+    return {"message": "Welcome email queued"}
