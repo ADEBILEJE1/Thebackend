@@ -425,66 +425,6 @@ async def calculate_delivery_by_area(area_id: str):
 
 
 
-# @router.post("/checkout/summary")
-# async def get_checkout_summary(checkout_data: CheckoutRequest):
-#     """Get checkout summary with area-based delivery"""
-#     order_summaries = []
-#     total_subtotal = Decimal('0')
-#     total_vat = Decimal('0')
-#     delivery_fees_by_area = {}
-    
-#     for idx, order in enumerate(checkout_data.orders):
-#         if not order.delivery_address_id:
-#             raise HTTPException(status_code=400, detail=f"Delivery address required for order {idx + 1}")
-        
-#         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
-#         totals = CartService.calculate_order_total(processed_items)
-        
-#         total_subtotal += totals["subtotal"]
-#         total_vat += totals["tax"]
-        
-#         # Get address with area details
-#         address_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
-        
-#         if not address_result.data:
-#             raise HTTPException(status_code=404, detail=f"Address not found for order {idx + 1}")
-        
-#         address_data = address_result.data[0]
-#         area_id = address_data["area_id"]
-        
-#         if area_id not in delivery_fees_by_area:
-#             delivery_fees_by_area[area_id] = {
-#                 "fee": Decimal(str(address_data["delivery_areas"]["delivery_fee"])),
-#                 "address": address_data["full_address"]
-#             }
-        
-#         order_summaries.append({
-#             "order_index": idx,
-#             "items": [
-#                 {
-#                     "product_name": item["product_name"],
-#                     "quantity": item["quantity"],
-#                     "unit_price": float(item["unit_price"]),
-#                     "total_price": float(item["total_price"])
-#                 }
-#                 for item in processed_items
-#             ],
-#             "subtotal": float(totals["subtotal"]),
-#             "delivery_address": delivery_fees_by_area[area_id]["address"],
-#             "delivery_fee": float(delivery_fees_by_area[area_id]["fee"])
-#         })
-    
-#     total_delivery = sum(data["fee"] for data in delivery_fees_by_area.values())
-#     grand_total = total_subtotal + total_vat + total_delivery
-    
-#     return {
-#         "orders": order_summaries,
-#         "total_subtotal": float(total_subtotal),
-#         "total_vat": float(total_vat),
-#         "total_delivery": float(total_delivery),
-#         "grand_total": float(grand_total)
-#     }
-
 
 
 
@@ -1186,6 +1126,104 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
 
 
 
+# @router.get("/search/suggestions")
+# async def get_search_suggestions(q: str = Query(min_length=2)):
+#     cache_key = f"search:suggestions:{q}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     # Single optimized query with joins
+#     products = supabase_admin.table("products").select("""
+#         *, 
+#         categories(*),
+#         extras:products!main_product_id(*)
+#     """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").limit(50).execute()
+
+#     # Filter products by search term
+#     filtered_products = [
+#         p for p in products.data 
+#         if q.lower() in p["name"].lower() or 
+#         (p.get("categories") and q.lower() in p["categories"]["name"].lower())
+#     ]
+
+    
+#     def get_relevance_score(product, query):
+#         score = 0
+#         name = product["name"].lower()
+#         query_lower = query.lower()
+        
+        
+#         if name == query_lower:
+#             score += 100
+        
+#         elif name.startswith(query_lower):
+#             score += 50
+       
+#         elif f" {query_lower} " in f" {name} ":
+#             score += 40
+        
+#         elif query_lower in name:
+#             score += 30
+        
+       
+#         if product.get("categories") and query_lower in product["categories"]["name"].lower():
+#             score += 10
+        
+#         return score
+
+    
+#     sorted_products = sorted(filtered_products, 
+#         key=lambda p: get_relevance_score(p, q), reverse=True)[:10]
+    
+    
+#     result_products = []
+#     for product in sorted_products:
+#         display_name = product["name"]
+#         if product.get("variant_name"):
+#             display_name += f" - {product['variant_name']}"
+        
+#         category = {"id": None, "name": "Uncategorized"}
+#         if product.get("categories"):
+#             category = product["categories"]
+        
+        
+#         formatted_extras = []
+#         for extra in product.get("extras", []):
+#             extra_display_name = extra["name"]
+#             if extra.get("variant_name"):
+#                 extra_display_name += f" - {extra['variant_name']}"
+            
+#             formatted_extras.append({
+#                 "id": extra["id"],
+#                 "name": extra_display_name,
+#                 "price": float(extra["price"]),
+#                 "description": extra["description"],
+#                 "image_url": extra["image_url"],
+#                 "available_stock": extra["units"],
+#                 "low_stock_threshold": extra["low_stock_threshold"],
+#                 "status": extra["status"]
+#             })
+        
+#         result_products.append({
+#             "id": product["id"],
+#             "name": display_name,
+#             "price": float(product["price"]),
+#             "description": product["description"],
+#             "image_url": product["image_url"],
+#             "available_stock": product["units"],
+#             "low_stock_threshold": product["low_stock_threshold"],
+#             "category": category,
+#             "extras": formatted_extras,
+#             "status": product["status"]
+#         })
+    
+#     redis_client.set(cache_key, result_products, 60)
+#     return result_products
+
+
+
+
 @router.get("/search/suggestions")
 async def get_search_suggestions(q: str = Query(min_length=2)):
     cache_key = f"search:suggestions:{q}"
@@ -1236,6 +1274,15 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     sorted_products = sorted(filtered_products, 
         key=lambda p: get_relevance_score(p, q), reverse=True)[:10]
     
+    # Batch fetch options for filtered products
+    product_ids = [p["id"] for p in sorted_products]
+    options_result = supabase_admin.table("product_options").select("*").in_("product_id", product_ids).execute()
+    options_map = {}
+    for opt in options_result.data:
+        pid = opt["product_id"]
+        if pid not in options_map:
+            options_map[pid] = []
+        options_map[pid].append(opt)
     
     result_products = []
     for product in sorted_products:
@@ -1247,6 +1294,12 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
         if product.get("categories"):
             category = product["categories"]
         
+        # Add options (same format as /products)
+        formatted_options = [
+            {"id": o["id"], "name": o["name"]}
+            for o in sorted(options_map.get(product["id"], []), 
+                          key=lambda x: (x.get("display_order", 999), x.get("name", "")))
+        ]
         
         formatted_extras = []
         for extra in product.get("extras", []):
@@ -1273,6 +1326,8 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
             "image_url": product["image_url"],
             "available_stock": product["units"],
             "low_stock_threshold": product["low_stock_threshold"],
+            "has_options": product.get("has_options", False),
+            "options": formatted_options,
             "category": category,
             "extras": formatted_extras,
             "status": product["status"]
@@ -1280,6 +1335,7 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     
     redis_client.set(cache_key, result_products, 60)
     return result_products
+
 
 
 @router.get("/banners")
