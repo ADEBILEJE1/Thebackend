@@ -808,18 +808,18 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
                             }).execute()
                    
                     created_orders.append(updated_order.data[0])
+                    
 
-                    customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
-                    if customer.data:
+                await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
+
+                customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
+                if customer.data:
                         background_tasks.add_task(
                             EmailService.send_welcome_email_task,
                             payment_session["customer_id"],
                             customer.data[0]["email"],
                             customer.data[0]["full_name"]
                         )
-                    
-
-                await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
                
                 # Mark as completed
                 payment_session["status"] = "completed"
@@ -855,115 +855,100 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
 
 
 
-@router.post("/payment/bypass-create")
-async def bypass_payment_create(
-    payment_data: PaymentRequest,
-    session_token: str = Query(...)
-):
-    """Bypass payment for testing - auto-complete orders"""
-    session_data = redis_client.get(f"customer_session:{session_token}")
-    if not session_data:
-        raise HTTPException(status_code=401, detail="Invalid session")
+# @router.post("/payment/bypass-create")
+# async def bypass_payment_create(
+#     payment_data: PaymentRequest,
+#     session_token: str = Query(...)
+# ):
+#     """Bypass payment for testing - auto-complete orders"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
 
-    if isinstance(session_data, bytes):
-        import json
-        session_data = json.loads(session_data.decode("utf-8"))
+#     if isinstance(session_data, bytes):
+#         import json
+#         session_data = json.loads(session_data.decode("utf-8"))
 
-    payment_reference = f"BYPASS-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
-    batch_id = CartService.generate_batch_id()
-    batch_created_at = get_nigerian_time().isoformat()
+#     payment_reference = f"BYPASS-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}-{session_data['customer_id'][:8]}"
+#     batch_id = CartService.generate_batch_id()
+#     batch_created_at = get_nigerian_time().isoformat()
 
-    created_orders = []
-    all_items = []  # Collect all items outside loop
+#     created_orders = []
+#     all_items = []  # Collect all items outside loop
 
-    for order_data in payment_data.orders:
-        processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
-        totals = CartService.calculate_order_total(processed_items)
-        all_items.extend(processed_items)  # Collect items
+#     for order_data in payment_data.orders:
+#         processed_items = await CartService.validate_cart_items([item.dict() for item in order_data.items])
+#         totals = CartService.calculate_order_total(processed_items)
+#         all_items.extend(processed_items)  # Collect items
 
-        # Get delivery fee from address area
-        address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data.delivery_address_id).execute()
-        delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+#         # Get delivery fee from address area
+#         address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data.delivery_address_id).execute()
+#         delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
 
-        order_entry = {
-            "batch_id": batch_id,
-            "batch_created_at": batch_created_at,
-            "order_type": "online",
-            "status": "confirmed",
-            "payment_status": "paid",
-            "payment_reference": payment_reference,
-            "subtotal": float(totals["subtotal"]),
-            "tax": float(totals["vat"]),
-            "delivery_fee": delivery_fee,
-            "total": float(totals["total"]) + delivery_fee,
-            "website_customer_id": session_data["customer_id"],
-            "delivery_address_id": order_data.delivery_address_id,
-            "confirmed_at": get_nigerian_time().isoformat()
-        }
+#         order_entry = {
+#             "batch_id": batch_id,
+#             "batch_created_at": batch_created_at,
+#             "order_type": "online",
+#             "status": "confirmed",
+#             "payment_status": "paid",
+#             "payment_reference": payment_reference,
+#             "subtotal": float(totals["subtotal"]),
+#             "tax": float(totals["vat"]),
+#             "delivery_fee": delivery_fee,
+#             "total": float(totals["total"]) + delivery_fee,
+#             "website_customer_id": session_data["customer_id"],
+#             "delivery_address_id": order_data.delivery_address_id,
+#             "confirmed_at": get_nigerian_time().isoformat()
+#         }
 
-        created_order = supabase_admin.table("orders").insert(order_entry).execute()
-        order_id = created_order.data[0]["id"]
+#         created_order = supabase_admin.table("orders").insert(order_entry).execute()
+#         order_id = created_order.data[0]["id"]
 
-        today = datetime.utcnow().strftime("%Y%m%d")
-        order_number = f"WEB-{today}-{str(order_id).zfill(3)}"
+#         today = datetime.utcnow().strftime("%Y%m%d")
+#         order_number = f"WEB-{today}-{str(order_id).zfill(3)}"
 
-        updated_order = (
-            supabase_admin.table("orders")
-            .update({"order_number": order_number})
-            .eq("id", order_id)
-            .execute()
-        )
+#         updated_order = (
+#             supabase_admin.table("orders")
+#             .update({"order_number": order_number})
+#             .eq("id", order_id)
+#             .execute()
+#         )
 
-        for item in processed_items:
-            item_data = {
-                "order_id": order_id,
-                "product_id": item["product_id"],
-                "product_name": item["product_name"],
-                "quantity": item["quantity"],
-                "unit_price": float(item["unit_price"]),
-                "total_price": float(item["total_price"]),
-                "notes": item.get("notes"),
-                "is_extra": item.get("is_extra", False)
-            }
-            result = supabase_admin.table("order_items").insert(item_data).execute()
-            order_item_id = result.data[0]["id"]
+#         for item in processed_items:
+#             item_data = {
+#                 "order_id": order_id,
+#                 "product_id": item["product_id"],
+#                 "product_name": item["product_name"],
+#                 "quantity": item["quantity"],
+#                 "unit_price": float(item["unit_price"]),
+#                 "total_price": float(item["total_price"]),
+#                 "notes": item.get("notes"),
+#                 "is_extra": item.get("is_extra", False)
+#             }
+#             result = supabase_admin.table("order_items").insert(item_data).execute()
+#             order_item_id = result.data[0]["id"]
             
-            # Insert multiple options
-            for option_id in item.get("option_ids", []):
-                supabase_admin.table("order_item_options").insert({
-                    "id": str(uuid.uuid4()),
-                    "order_item_id": order_item_id,
-                    "option_id": option_id
-                }).execute()
+#             # Insert multiple options
+#             for option_id in item.get("option_ids", []):
+#                 supabase_admin.table("order_item_options").insert({
+#                     "id": str(uuid.uuid4()),
+#                     "order_item_id": order_item_id,
+#                     "option_id": option_id
+#                 }).execute()
 
-        created_orders.append(updated_order.data[0])
+#         created_orders.append(updated_order.data[0])
 
-    # Deduct stock once after all orders created
-    await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
+#     # Deduct stock once after all orders created
+#     await SalesService.deduct_stock_immediately(all_items, session_data["customer_id"])
 
-    return {
-        "payment_status": "success",
-        "payment_reference": payment_reference,
-        "orders": created_orders,
-        "message": "Payment bypassed - orders created successfully",
-    }
+#     return {
+#         "payment_status": "success",
+#         "payment_reference": payment_reference,
+#         "orders": created_orders,
+#         "message": "Payment bypassed - orders created successfully",
+#     }
 
 
-
-# @router.post("/payment/webhook")
-# async def payment_webhook(request: Request):
-#     payload = await request.json()
-    
-#     payment_reference = payload.get("accountReference")  
-#     payment_status = payload["paymentStatus"]
-    
-#     payment_session = redis_client.get(f"payment:{payment_reference}")
-#     if payment_session:
-#         payment_session["webhook_status"] = payment_status
-#         payment_session["webhook_data"] = payload
-#         redis_client.set(f"payment:{payment_reference}", payment_session, 3600)
-    
-#     return {"status": "success"}
 
 
 

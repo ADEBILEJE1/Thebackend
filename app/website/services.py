@@ -757,7 +757,7 @@ class EmailService:
     async def send_welcome_email_task(customer_id: str, customer_email: str, customer_name: str):
         """Background task to send welcome email"""
         try:
-            # Check if this is first order
+            
             orders = supabase.table("orders").select("id").eq("website_customer_id", customer_id).eq("payment_status", "paid").execute()
             
             if len(orders.data) != 1:  
