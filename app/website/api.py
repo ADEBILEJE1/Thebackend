@@ -1224,6 +1224,119 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
 
 
 
+# @router.get("/search/suggestions")
+# async def get_search_suggestions(q: str = Query(min_length=2)):
+#     cache_key = f"search:suggestions:{q}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     # Single optimized query with joins
+#     products = supabase_admin.table("products").select("""
+#         *, 
+#         categories(*),
+#         extras:products!main_product_id(*)
+#     """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").limit(50).execute()
+
+#     # Filter products by search term
+#     filtered_products = [
+#         p for p in products.data 
+#         if q.lower() in p["name"].lower() or 
+#         (p.get("categories") and q.lower() in p["categories"]["name"].lower())
+#     ]
+
+    
+#     def get_relevance_score(product, query):
+#         score = 0
+#         name = product["name"].lower()
+#         query_lower = query.lower()
+        
+        
+#         if name == query_lower:
+#             score += 100
+        
+#         elif name.startswith(query_lower):
+#             score += 50
+       
+#         elif f" {query_lower} " in f" {name} ":
+#             score += 40
+        
+#         elif query_lower in name:
+#             score += 30
+        
+       
+#         if product.get("categories") and query_lower in product["categories"]["name"].lower():
+#             score += 10
+        
+#         return score
+
+    
+#     sorted_products = sorted(filtered_products, 
+#         key=lambda p: get_relevance_score(p, q), reverse=True)[:10]
+    
+#     # Batch fetch options for filtered products
+#     product_ids = [p["id"] for p in sorted_products]
+#     options_result = supabase_admin.table("product_options").select("*").in_("product_id", product_ids).execute()
+#     options_map = {}
+#     for opt in options_result.data:
+#         pid = opt["product_id"]
+#         if pid not in options_map:
+#             options_map[pid] = []
+#         options_map[pid].append(opt)
+    
+#     result_products = []
+#     for product in sorted_products:
+#         display_name = product["name"]
+#         if product.get("variant_name"):
+#             display_name += f" - {product['variant_name']}"
+        
+#         category = {"id": None, "name": "Uncategorized"}
+#         if product.get("categories"):
+#             category = product["categories"]
+        
+#         # Add options (same format as /products)
+#         formatted_options = [
+#             {"id": o["id"], "name": o["name"]}
+#             for o in sorted(options_map.get(product["id"], []), 
+#                           key=lambda x: (x.get("display_order", 999), x.get("name", "")))
+#         ]
+        
+#         formatted_extras = []
+#         for extra in product.get("extras", []):
+#             extra_display_name = extra["name"]
+#             if extra.get("variant_name"):
+#                 extra_display_name += f" - {extra['variant_name']}"
+            
+#             formatted_extras.append({
+#                 "id": extra["id"],
+#                 "name": extra_display_name,
+#                 "price": float(extra["price"]),
+#                 "description": extra["description"],
+#                 "image_url": extra["image_url"],
+#                 "available_stock": extra["units"],
+#                 "low_stock_threshold": extra["low_stock_threshold"],
+#                 "status": extra["status"]
+#             })
+        
+#         result_products.append({
+#             "id": product["id"],
+#             "name": display_name,
+#             "price": float(product["price"]),
+#             "description": product["description"],
+#             "image_url": product["image_url"],
+#             "available_stock": product["units"],
+#             "low_stock_threshold": product["low_stock_threshold"],
+#             "has_options": product.get("has_options", False),
+#             "options": formatted_options,
+#             "category": category,
+#             "extras": formatted_extras,
+#             "status": product["status"]
+#         })
+    
+#     redis_client.set(cache_key, result_products, 60)
+#     return result_products
+
+
 @router.get("/search/suggestions")
 async def get_search_suggestions(q: str = Query(min_length=2)):
     cache_key = f"search:suggestions:{q}"
@@ -1231,11 +1344,10 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
     if cached:
         return cached
     
-    # Single optimized query with joins
+    # Step 1: Remove the 'extras' join from the main query
     products = supabase_admin.table("products").select("""
         *, 
-        categories(*),
-        extras:products!main_product_id(*)
+        categories(*)
     """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").limit(50).execute()
 
     # Filter products by search term
@@ -1283,6 +1395,15 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
         if pid not in options_map:
             options_map[pid] = []
         options_map[pid].append(opt)
+
+    # Step 2: Add batch fetch for extras (copying logic from /products)
+    extras_result = supabase_admin.table("products").select("*").in_("main_product_id", product_ids).eq("is_available", True).execute()
+    extras_map = {}
+    for extra in extras_result.data:
+        main_id = extra["main_product_id"]
+        if main_id not in extras_map:
+            extras_map[main_id] = []
+        extras_map[main_id].append(extra)
     
     result_products = []
     for product in sorted_products:
@@ -1301,8 +1422,9 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
                           key=lambda x: (x.get("display_order", 999), x.get("name", "")))
         ]
         
+        # Step 3: Use the new extras_map instead of product.get("extras")
         formatted_extras = []
-        for extra in product.get("extras", []):
+        for extra in extras_map.get(product["id"], []):
             extra_display_name = extra["name"]
             if extra.get("variant_name"):
                 extra_display_name += f" - {extra['variant_name']}"
