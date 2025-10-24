@@ -1237,6 +1237,7 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
         
         tracking_orders.append({
             "order": {
+                "order_id": order_data["id"],
                 "id": order_data["id"],
                 "order_number": order_data["order_number"],
                 "status": status,
