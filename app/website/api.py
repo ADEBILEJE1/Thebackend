@@ -1230,10 +1230,18 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
                 "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
             }
             
-            delivery_estimate = DeliveryService.calculate_delivery_estimate(
+            # delivery_estimate = DeliveryService.calculate_delivery_estimate(
+            #     order_items,
+            #     order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+            # )
+
+            delivery_estimate_data = DeliveryService.calculate_delivery_estimate(
                 order_items,
                 order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
             )
+
+            # Convert to string for frontend
+            delivery_estimate = delivery_estimate_data.get("total_estimate_display") if delivery_estimate_data else None
         
         tracking_orders.append({
             "order": {
