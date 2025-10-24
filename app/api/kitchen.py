@@ -339,13 +339,70 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
 
 
 
+# @router.post("/chef/batch-ready")
+# async def mark_batch_ready(
+#     batch_id: str,
+#     background_tasks: BackgroundTasks,
+#     current_user: dict = Depends(require_chef_staff)
+# ):
+#     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
+    
+#     if not orders.data:
+#         raise HTTPException(status_code=404, detail="Batch not found or already completed")
+    
+#     order_ids = [o["id"] for o in orders.data]
+#     completed_at = get_nigerian_time().isoformat()
+    
+#     supabase_admin.table("orders").update({
+#         "status": "completed",
+#         "completed_at": completed_at,
+#         "updated_at": completed_at
+#     }).in_("id", order_ids).execute()
+    
+#     for order in orders.data:
+#         if order.get("website_customers"):
+#             background_tasks.add_task(
+#                 EmailService.send_ready_for_delivery,
+#                 order["website_customers"]["email"],
+#                 order["website_customers"]["full_name"],
+#                 order["order_number"]
+#             )
+    
+#     # Invalidate caches
+#     for order_id in order_ids:
+#         invalidate_order_cache(order_id)
+    
+#     # Clear customer tracking cache
+#     invalidate_customer_tracking_cache(order_ids)
+    
+#     # Notify each order
+#     for order in orders.data:
+#         await notify_order_update(
+#             order["id"],
+#             "order_completed",
+#             {
+#                 "order_id": order["id"],
+#                 "order_number": order["order_number"],
+#                 "status": "completed"
+#             }
+#         )
+    
+#     return {"message": f"Batch {batch_id} completed - {len(orders.data)} orders marked ready"}
+
+
+
+
+
 @router.post("/chef/batch-ready")
 async def mark_batch_ready(
     batch_id: str,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_chef_staff)
 ):
-    orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
+    # Fetch with customer data
+    orders = supabase_admin.table("orders").select(
+        "*, website_customers(email, full_name)"
+    ).eq("batch_id", batch_id).in_("status", ["confirmed", "preparing", "transit"]).execute()
     
     if not orders.data:
         raise HTTPException(status_code=404, detail="Batch not found or already completed")
@@ -359,23 +416,21 @@ async def mark_batch_ready(
         "updated_at": completed_at
     }).in_("id", order_ids).execute()
     
+    # Send emails
     for order in orders.data:
         if order.get("website_customers"):
             background_tasks.add_task(
                 EmailService.send_ready_for_delivery,
                 order["website_customers"]["email"],
-                order["website_customers"]["full_name"],
                 order["order_number"]
             )
     
     # Invalidate caches
     for order_id in order_ids:
         invalidate_order_cache(order_id)
-    
-    # Clear customer tracking cache
     invalidate_customer_tracking_cache(order_ids)
     
-    # Notify each order
+    # Notify
     for order in orders.data:
         await notify_order_update(
             order["id"],
