@@ -250,7 +250,8 @@ class DeliveryService:
             "delivery_time_max": delivery_max,
             "total_estimate_min": total_min,
             "total_estimate_max": total_max,
-            "total_estimate_display": f"{total_min}-{total_max} minutes"
+            "total_estimate_display": f"{total_max} minutes"
+            # "total_estimate_display": f"{total_min}-{total_max} minutes"
         }
 
 class CartService:
