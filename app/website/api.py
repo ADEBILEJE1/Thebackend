@@ -754,6 +754,15 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
 
                 customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
                 if customer.data:
+                        
+                        if customer.data:
+                            background_tasks.add_task(
+                                EmailService.send_order_confirmation_batch,
+                                customer.data[0]["email"],
+                                created_orders
+                            )
+
+
                         background_tasks.add_task(
                             EmailService.send_welcome_email_task,
                             payment_session["customer_id"],
@@ -1001,96 +1010,228 @@ async def get_order_history(
 
 
 
+# @router.get("/orders/tracking")
+# async def get_all_orders_tracking(session_token: str = Query(...)):
+#     """Get tracking status for all customer orders with caching"""
+#     session_data = redis_client.get(f"customer_session:{session_token}")
+#     if not session_data:
+#         raise HTTPException(status_code=401, detail="Invalid session")
+    
+#     # Check cache with customer-specific key
+#     cache_key = f"tracking:{session_data['customer_id']}"
+#     cached = redis_client.get(cache_key)
+#     if cached:
+#         return cached
+    
+#     # Fetch orders with related data
+#     thirty_mins_ago = (datetime.utcnow() - timedelta(minutes=30)).isoformat()
+
+#     orders = supabase_admin.table("orders").select("""
+#         *, 
+#         customer_addresses(full_address, delivery_areas(name, estimated_time))
+#     """).eq("website_customer_id", session_data["customer_id"]).or_(
+#         f"status.neq.completed,completed_at.gte.{thirty_mins_ago}"
+#     ).order("created_at", desc=True).execute()
+        
+#     tracking_orders = []
+    
+#     for order_data in orders.data:
+#         # Fetch order items
+#         order_items_result = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+        
+#         # Format items with options
+#         formatted_items = []
+#         for item in order_items_result.data:
+#             options_result = supabase_admin.table("order_item_options").select(
+#                 "*, product_options(id, name)"
+#             ).eq("order_item_id", item["id"]).execute()
+            
+#             formatted_options = [
+#                 {
+#                     "option_id": opt["product_options"]["id"],
+#                     "option_name": opt["product_options"]["name"]
+#                 }
+#                 for opt in options_result.data
+#             ]
+            
+#             formatted_items.append({
+#                 **item,
+#                 "options": formatted_options
+#             })
+        
+#         # Separate main items and extras
+#         main_items = [item for item in formatted_items if not item.get("is_extra")]
+#         extras = [item for item in formatted_items if item.get("is_extra")]
+        
+#         order_status = order_data["status"]
+        
+#         # Define tracking stages based on status
+#         tracking_stages = {
+#             "payment_confirmation": order_status in ["confirmed", "preparing", "out_for_delivery", "completed"],
+#             "processed": order_status in ["preparing", "out_for_delivery", "completed"],
+#             "out_for_delivery": order_status in ["out_for_delivery", "completed"],
+#             "completed": order_status == "completed"
+#         }
+        
+#         # Determine current stage
+#         if order_status == "completed":
+#             current_stage = "completed"
+#         elif order_status == "out_for_delivery":
+#             current_stage = "out_for_delivery"
+#         elif order_status == "preparing":
+#             current_stage = "processed"
+#         elif order_status == "transit":
+#              current_stage = "payment_confirmation"
+#         elif order_status == "confirmed":
+#             current_stage = "payment_confirmation"
+#         else:
+#             current_stage = "pending"
+        
+#         # Get delivery info
+#         delivery_info = None
+#         delivery_estimate = None
+        
+#         if order_data.get("customer_addresses"):
+#             delivery_info = {
+#                 "address": order_data["customer_addresses"]["full_address"],
+#                 "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+#             }
+            
+#             # Calculate delivery estimate
+#             delivery_estimate = DeliveryService.calculate_delivery_estimate(
+#                 formatted_items,
+#                 order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+#             )
+        
+#         tracking_orders.append({
+#             "order": {
+#                 "id": order_data["id"],
+#                 "order_number": order_data["order_number"],
+#                 "status": order_status,
+#                 "subtotal": float(order_data.get("subtotal", 0)),
+#                 "tax": float(order_data.get("tax", 0)),
+#                 "total": float(order_data["total"]),
+#                 "delivery_fee": float(order_data.get("delivery_fee", 0)),
+#                 "created_at": order_data["created_at"],
+#                 "confirmed_at": order_data.get("confirmed_at"),
+#                 "preparing_at": order_data.get("preparing_at"),
+#                 "completed_at": order_data.get("completed_at"),
+#                 "monnify_transaction_ref": order_data.get("monnify_transaction_ref"),
+#                 "payment_reference": order_data.get("payment_reference"),
+#                 "items": main_items,
+#                 "extras": extras
+#             },
+#             "delivery_info": delivery_info,
+#             "delivery_estimate": delivery_estimate,
+#             "tracking_stages": tracking_stages,
+#             "current_stage": current_stage
+#         })
+    
+#     result = {"orders": tracking_orders}
+    
+#     # Cache for 30 seconds - short cache for near real-time updates
+#     redis_client.set(cache_key, result, 30)
+    
+#     return result
+
+
+
+
+
 @router.get("/orders/tracking")
 async def get_all_orders_tracking(session_token: str = Query(...)):
-    """Get tracking status for all customer orders with caching"""
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # Check cache with customer-specific key
     cache_key = f"tracking:{session_data['customer_id']}"
     cached = redis_client.get(cache_key)
     if cached:
         return cached
     
-    # Fetch orders with related data
     thirty_mins_ago = (datetime.utcnow() - timedelta(minutes=30)).isoformat()
-
-    orders = supabase_admin.table("orders").select("""
-        *, 
-        customer_addresses(full_address, delivery_areas(name, estimated_time))
-    """).eq("website_customer_id", session_data["customer_id"]).or_(
+    
+    orders = supabase_admin.table("orders").select(
+        "*, customer_addresses(full_address, delivery_areas(name, estimated_time))"
+    ).eq("website_customer_id", session_data["customer_id"]).or_(
         f"status.neq.completed,completed_at.gte.{thirty_mins_ago}"
     ).order("created_at", desc=True).execute()
-        
-    tracking_orders = []
     
-    for order_data in orders.data:
-        # Fetch order items
-        order_items_result = supabase_admin.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+    if not orders.data:
+        return {"orders": []}
+    
+    # Batch fetch items
+    order_ids = [o["id"] for o in orders.data]
+    items_result = supabase_admin.table("order_items").select("*").in_("order_id", order_ids).execute()
+    
+    items_by_order = {}
+    all_item_ids = []
+    for item in items_result.data:
+        oid = item["order_id"]
+        if oid not in items_by_order:
+            items_by_order[oid] = []
+        items_by_order[oid].append(item)
+        all_item_ids.append(item["id"])
+    
+    # Batch fetch options
+    options_map = {}
+    if all_item_ids:
+        options_result = supabase_admin.table("order_item_options").select(
+            "*, product_options(id, name)"
+        ).in_("order_item_id", all_item_ids).execute()
         
-        # Format items with options
-        formatted_items = []
-        for item in order_items_result.data:
-            options_result = supabase_admin.table("order_item_options").select(
-                "*, product_options(id, name)"
-            ).eq("order_item_id", item["id"]).execute()
-            
-            formatted_options = [
-                {
-                    "option_id": opt["product_options"]["id"],
-                    "option_name": opt["product_options"]["name"]
-                }
-                for opt in options_result.data
-            ]
-            
-            formatted_items.append({
-                **item,
-                "options": formatted_options
+        for opt in options_result.data:
+            item_id = opt["order_item_id"]
+            if item_id not in options_map:
+                options_map[item_id] = []
+            options_map[item_id].append({
+                "option_id": opt["product_options"]["id"],
+                "option_name": opt["product_options"]["name"]
             })
+    
+    tracking_orders = []
+    for order_data in orders.data:
+        order_items = items_by_order.get(order_data["id"], [])
         
-        # Separate main items and extras
-        main_items = [item for item in formatted_items if not item.get("is_extra")]
-        extras = [item for item in formatted_items if item.get("is_extra")]
+        # Attach options to items
+        for item in order_items:
+            item["options"] = options_map.get(item["id"], [])
         
-        order_status = order_data["status"]
+        main_items = [i for i in order_items if not i.get("is_extra")]
+        extras = [i for i in order_items if i.get("is_extra")]
         
-        # Define tracking stages based on status
+        status = order_data["status"]
+        
         tracking_stages = {
-            "payment_confirmation": order_status in ["confirmed", "preparing", "out_for_delivery", "completed"],
-            "processed": order_status in ["preparing", "out_for_delivery", "completed"],
-            "out_for_delivery": order_status in ["out_for_delivery", "completed"],
-            "completed": order_status == "completed"
+            "payment_confirmation": status in ["confirmed", "transit", "preparing", "out_for_delivery", "completed"],
+            "processed": status in ["preparing", "out_for_delivery", "completed"],
+            "out_for_delivery": status in ["out_for_delivery", "completed"],
+            "completed": status == "completed"
         }
         
-        # Determine current stage
-        if order_status == "completed":
+        if status == "completed":
             current_stage = "completed"
-        elif order_status == "out_for_delivery":
+        elif status == "out_for_delivery":
             current_stage = "out_for_delivery"
-        elif order_status == "preparing":
+        elif status == "preparing":
             current_stage = "processed"
-        elif order_status == "transit":
-             current_stage = "payment_confirmation"
-        elif order_status == "confirmed":
+        elif status in ["confirmed", "transit"]:
             current_stage = "payment_confirmation"
         else:
             current_stage = "pending"
         
-        # Get delivery info
+        # Delivery info
         delivery_info = None
         delivery_estimate = None
         
-        if order_data.get("customer_addresses"):
+        if order_data.get("customer_addresses") and order_data["customer_addresses"].get("delivery_areas"):
             delivery_info = {
                 "address": order_data["customer_addresses"]["full_address"],
                 "estimated_time": order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
             }
             
-            # Calculate delivery estimate
             delivery_estimate = DeliveryService.calculate_delivery_estimate(
-                formatted_items,
+                order_items,
                 order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
             )
         
@@ -1098,7 +1239,7 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
             "order": {
                 "id": order_data["id"],
                 "order_number": order_data["order_number"],
-                "status": order_status,
+                "status": status,
                 "subtotal": float(order_data.get("subtotal", 0)),
                 "tax": float(order_data.get("tax", 0)),
                 "total": float(order_data["total"]),
@@ -1107,8 +1248,6 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
                 "confirmed_at": order_data.get("confirmed_at"),
                 "preparing_at": order_data.get("preparing_at"),
                 "completed_at": order_data.get("completed_at"),
-                "monnify_transaction_ref": order_data.get("monnify_transaction_ref"),
-                "payment_reference": order_data.get("payment_reference"),
                 "items": main_items,
                 "extras": extras
             },
@@ -1119,15 +1258,14 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
         })
     
     result = {"orders": tracking_orders}
-    
-    # Cache for 30 seconds - short cache for near real-time updates
     redis_client.set(cache_key, result, 30)
-    
     return result
 
 
 
 
+
+
 # @router.get("/search/suggestions")
 # async def get_search_suggestions(q: str = Query(min_length=2)):
 #     cache_key = f"search:suggestions:{q}"
@@ -1226,117 +1364,6 @@ async def get_all_orders_tracking(session_token: str = Query(...)):
 
 
 
-# @router.get("/search/suggestions")
-# async def get_search_suggestions(q: str = Query(min_length=2)):
-#     cache_key = f"search:suggestions:{q}"
-#     cached = redis_client.get(cache_key)
-#     if cached:
-#         return cached
-    
-#     # Single optimized query with joins
-#     products = supabase_admin.table("products").select("""
-#         *, 
-#         categories(*),
-#         extras:products!main_product_id(*)
-#     """).eq("is_available", True).neq("status", "out_of_stock").eq("product_type", "main").limit(50).execute()
-
-#     # Filter products by search term
-#     filtered_products = [
-#         p for p in products.data 
-#         if q.lower() in p["name"].lower() or 
-#         (p.get("categories") and q.lower() in p["categories"]["name"].lower())
-#     ]
-
-    
-#     def get_relevance_score(product, query):
-#         score = 0
-#         name = product["name"].lower()
-#         query_lower = query.lower()
-        
-        
-#         if name == query_lower:
-#             score += 100
-        
-#         elif name.startswith(query_lower):
-#             score += 50
-       
-#         elif f" {query_lower} " in f" {name} ":
-#             score += 40
-        
-#         elif query_lower in name:
-#             score += 30
-        
-       
-#         if product.get("categories") and query_lower in product["categories"]["name"].lower():
-#             score += 10
-        
-#         return score
-
-    
-#     sorted_products = sorted(filtered_products, 
-#         key=lambda p: get_relevance_score(p, q), reverse=True)[:10]
-    
-#     # Batch fetch options for filtered products
-#     product_ids = [p["id"] for p in sorted_products]
-#     options_result = supabase_admin.table("product_options").select("*").in_("product_id", product_ids).execute()
-#     options_map = {}
-#     for opt in options_result.data:
-#         pid = opt["product_id"]
-#         if pid not in options_map:
-#             options_map[pid] = []
-#         options_map[pid].append(opt)
-    
-#     result_products = []
-#     for product in sorted_products:
-#         display_name = product["name"]
-#         if product.get("variant_name"):
-#             display_name += f" - {product['variant_name']}"
-        
-#         category = {"id": None, "name": "Uncategorized"}
-#         if product.get("categories"):
-#             category = product["categories"]
-        
-#         # Add options (same format as /products)
-#         formatted_options = [
-#             {"id": o["id"], "name": o["name"]}
-#             for o in sorted(options_map.get(product["id"], []), 
-#                           key=lambda x: (x.get("display_order", 999), x.get("name", "")))
-#         ]
-        
-#         formatted_extras = []
-#         for extra in product.get("extras", []):
-#             extra_display_name = extra["name"]
-#             if extra.get("variant_name"):
-#                 extra_display_name += f" - {extra['variant_name']}"
-            
-#             formatted_extras.append({
-#                 "id": extra["id"],
-#                 "name": extra_display_name,
-#                 "price": float(extra["price"]),
-#                 "description": extra["description"],
-#                 "image_url": extra["image_url"],
-#                 "available_stock": extra["units"],
-#                 "low_stock_threshold": extra["low_stock_threshold"],
-#                 "status": extra["status"]
-#             })
-        
-#         result_products.append({
-#             "id": product["id"],
-#             "name": display_name,
-#             "price": float(product["price"]),
-#             "description": product["description"],
-#             "image_url": product["image_url"],
-#             "available_stock": product["units"],
-#             "low_stock_threshold": product["low_stock_threshold"],
-#             "has_options": product.get("has_options", False),
-#             "options": formatted_options,
-#             "category": category,
-#             "extras": formatted_extras,
-#             "status": product["status"]
-#         })
-    
-#     redis_client.set(cache_key, result_products, 60)
-#     return result_products
 
 
 @router.get("/search/suggestions")

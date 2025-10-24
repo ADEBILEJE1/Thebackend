@@ -4,6 +4,8 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 from pydantic import BaseModel, Field, validator, EmailStr
 from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks
+
 
 import pytz
 
@@ -28,6 +30,7 @@ from ..services.celery import send_order_ready_notification
 from ..core.activity_logger import log_activity
 from ..models.order import OrderType, OrderStatus, PaymentStatus, PaymentMethod
 from ..models.inventory import StockStatus
+from ..website.services import EmailService
 
 
 
@@ -334,51 +337,12 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
 
 
 
-# @router.post("/chef/batch-ready")
-# async def mark_batch_ready(
-#     batch_id: str,
-#     current_user: dict = Depends(require_chef_staff)
-# ):
-#     """Mark entire batch as completed - all orders in batch"""
-#     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
-    
-#     if not orders.data:
-#         raise HTTPException(status_code=404, detail="Batch not found or already completed")
-    
-#     order_ids = [o["id"] for o in orders.data]
-#     completed_at = get_nigerian_time().isoformat()
-    
-#     # Mark all orders in batch as completed
-#     supabase_admin.table("orders").update({
-#         "status": "completed",
-#         "completed_at": completed_at,
-#         "updated_at": completed_at
-#     }).in_("id", order_ids).execute()
-    
-#     # Send notifications for online orders
-#     for order in orders.data:
-#         if order["order_type"] == "online" and order.get("customer_email"):
-#             send_order_ready_notification.delay(
-#                 order["order_number"],
-#                 order["customer_email"]
-#             )
-    
-#     # Invalidate caches
-#     for order_id in order_ids:
-#         invalidate_order_cache(order_id)
-    
-#     # Notify via WebSocket
-#     await notify_order_update(batch_id, "batch_completed", {"batch_id": batch_id, "order_count": len(orders.data)})
-    
-#     return {"message": f"Batch {batch_id} completed - {len(orders.data)} orders marked ready"}
 
 
-
-
-# In kitchen.py - mark_batch_ready
 @router.post("/chef/batch-ready")
 async def mark_batch_ready(
     batch_id: str,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_chef_staff)
 ):
     orders = supabase_admin.table("orders").select("*").eq("batch_id", batch_id).in_("status", ["confirmed", "preparing"]).execute()
@@ -396,10 +360,12 @@ async def mark_batch_ready(
     }).in_("id", order_ids).execute()
     
     for order in orders.data:
-        if order["order_type"] == "online" and order.get("customer_email"):
-            send_order_ready_notification.delay(
-                order["order_number"],
-                order["customer_email"]
+        if order.get("website_customers"):
+            background_tasks.add_task(
+                EmailService.send_ready_for_delivery,
+                order["website_customers"]["email"],
+                order["website_customers"]["full_name"],
+                order["order_number"]
             )
     
     # Invalidate caches

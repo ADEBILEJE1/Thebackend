@@ -912,3 +912,200 @@ class EmailService:
             
         except Exception as e:
             print(f"❌ Welcome email failed for {customer_email}: {str(e)}")
+
+
+
+    @staticmethod
+    async def send_order_confirmation_batch(customer_email: str, orders: List[Dict]):
+        """Send single email with all orders from same payment"""
+        try:
+            all_item_rows = ""
+            total_subtotal = 0
+            total_tax = 0
+            total_delivery = 0
+            grand_total = 0
+            order_numbers = []
+            
+            for order_data in orders:
+                order_numbers.append(order_data["order_number"])
+                
+                # Fetch items for this order
+                items_result = supabase.table("order_items").select("*").eq("order_id", order_data["id"]).execute()
+                items = items_result.data or []
+                
+                # Add order header
+                all_item_rows += f"""
+                <tr>
+                    <td colspan="2" style="padding: 15px 0 10px 0; font-weight: bold; font-size: 16px; color: #FE1B01;">
+                        Order {order_data['order_number']}
+                    </td>
+                </tr>
+                """
+                
+                # Add items for this order
+                for item in items:
+                    all_item_rows += f"""
+                    <tr>
+                        <td style="padding: 8px 0 8px 15px; text-align: left; border-bottom: 1px solid #eeeeee;">
+                            {item['product_name']} (x{item['quantity']})
+                        </td>
+                        <td style="padding: 8px 0; text-align: right; border-bottom: 1px solid #eeeeee; font-weight: bold;">
+                            ₦{item['total_price']:,.2f}
+                        </td>
+                    </tr>
+                    """
+                
+                # Accumulate totals
+                total_subtotal += order_data.get("subtotal", 0)
+                total_tax += order_data.get("tax", 0)
+                total_delivery += order_data.get("delivery_fee", 0)
+                grand_total += order_data.get("total", 0)
+            
+            # Fetch delivery address from first order
+            delivery_address = "N/A"
+            if orders and orders[0].get("delivery_address_id"):
+                address_result = supabase.table("customer_addresses").select("full_address").eq("id", orders[0]["delivery_address_id"]).execute()
+                if address_result.data:
+                    delivery_address = address_result.data[0]["full_address"]
+            
+            # Build email content
+            content = f"""
+            <h1 style="color: #000000; font-size: 24px; margin-top: 0; margin-bottom: 20px;">Your Orders are Confirmed!</h1>
+            <p style="margin-bottom: 20px;">Hi there,</p>
+            <p style="margin-bottom: 20px;">Thanks for your orders! We've received them and our chefs are getting started. Your Order IDs: <strong>{', '.join(order_numbers)}</strong>.</p>
+            <p style="margin-bottom: 20px;">We will notify you again as soon as your orders are sent out for delivery.</p>
+            
+            <div class="summary-bubble" style="background-color: #f9f9f9; border-radius: 8px; padding: 20px; margin-top: 20px; margin-bottom: 20px; border: 1px solid #eeeeee;">
+                <h2 style="font-size: 20px; color: #000; margin-top: 0; margin-bottom: 15px;">Order Summary</h2>
+                
+                <table class="order-summary" cellpadding="0" cellspacing="0" border="0" style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 12px 0; text-align: left; border-bottom: 1px solid #eeeeee; color: #777; font-size: 14px; text-transform: uppercase;">Item</th>
+                            <th style="padding: 12px 0; text-align: right; border-bottom: 1px solid #eeeeee; color: #777; font-size: 14px; text-transform: uppercase;">Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {all_item_rows}
+                    </tbody>
+                </table>
+
+                <table class="totals-summary" cellpadding="0" cellspacing="0" border="0" style="width: 100%; margin-bottom: 0;">
+                    <tbody>
+                        <tr>
+                            <td class="label" style="padding: 5px 0; color: #555555;">Subtotal</td>
+                            <td class="value" style="padding: 5px 0; text-align: right; font-weight: bold; color: #000000;">₦{total_subtotal:,.2f}</td>
+                        </tr>
+                        <tr>
+                            <td class="label" style="padding: 5px 0; color: #555555;">VAT</td>
+                            <td class="value" style="padding: 5px 0; text-align: right; font-weight: bold; color: #000000;">₦{total_tax:,.2f}</td>
+                        </tr>
+                        <tr>
+                            <td class="label" style="padding: 5px 0; color: #555555;">Delivery Fee</td>
+                            <td class="value" style="padding: 5px 0; text-align: right; font-weight: bold; color: #000000;">₦{total_delivery:,.2f}</td>
+                        </tr>
+                        <tr class="grand-total">
+                            <td class="label" style="padding: 5px 0; color: #555555; padding-top: 10px; font-size: 18px; border-top: 2px solid #333333;"><strong>Total</strong></td>
+                            <td class="value" style="padding: 5px 0; text-align: right; font-weight: bold; color: #000000; padding-top: 10px; font-size: 18px; border-top: 2px solid #333333;"><strong>₦{grand_total:,.2f}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="address-box" style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid #eeeeee;">
+                <h3 style="margin-top: 0; margin-bottom: 10px; font-size: 16px; color: #000;">Delivering To</h3>
+                <p style="margin: 0; line-height: 1.5; color: #333;">
+                    {delivery_address}
+                </al>
+            </div>
+            """
+            
+            # Get full HTML template
+            html_content = EmailService._get_base_email_template(
+                title=f"Your Leban Street Orders are Confirmed!",
+                content=content,
+                cta_text="Track your orders",
+                cta_link="https://www.lebanstreet.com/track-order"
+            )
+            
+            resend.api_key = os.getenv("RESEND_API_KEY")
+            resend.Emails.send({
+                "from": "noreply@lebanstreet.com",
+                "to": customer_email,
+                "subject": f"Your Leban Street Order is Confirmed! ({', '.join(order_numbers)})",
+                "html": html_content
+            })
+            print(f"✅ Batch order confirmation sent to {customer_email}")
+
+        except Exception as e:
+            print(f"❌ Batch order confirmation email failed for {customer_email}: {str(e)}")
+
+
+
+
+    @staticmethod
+    async def send_ready_for_delivery(customer_email: str, order_number: str):
+        """Notify customer order is ready for delivery"""
+        try:
+            # 1. Fetch order and related delivery info
+            order_result = supabase.table("orders").select(
+                "*, customer_addresses(full_address, delivery_areas(estimated_time))"
+            ).eq("order_number", order_number).execute()
+            
+            if not order_result.data:
+                print(f"❌ Could not find order {order_number} to send delivery email.")
+                return
+
+            order_data = order_result.data[0]
+            
+            # 2. Extract address and time
+            delivery_address = "N/A"
+            estimated_time = "30-45 minutes" # Fallback
+
+            if order_data.get("customer_addresses"):
+                delivery_address = order_data["customer_addresses"]["full_address"]
+                if order_data["customer_addresses"].get("delivery_areas"):
+                    estimated_time = order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
+            
+            # 3. Build content
+            content = f"""
+            <h1 style="color: #000000; font-size: 24px; margin-top: 0; margin-bottom: 20px;">Your Order is Out for Delivery!</h1>
+            <p style="margin-bottom: 20px;">Hi there,</p>
+            <p style="margin-bottom: 20px;">Get ready! Your order <strong>{order_number}</strong> has left our kitchen and is on its way to you right now.</p>
+            
+            <div class="address-box" style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid #eeeeee;">
+                <h3 style="margin-top: 0; margin-bottom: 10px; font-size: 16px; color: #000;">Delivering To</h3>
+                <p style="margin: 0; line-height: 1.5; color: #333;">
+                    {delivery_address}
+                </p>
+            </div>
+
+            <div class="estimate-box" style="background-color: #FFF8F7; border: 1px solid #FDDAD7; padding: 20px; border-radius: 8px; margin-top: 20px; text-align: center;">
+                <h3 style="margin-top: 0; margin-bottom: 10px; font-size: 16px; color: #000;">Estimated Arrival</h3>
+                <p style="font-size: 20px; font-weight: bold; color: #FE1B01; margin: 0;">
+                    {estimated_time}
+                </p>
+            </div>
+
+            <p style="margin-top: 30px;">Thanks again for choosing Leban Street.</p>
+            """
+
+            # 4. Get full HTML and send
+            html_content = EmailService._get_base_email_template(
+                title=f"Your Leban Street Order ({order_number}) is Out for Delivery!",
+                content=content,
+                cta_text="Track your order",
+                cta_link="https://www.lebanstreet.com/track-order"
+            )
+
+            resend.api_key = os.getenv("RESEND_API_KEY")
+            resend.Emails.send({
+                "from": "noreply@lebanstreet.com",
+                "to": customer_email,
+                "subject": f"Your Order is Out for Delivery! ({order_number})",
+                "html": html_content
+            })
+            print(f"✅ 'Out for delivery' email sent to {customer_email}")
+
+        except Exception as e:
+            print(f"❌ 'Out for delivery' email failed for {customer_email}: {str(e)}")
