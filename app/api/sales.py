@@ -1939,7 +1939,6 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
     
 #     return flattened_data
 
-from datetime import datetime
 
 @router.get("/sales/reports/all-orders", dependencies=[Depends(get_api_key)])
 async def get_spreadsheet_orders():
@@ -1972,12 +1971,17 @@ async def get_spreadsheet_orders():
         items = items_map.get(order["id"], [])
         customer = customers_map.get(order.get("website_customer_id"), {})
         address = addresses_map.get(order.get("delivery_address_id"), {})
+        delivery_area = address.get("delivery_areas", {}) if address else {}
         
         created_at = order.get("created_at")
         created_date = datetime.fromisoformat(created_at).strftime("%Y-%m-%d") if created_at else None
         
         completed_at = order.get("completed_at")
         completed_date = datetime.fromisoformat(completed_at).strftime("%Y-%m-%d") if completed_at else None
+        
+        # Safe extraction with defaults
+        product_names = ", ".join([i.get("product_name", "N/A") for i in items]) if items else ""
+        product_quantities = ", ".join([str(i.get("quantity", 0)) for i in items]) if items else ""
         
         flattened_data.append({
             "order_id": order.get("id"),
@@ -1991,9 +1995,9 @@ async def get_spreadsheet_orders():
             "email": customer.get("email"),
             "phone": customer.get("phone"),
             "full_address": address.get("full_address"),
-            "delivery_area": address.get("delivery_areas", {}).get("name") if address.get("delivery_areas") else None,
-            "product_names": ", ".join([i["product_name"] for i in items]),
-            "product_quantities": ", ".join([str(i["quantity"]) for i in items]),
+            "delivery_area": delivery_area.get("name") if isinstance(delivery_area, dict) else None,
+            "product_names": product_names,
+            "product_quantities": product_quantities,
             "payment_status": order.get("payment_status"),
             "payment_method": order.get("payment_method"),
             "subtotal": order.get("subtotal"),
@@ -2005,7 +2009,6 @@ async def get_spreadsheet_orders():
         })
     
     return flattened_data
-
 
 
 
