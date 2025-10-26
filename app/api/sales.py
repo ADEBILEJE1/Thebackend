@@ -1873,27 +1873,23 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 
 
 
+
 # @router.get("/sales/reports/all-orders", dependencies=[Depends(get_api_key)])
 # async def get_spreadsheet_orders():
     
-    
-#     # Fetch orders first
 #     orders_result = supabase_admin.table("orders").select("*").order("created_at", desc=True).limit(5000).execute()
     
 #     if not orders_result.data:
 #         return []
     
-#     # Get all related IDs
 #     order_ids = [o["id"] for o in orders_result.data]
 #     customer_ids = [o["website_customer_id"] for o in orders_result.data if o.get("website_customer_id")]
-#     address_ids = [o["customer_address_id"] for o in orders_result.data if o.get("customer_address_id")]
+#     address_ids = [o["delivery_address_id"] for o in orders_result.data if o.get("delivery_address_id")]
     
-#     # Batch fetch related data
 #     items_result = supabase_admin.table("order_items").select("*").in_("order_id", order_ids).execute()
 #     customers_result = supabase_admin.table("website_customers").select("*").in_("id", customer_ids).execute() if customer_ids else None
 #     addresses_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(name)").in_("id", address_ids).execute() if address_ids else None
     
-#     # Create lookup maps
 #     items_map = {}
 #     for item in items_result.data:
 #         oid = item["order_id"]
@@ -1904,13 +1900,22 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 #     customers_map = {c["id"]: c for c in (customers_result.data if customers_result else [])}
 #     addresses_map = {a["id"]: a for a in (addresses_result.data if addresses_result else [])}
     
-#     # Build flattened data
 #     flattened_data = []
 #     for order in orders_result.data:
 #         items = items_map.get(order["id"], [])
 #         customer = customers_map.get(order.get("website_customer_id"), {})
-#         address = addresses_map.get(order.get("customer_address_id"), {})
+#         address = addresses_map.get(order.get("delivery_address_id"), {})
 #         delivery_area = address.get("delivery_areas", {}) if address else {}
+        
+#         created_at = order.get("created_at")
+#         created_date = datetime.fromisoformat(created_at).strftime("%Y-%m-%d") if created_at else None
+        
+#         completed_at = order.get("completed_at")
+#         completed_date = datetime.fromisoformat(completed_at).strftime("%Y-%m-%d") if completed_at else None
+        
+#         # Safe extraction with defaults
+#         product_names = ", ".join([i.get("product_name", "N/A") for i in items]) if items else ""
+#         product_quantities = ", ".join([str(i.get("quantity", 0)) for i in items]) if items else ""
         
 #         flattened_data.append({
 #             "order_id": order.get("id"),
@@ -1918,15 +1923,15 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 #             "display_number": order.get("display_number"),
 #             "order_type": order.get("order_type"),
 #             "status": order.get("status"),
-#             "created_at": order.get("created_at"),
-#             "completed_at": order.get("completed_at"),
+#             "created_at": created_date,
+#             "completed_at": completed_date,
 #             "full_name": customer.get("full_name") or order.get("customer_name"),
 #             "email": customer.get("email"),
 #             "phone": customer.get("phone"),
 #             "full_address": address.get("full_address"),
 #             "delivery_area": delivery_area.get("name") if isinstance(delivery_area, dict) else None,
-#             "product_names": ", ".join([i.get("product_name", "") for i in items]),
-#             "product_quantities": ", ".join([str(i.get("quantity", 0)) for i in items]),
+#             "product_names": product_names,
+#             "product_quantities": product_quantities,
 #             "payment_status": order.get("payment_status"),
 #             "payment_method": order.get("payment_method"),
 #             "subtotal": order.get("subtotal"),
@@ -1938,6 +1943,7 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 #         })
     
 #     return flattened_data
+
 
 
 @router.get("/sales/reports/all-orders", dependencies=[Depends(get_api_key)])
@@ -1953,15 +1959,21 @@ async def get_spreadsheet_orders():
     address_ids = [o["delivery_address_id"] for o in orders_result.data if o.get("delivery_address_id")]
     
     items_result = supabase_admin.table("order_items").select("*").in_("order_id", order_ids).execute()
+    
+    # DEBUG: Print first item to see structure
+    if items_result.data:
+        print(f"DEBUG - Sample order_item: {items_result.data[0]}")
+    
     customers_result = supabase_admin.table("website_customers").select("*").in_("id", customer_ids).execute() if customer_ids else None
     addresses_result = supabase_admin.table("customer_addresses").select("*, delivery_areas(name)").in_("id", address_ids).execute() if address_ids else None
     
     items_map = {}
     for item in items_result.data:
-        oid = item["order_id"]
-        if oid not in items_map:
-            items_map[oid] = []
-        items_map[oid].append(item)
+        oid = item.get("order_id")
+        if oid:
+            if oid not in items_map:
+                items_map[oid] = []
+            items_map[oid].append(item)
     
     customers_map = {c["id"]: c for c in (customers_result.data if customers_result else [])}
     addresses_map = {a["id"]: a for a in (addresses_result.data if addresses_result else [])}
@@ -1969,6 +1981,11 @@ async def get_spreadsheet_orders():
     flattened_data = []
     for order in orders_result.data:
         items = items_map.get(order["id"], [])
+        
+        # DEBUG: Check if items exist for this order
+        if not items and order.get("created_at"):
+            print(f"DEBUG - No items for order {order['order_number']} created at {order['created_at']}")
+        
         customer = customers_map.get(order.get("website_customer_id"), {})
         address = addresses_map.get(order.get("delivery_address_id"), {})
         delivery_area = address.get("delivery_areas", {}) if address else {}
@@ -1979,9 +1996,8 @@ async def get_spreadsheet_orders():
         completed_at = order.get("completed_at")
         completed_date = datetime.fromisoformat(completed_at).strftime("%Y-%m-%d") if completed_at else None
         
-        # Safe extraction with defaults
-        product_names = ", ".join([i.get("product_name", "N/A") for i in items]) if items else ""
-        product_quantities = ", ".join([str(i.get("quantity", 0)) for i in items]) if items else ""
+        product_names = ", ".join([str(i.get("product_name", "")) for i in items if i.get("product_name")]) if items else ""
+        product_quantities = ", ".join([str(i.get("quantity", "")) for i in items if i.get("quantity") is not None]) if items else ""
         
         flattened_data.append({
             "order_id": order.get("id"),
@@ -2009,7 +2025,6 @@ async def get_spreadsheet_orders():
         })
     
     return flattened_data
-
 
 
 @router.get("/orders/{batch_id}/customer-receipt")
