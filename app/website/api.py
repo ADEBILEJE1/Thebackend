@@ -803,6 +803,208 @@ async def create_payment_account(
 
 
 
+# @router.get("/payment/verify/{account_reference}")  
+# async def verify_payment(account_reference: str, background_tasks: BackgroundTasks):
+#     """Verify payment status"""
+#     try:
+#         payment_session = redis_client.get(f"payment:{account_reference}")
+#         if not payment_session:
+#             raise HTTPException(status_code=404, detail="Payment session not found")
+        
+#         # ========== DOUBLE PROCESSING CHECK ==========
+#         if payment_session.get("status") == "completed":
+#             existing_orders = payment_session.get("orders_created", [])
+            
+#             if existing_orders:
+#                 orders_data = []
+#                 for order_id in existing_orders:
+#                     order = supabase_admin.table("orders").select("*").eq("id", order_id).execute()
+#                     if order.data:
+#                         orders_data.append(order.data[0])
+                
+#                 return {
+#                     "payment_status": "success",
+#                     "message": "Payment already processed",
+#                     "orders": orders_data
+#                 }
+#         # ========== END CHECK ==========
+        
+#         # ========== VERIFY ACTUAL PAYMENT RECEIVED ==========
+#         access_token = await MonnifyService.get_access_token()
+        
+#         response = requests.get(
+#             f"{settings.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts/{account_reference}/transactions",
+#             headers={"Authorization": f"Bearer {access_token}"},
+#             timeout=30
+#         )
+        
+#         if response.status_code != 200:
+#             return {
+#                 "payment_status": "pending",
+#                 "message": "Payment is still pending"
+#             }
+        
+#         transactions_data = response.json()
+#         print(f"📊 Transactions Response: {transactions_data}")
+        
+#         # Check if any completed transaction exists
+#         if not transactions_data.get("responseBody") or not transactions_data["responseBody"].get("content"):
+#             return {
+#                 "payment_status": "pending",
+#                 "message": "No payment received yet"
+#             }
+        
+#         # Find a PAID transaction
+#         paid_transaction = None
+#         for txn in transactions_data["responseBody"]["content"]:
+#             if txn.get("paymentStatus") == "PAID":
+#                 paid_transaction = txn
+#                 break
+        
+#         if not paid_transaction:
+#             return {
+#                 "payment_status": "pending",
+#                 "message": "Payment not confirmed yet"
+#             }
+        
+#         print(f"✅ PAID transaction found: {paid_transaction.get('transactionReference')}")
+#         # ========== END VERIFICATION ==========
+
+#         existing_orders = supabase_admin.table("orders").select("*").eq(
+#             "payment_reference", payment_session["payment_reference"]
+#         ).execute()
+        
+#         if existing_orders.data:
+#             print("✅ Orders already exist for this payment")
+#             return {
+#                 "payment_status": "success",
+#                 "message": "Payment already processed",
+#                 "orders": existing_orders.data
+#             }
+        
+#         # ========== LOCK TO PREVENT RACE CONDITIONS ==========
+#         processing_lock = f"processing:{account_reference}"
+        
+#         lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
+        
+#         if not lock_acquired:
+#             return {
+#                 "payment_status": "processing",
+#                 "message": "Payment is being processed, please wait"
+#             }
+#         # ========== END LOCK ==========
+        
+#         try:
+#             created_orders = []
+#             all_items = []
+
+#             batch_id = CartService.generate_batch_id()
+#             batch_created_at = get_nigerian_time().isoformat()
+           
+#             for order_data in payment_session["orders"]:
+#                 processed_items = await CartService.validate_cart_items(order_data["items"])
+#                 totals = CartService.calculate_order_total(processed_items)
+#                 all_items.extend(processed_items)
+
+#                 for item in processed_items:
+#                     item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
+                    
+#                 address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
+#                 delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+               
+#                 order_entry = {
+#                     "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
+#                     "order_type": "online",
+#                     "status": "confirmed",
+#                     "payment_status": "paid",
+#                     "batch_id": batch_id,  
+#                     "batch_created_at": batch_created_at, 
+#                     "payment_reference": payment_session["payment_reference"],
+#                     "monnify_transaction_ref": paid_transaction.get("transactionReference"),
+#                     "subtotal": float(totals["subtotal"]),
+#                     "tax": float(totals["tax"]),
+#                     "delivery_fee": delivery_fee,
+#                     "total": float(totals["total"]) + delivery_fee,
+#                     "website_customer_id": payment_session["customer_id"],
+#                     "delivery_address_id": order_data["delivery_address_id"],
+#                     "confirmed_at": get_nigerian_time().isoformat()
+#                 }
+               
+#                 created_order = supabase_admin.table("orders").insert(order_entry).execute()
+#                 order_id = created_order.data[0]["id"]
+
+#                 datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+#                 order_number = f"LEBANST-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
+
+#                 updated_order = supabase_admin.table("orders").update({
+#                     "order_number": order_number
+#                 }).eq("id", order_id).execute()
+               
+#                 for item in processed_items:
+#                     item_data = {
+#                         "order_id": order_id,
+#                         "product_id": item["product_id"],
+#                         "product_name": item["product_name"],
+#                         "quantity": item["quantity"],
+#                         "unit_price": float(item["unit_price"]),
+#                         "total_price": float(item["total_price"]),
+#                         "notes": item.get("notes"),
+#                         "is_extra": item.get("is_extra", False)
+#                     }
+#                     result = supabase_admin.table("order_items").insert(item_data).execute()
+#                     order_item_id = result.data[0]["id"]
+                    
+#                     for option_id in item.get("option_ids", []):
+#                         supabase_admin.table("order_item_options").insert({
+#                             "id": str(uuid.uuid4()),
+#                             "order_item_id": order_item_id,
+#                             "option_id": option_id
+#                         }).execute()
+               
+#                 created_orders.append(updated_order.data[0])
+                
+
+#             await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
+
+#             customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
+#             if customer.data:
+                    
+#                     if customer.data:
+#                         background_tasks.add_task(
+#                             EmailService.send_order_confirmation_batch,
+#                             customer.data[0]["email"],
+#                             created_orders
+#                         )
+
+
+#                     background_tasks.add_task(
+#                         EmailService.send_welcome_email_task,
+#                         payment_session["customer_id"],
+#                         customer.data[0]["email"],
+#                         customer.data[0]["full_name"]
+#                     )
+           
+#             # Mark as completed
+#             payment_session["status"] = "completed"
+#             payment_session["orders_created"] = [o["id"] for o in created_orders]
+#             payment_session["completed_at"] = get_nigerian_time().isoformat()
+#             redis_client.set(f"payment:{account_reference}", payment_session, 86400)
+           
+#             return {
+#                 "payment_status": "success",
+#                 "orders": created_orders,
+#                 "tracking_references": [o["order_number"] for o in created_orders],
+#                 "payment_details": paid_transaction
+#             }
+        
+#         finally:
+#             redis_client.delete(processing_lock)
+           
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.get("/payment/verify/{account_reference}")  
 async def verify_payment(account_reference: str, background_tasks: BackgroundTasks):
     """Verify payment status"""
@@ -811,10 +1013,12 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         if not payment_session:
             raise HTTPException(status_code=404, detail="Payment session not found")
         
-        # ========== DOUBLE PROCESSING CHECK ==========
+        print(f"🔍 Verifying payment for account: {account_reference}")
+        print(f"🔍 Payment session data: {payment_session}")
+        
+        # Check if already completed
         if payment_session.get("status") == "completed":
             existing_orders = payment_session.get("orders_created", [])
-            
             if existing_orders:
                 orders_data = []
                 for order_id in existing_orders:
@@ -827,49 +1031,75 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
                     "message": "Payment already processed",
                     "orders": orders_data
                 }
-        # ========== END CHECK ==========
         
-        # ========== VERIFY ACTUAL PAYMENT RECEIVED ==========
+        # Get access token
         access_token = await MonnifyService.get_access_token()
+        print(f"✅ Access token obtained")
+        
+        # Call transactions endpoint
+        url = f"{settings.MONNIFY_BASE_URL}/api/v1/bank-transfer/reserved-accounts/transactions?accountReference={account_reference}&page=0&size=10"
+        print(f"🌐 Calling: {url}")
         
         response = requests.get(
-            f"{settings.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts/{account_reference}/transactions",
+            url,
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30
         )
         
+        print(f"📊 Response Status: {response.status_code}")
+        print(f"📊 Response Body: {response.text}")
+        
         if response.status_code != 200:
+            print(f"❌ Non-200 status code")
             return {
                 "payment_status": "pending",
-                "message": "Payment is still pending"
+                "message": "Payment verification failed"
             }
         
         transactions_data = response.json()
-        print(f"📊 Transactions Response: {transactions_data}")
         
-        # Check if any completed transaction exists
-        if not transactions_data.get("responseBody") or not transactions_data["responseBody"].get("content"):
+        # Check structure
+        if not transactions_data.get("responseBody"):
+            print(f"❌ No responseBody in response")
+            return {
+                "payment_status": "pending",
+                "message": "No payment data available"
+            }
+        
+        content = transactions_data["responseBody"].get("content", [])
+        print(f"📊 Found {len(content)} transactions")
+        
+        if not content:
+            print(f"❌ No transactions found")
             return {
                 "payment_status": "pending",
                 "message": "No payment received yet"
             }
         
-        # Find a PAID transaction
+        # Debug each transaction
+        for idx, txn in enumerate(content):
+            print(f"📊 Transaction {idx + 1}:")
+            print(f"   - paymentStatus: {txn.get('paymentStatus')}")
+            print(f"   - amountPaid: {txn.get('amountPaid')}")
+            print(f"   - transactionReference: {txn.get('transactionReference')}")
+            print(f"   - completed: {txn.get('completed')}")
+        
+        # Find PAID transaction
         paid_transaction = None
-        for txn in transactions_data["responseBody"]["content"]:
+        for txn in content:
             if txn.get("paymentStatus") == "PAID":
                 paid_transaction = txn
+                print(f"✅ Found PAID transaction: {txn.get('transactionReference')}")
                 break
         
         if not paid_transaction:
+            print(f"❌ No PAID transaction found")
             return {
                 "payment_status": "pending",
                 "message": "Payment not confirmed yet"
             }
         
-        print(f"✅ PAID transaction found: {paid_transaction.get('transactionReference')}")
-        # ========== END VERIFICATION ==========
-
+        # REST OF YOUR ORDER CREATION CODE STAYS THE SAME...
         existing_orders = supabase_admin.table("orders").select("*").eq(
             "payment_reference", payment_session["payment_reference"]
         ).execute()
@@ -882,9 +1112,7 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
                 "orders": existing_orders.data
             }
         
-        # ========== LOCK TO PREVENT RACE CONDITIONS ==========
         processing_lock = f"processing:{account_reference}"
-        
         lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
         
         if not lock_acquired:
@@ -892,12 +1120,10 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
                 "payment_status": "processing",
                 "message": "Payment is being processed, please wait"
             }
-        # ========== END LOCK ==========
         
         try:
             created_orders = []
             all_items = []
-
             batch_id = CartService.generate_batch_id()
             batch_created_at = get_nigerian_time().isoformat()
            
@@ -962,29 +1188,23 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
                         }).execute()
                
                 created_orders.append(updated_order.data[0])
-                
 
             await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
 
             customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
             if customer.data:
-                    
-                    if customer.data:
-                        background_tasks.add_task(
-                            EmailService.send_order_confirmation_batch,
-                            customer.data[0]["email"],
-                            created_orders
-                        )
-
-
-                    background_tasks.add_task(
-                        EmailService.send_welcome_email_task,
-                        payment_session["customer_id"],
-                        customer.data[0]["email"],
-                        customer.data[0]["full_name"]
-                    )
+                background_tasks.add_task(
+                    EmailService.send_order_confirmation_batch,
+                    customer.data[0]["email"],
+                    created_orders
+                )
+                background_tasks.add_task(
+                    EmailService.send_welcome_email_task,
+                    payment_session["customer_id"],
+                    customer.data[0]["email"],
+                    customer.data[0]["full_name"]
+                )
            
-            # Mark as completed
             payment_session["status"] = "completed"
             payment_session["orders_created"] = [o["id"] for o in created_orders]
             payment_session["completed_at"] = get_nigerian_time().isoformat()
@@ -1001,6 +1221,9 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
             redis_client.delete(processing_lock)
            
     except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
