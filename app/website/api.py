@@ -1531,7 +1531,7 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         # Find PAID transaction matching amount, unused, and within 10 minutes
         paid_transaction = None
         expected_amount = float(payment_session["amount"])
-        cutoff_time = datetime.utcnow() - timedelta(minutes=10)
+        cutoff_time = datetime.utcnow() - timedelta(minutes=2)
         
         for txn in content:
             txn_amount = float(txn.get("amountPaid", 0))
