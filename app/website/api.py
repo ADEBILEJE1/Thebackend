@@ -1780,6 +1780,7 @@ async def check_transactions(account_reference: str):
     return response.json()
 
 
+
 @router.post("/auth/restore-session")
 async def restore_session_from_email(email: str):
     """Restore session using email if token is lost"""
