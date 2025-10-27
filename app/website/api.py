@@ -857,7 +857,7 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         # Find a PAID transaction
         paid_transaction = None
         for txn in transactions_data["responseBody"]["content"]:
-            if txn.get("transactionStatus") == "PAID":
+            if txn.get("paymentStatus") == "PAID":
                 paid_transaction = txn
                 break
         
@@ -1772,7 +1772,7 @@ async def check_transactions(account_reference: str):
     access_token = await MonnifyService.get_access_token()
     
     response = requests.get(
-        f"{settings.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts/{account_reference}/transactions",
+        f"{settings.MONNIFY_BASE_URL}/api/v1/bank-transfer/reserved-accounts/{account_reference}/transactions",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=30
     )
