@@ -1318,7 +1318,8 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
             
             print(f"📊 Comparing: Expected={expected_amount}, Transaction={txn_amount}, Ref={txn_ref}")
             
-            if txn.get("paymentStatus") == "PAID" and abs(txn_amount - expected_amount) < 0.01:
+            # if txn.get("paymentStatus") == "PAID" and abs(txn_amount - expected_amount) < 0.01:
+            if txn.get("paymentStatus") == "PAID" and abs(txn_amount - expected_amount) < 1.0: 
                 # Check if this transaction was already used
                 existing = supabase_admin.table("orders").select("id").eq("monnify_transaction_ref", txn_ref).execute()
                 
