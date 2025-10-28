@@ -299,8 +299,7 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
         "website_customers(id, full_name, email, phone),"
         "customer_addresses(id, full_address, delivery_areas(name, estimated_time))"
     # ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
-    ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("status.asc", "batch_created_at.asc").execute()
-    result.data.sort(key=lambda x: (0 if x["status"] == "preparing" else 1, x["batch_created_at"]))
+    ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("status.desc", "batch_created_at").execute()
     
     if not result.data:
         return {"batches": []}
