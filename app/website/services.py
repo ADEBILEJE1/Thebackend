@@ -378,6 +378,7 @@ class CartService:
             if area_id not in delivery_fees_by_area:
                 # delivery_fees_by_area[area_id] = Decimal(str(address.data[0]["delivery_areas"]["delivery_fee"]))
                 delivery_fees_by_area[area_id] = Decimal(str(address.data[0]["delivery_areas"]["delivery_fee"] or 0))
+                
         
         total_delivery = sum(delivery_fees_by_area.values())
         grand_total = total_subtotal + total_vat + total_delivery

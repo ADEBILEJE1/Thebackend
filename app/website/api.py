@@ -1498,6 +1498,7 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         
         # Get access token
         access_token = await MonnifyService.get_access_token()
+        print(f"🌐 Calling transactions API...")
         
         # Call transactions endpoint
         url = f"{settings.MONNIFY_BASE_URL}/api/v1/bank-transfer/reserved-accounts/transactions?accountReference={account_reference}&page=0&size=10"
@@ -1507,6 +1508,8 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30
         )
+        print(f"📊 Response Status: {response.status_code}")
+        print(f"📊 Response Body: {response.text[:500]}")
         
         if response.status_code != 200:
             return {
