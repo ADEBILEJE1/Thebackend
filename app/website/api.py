@@ -1532,10 +1532,14 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         paid_transaction = None
         expected_amount = float(payment_session["amount"])
         cutoff_time = datetime.utcnow() - timedelta(minutes=2)
+        session_created_time = datetime.fromisoformat(payment_session["created_at"])
+
+        
         
         for txn in content:
             txn_amount = float(txn.get("amountPaid", 0))
             txn_ref = txn.get("transactionReference")
+            
             
             # Parse transaction time
             txn_time_str = txn.get("createdOn")
@@ -1544,7 +1548,8 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
             # Check: PAID + correct amount + recent + unused
             if (txn.get("paymentStatus") == "PAID" and 
                 abs(txn_amount - expected_amount) < 1.0 and
-                txn_time > cutoff_time):
+                txn_time > cutoff_time and
+                txn_time > session_created_time):
                 
                 # Check if already used
                 existing = supabase_admin.table("orders").select("id").eq("monnify_transaction_ref", txn_ref).execute()
