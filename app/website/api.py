@@ -1544,11 +1544,20 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         for txn in content:
             txn_amount = float(txn.get("amountPaid", 0))
             txn_ref = txn.get("transactionReference")
+
+            print(f"🔍 Checking txn: {txn_ref}, amount: {txn_amount}")
             
             
             # Parse transaction time
             txn_time_str = txn.get("createdOn")
+
+            print(f"🕐 Transaction time string: {txn_time_str}")
+
             txn_time = datetime.fromisoformat(txn_time_str.replace("+00:00", "").replace("Z", ""))
+
+            print(f"🕐 Parsed txn_time: {txn_time}")
+            print(f"🕐 Cutoff time: {cutoff_time}")
+            print(f"🕐 Session created: {session_created_time}")
             
             # Check: PAID + correct amount + recent + unused
             if (txn.get("paymentStatus") == "PAID" and 
