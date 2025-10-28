@@ -458,7 +458,8 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
                 ],
                 "subtotal": float(order_totals["subtotal"]),
                 "delivery_address": address.data[0]["full_address"],
-                "delivery_fee": float(address.data[0]["delivery_areas"]["delivery_fee"])
+                # "delivery_fee": float(address.data[0]["delivery_areas"]["delivery_fee"])
+                "delivery_fee": float(address.data[0]["delivery_areas"]["delivery_fee"] or 0)
             })
         
         return {
@@ -497,7 +498,8 @@ async def complete_checkout(
         
         # Get delivery fee from address area
         address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
-        delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+        # delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+        delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"] or 0)
         
         order_data = {
             "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
