@@ -3,258 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Test</title>
+    <title>Reports Test</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        .section { margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
-        h2 { margin-top: 0; }
-        input, select, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
-        button:hover { background: #0056b3; }
-        .result { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; white-space: pre-wrap; }
-        .hidden { display: none; }
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        input, select, button { margin: 5px; padding: 8px; }
+        .result { margin-top: 20px; background: #f5f5f5; padding: 15px; border-radius: 5px; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+        .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
     </style>
 </head>
 <body>
-    <h1>Payment Test Page</h1>
-
-    <!-- Step 1: Email -->
-    <div class="section" id="step1">
-        <h2>Step 1: Enter Email</h2>
-        <input type="email" id="email" placeholder="customer@example.com">
-        <input type="text" id="fullName" placeholder="Full Name">
-        <input type="text" id="phone" placeholder="Phone Number">
-        <button onclick="checkEmail()">Continue</button>
-        <div class="result" id="emailResult"></div>
+    <h1>Reports Endpoint Test</h1>
+    
+    <div class="section">
+        <h3>Login</h3>
+        <label>Base URL: <input type="text" id="baseUrl" placeholder="http://localhost:8000" style="width: 300px;"></label><br>
+        <label>Email: <input type="email" id="email" placeholder="admin@example.com" style="width: 300px;"></label><br>
+        <label>Password: <input type="password" id="password" placeholder="Password" style="width: 300px;"></label><br>
+        <button onclick="login()">Login</button>
+        <span id="loginStatus"></span>
     </div>
-
-    <!-- Step 2: PIN (if needed) -->
-    <div class="section hidden" id="step2">
-        <h2>Step 2: Enter PIN</h2>
-        <input type="text" id="pin" placeholder="Enter 4-digit PIN">
-        <button onclick="verifyPin()">Verify PIN</button>
-        <div class="result" id="pinResult"></div>
+    
+    <div class="section">
+        <h3>Get Reports</h3>
+        <label>Period: 
+            <select id="period">
+                <option value="">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+            </select>
+        </label><br>
+        
+        <label>Date From: <input type="date" id="dateFrom"></label><br>
+        <label>Date To: <input type="date" id="dateTo"></label><br>
+        
+        <button onclick="fetchReports()">Get Reports</button>
     </div>
-
-    <!-- Step 3: Select Product -->
-    <div class="section hidden" id="step3">
-        <h2>Step 3: Select Product</h2>
-        <button onclick="loadProducts()">Load Products</button>
-        <select id="productSelect" onchange="showProductDetails()"></select>
-        <div id="productDetails"></div>
-        <input type="number" id="quantity" value="1" min="1">
-        <button onclick="addToCart()">Add to Cart</button>
-        <div class="result" id="cartResult"></div>
-    </div>
-
-    <!-- Step 4: Add Address -->
-    <div class="section hidden" id="step4">
-        <h2>Step 4: Add Address</h2>
-        <button onclick="loadAreas()">Load Delivery Areas</button>
-        <select id="areaSelect"></select>
-        <input type="text" id="streetAddress" placeholder="Street Address">
-        <input type="text" id="addressName" placeholder="Address Name (e.g., Home)">
-        <button onclick="saveAddress()">Save Address</button>
-        <div class="result" id="addressResult"></div>
-    </div>
-
-    <!-- Step 5: Checkout -->
-    <div class="section hidden" id="step5">
-        <h2>Step 5: Checkout</h2>
-        <button onclick="createPayment()">Create Payment Account</button>
-        <div class="result" id="paymentResult"></div>
-    </div>
-
-    <!-- Step 6: Verify Payment -->
-    <div class="section hidden" id="step6">
-        <h2>Step 6: Verify Payment</h2>
-        <p><strong>Transfer to:</strong></p>
-        <p id="accountDetails"></p>
-        <button onclick="verifyPayment()">I Have Paid - Verify</button>
-        <div class="result" id="verifyResult"></div>
+    
+    <div class="result">
+        <h3>Response:</h3>
+        <pre id="response">Response will appear here...</pre>
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8001/website'; // Change to your API URL
-        let sessionToken = '';
-        let cart = [];
-        let products = [];
-        let selectedAddressId = '';
-        let accountReference = '';
+        let accessToken = null;
 
-        function log(elementId, message) {
-            document.getElementById(elementId).textContent = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
-        }
-
-        function showSection(sectionId) {
-            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
-            document.getElementById(sectionId).classList.remove('hidden');
-        }
-
-        async function checkEmail() {
-            const email = document.getElementById('email').value;
-            const fullName = document.getElementById('fullName').value;
-            const phone = document.getElementById('phone').value;
-
-            const response = await fetch(`${API_BASE}/addresses/check-email`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, full_name: fullName, phone })
-            });
-            const data = await response.json();
-            log('emailResult', data);
-
-            if (data.requires_pin) {
-                showSection('step2');
-            } else {
-                sessionToken = data.session_token;
-                showSection('step3');
-            }
-        }
-
-        async function verifyPin() {
-            const email = document.getElementById('email').value;
-            const pin = document.getElementById('pin').value;
-
-            const response = await fetch(`${API_BASE}/addresses/verify-and-save`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    email, 
-                    pin,
-                    address_data: {
-                        name: "Test",
-                        area_id: "temp",
-                        street_address: "temp",
-                        is_default: true
-                    }
-                })
-            });
-            const data = await response.json();
-            log('pinResult', data);
+        async function login() {
+            const baseUrl = document.getElementById('baseUrl').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
             
-            if (data.session_token) {
-                sessionToken = data.session_token;
-                showSection('step3');
+            if (!baseUrl || !email || !password) {
+                alert('All login fields are required');
+                return;
             }
-        }
-
-        async function loadProducts() {
-            const response = await fetch(`${API_BASE}/products`);
-            products = await response.json();
             
-            const select = document.getElementById('productSelect');
-            select.innerHTML = '<option value="">Select a product</option>';
-            products.forEach(p => {
-                select.innerHTML += `<option value="${p.id}">${p.name} - ₦${p.price}</option>`;
-            });
-        }
-
-        function showProductDetails() {
-            const productId = document.getElementById('productSelect').value;
-            const product = products.find(p => p.id === productId);
-            if (product) {
-                document.getElementById('productDetails').innerHTML = `
-                    <p><strong>${product.name}</strong></p>
-                    <p>Price: ₦${product.price}</p>
-                    <p>Stock: ${product.available_stock}</p>
-                `;
-            }
-        }
-
-        function addToCart() {
-            const productId = document.getElementById('productSelect').value;
-            const quantity = parseInt(document.getElementById('quantity').value);
-            const product = products.find(p => p.id === productId);
-
-            if (product) {
-                cart.push({
-                    product_id: productId,
-                    quantity: quantity,
-                    options: [],
-                    extras: []
+            try {
+                const response = await fetch(`${baseUrl}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
                 });
-                log('cartResult', `Added ${product.name} x${quantity} to cart`);
-                showSection('step4');
+                
+                const data = await response.json();
+                
+                if (response.ok && data.access_token) {
+                    accessToken = data.access_token;
+                    document.getElementById('loginStatus').textContent = '✓ Logged in successfully';
+                    document.getElementById('loginStatus').style.color = 'green';
+                } else {
+                    document.getElementById('loginStatus').textContent = '✗ Login failed: ' + (data.detail || 'Unknown error');
+                    document.getElementById('loginStatus').style.color = 'red';
+                }
+            } catch (error) {
+                document.getElementById('loginStatus').textContent = '✗ Error: ' + error.message;
+                document.getElementById('loginStatus').style.color = 'red';
             }
         }
 
-        async function loadAreas() {
-            const response = await fetch(`${API_BASE}/delivery-areas`);
-            const areas = await response.json();
+        async function fetchReports() {
+            const baseUrl = document.getElementById('baseUrl').value.trim();
             
-            const select = document.getElementById('areaSelect');
-            select.innerHTML = '<option value="">Select delivery area</option>';
-            areas.forEach(a => {
-                select.innerHTML += `<option value="${a.id}">${a.name} - ₦${a.delivery_fee}</option>`;
-            });
-        }
-
-        async function saveAddress() {
-            const areaId = document.getElementById('areaSelect').value;
-            const streetAddress = document.getElementById('streetAddress').value;
-            const addressName = document.getElementById('addressName').value;
-
-            const response = await fetch(`${API_BASE}/addresses?session_token=${sessionToken}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: addressName,
-                    area_id: areaId,
-                    street_address: streetAddress,
-                    is_default: true
-                })
-            });
-            const data = await response.json();
-            log('addressResult', data);
+            if (!baseUrl) {
+                alert('Base URL is required');
+                return;
+            }
             
-            selectedAddressId = data.address.id;
-            showSection('step5');
-        }
-
-        async function createPayment() {
-            const email = document.getElementById('email').value;
-            const fullName = document.getElementById('fullName').value;
-            const phone = document.getElementById('phone').value;
-
-            const response = await fetch(`${API_BASE}/payment/create-account?session_token=${sessionToken}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    orders: [{
-                        delivery_address_id: selectedAddressId,
-                        items: cart
-                    }],
-                    total_amount: 5000, // Calculate properly in production
-                    customer_email: email,
-                    customer_name: fullName,
-                    customer_phone: phone
-                })
-            });
-            const data = await response.json();
-            log('paymentResult', data);
+            if (!accessToken) {
+                alert('Please login first');
+                return;
+            }
             
-            accountReference = data.account_reference;
-            document.getElementById('accountDetails').innerHTML = `
-                <strong>Bank:</strong> ${data.bank_name}<br>
-                <strong>Account Number:</strong> ${data.account_number}<br>
-                <strong>Account Name:</strong> ${data.account_name}<br>
-                <strong>Amount:</strong> ₦${data.amount}
-            `;
-            showSection('step6');
-        }
-
-        async function verifyPayment() {
-            log('verifyResult', 'Verifying payment...');
+            const period = document.getElementById('period').value;
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
             
-            const response = await fetch(`${API_BASE}/payment/verify/${accountReference}`);
-            const data = await response.json();
-            log('verifyResult', data);
+            let url = `${baseUrl}/admin/reports?`;
+            const params = [];
             
-            if (data.payment_status === 'success') {
-                alert('Payment successful! Orders created.');
-            } else {
-                alert('Payment pending. Please wait and try again.');
+            if (period) params.push(`period=${period}`);
+            if (dateFrom) params.push(`date_from=${dateFrom}`);
+            if (dateTo) params.push(`date_to=${dateTo}`);
+            
+            url += params.join('&');
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('response').textContent = 'Error: ' + error.message;
             }
         }
     </script>

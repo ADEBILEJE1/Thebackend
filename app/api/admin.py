@@ -1190,3 +1190,27 @@ async def delete_expenditure(
     )
     
     return {"message": "Expenditure deleted"}
+
+
+
+
+@router.get("/reports")
+async def get_reports(
+    request: Request,
+    period: Optional[str] = Query(None, pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    current_user: dict = Depends(require_manager_up)
+):
+    """Get comprehensive business reports with order history and product sales"""
+    
+    report_data = await AdminService.get_reports(period, date_from, date_to)
+    
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "view", "reports", None,
+        {"period": period, "date_from": str(date_from), "date_to": str(date_to)},
+        request
+    )
+    
+    return report_data

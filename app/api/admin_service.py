@@ -1467,3 +1467,117 @@ class AdminService:
                 "low_stock_materials": [m for m in material_breakdown if m["status"] == "low_stock"]
             }
         }
+
+
+    @staticmethod
+    async def get_reports(period: Optional[str] = None, date_from: Optional[date] = None, date_to: Optional[date] = None) -> Dict[str, Any]:
+        """Get comprehensive business reports with order history and product sales"""
+        
+        # Determine date range
+        if date_from and date_to:
+            start_date = date_from
+            end_date = date_to
+        elif period:
+            end_date = date.today()
+            if period == "daily":
+                start_date = end_date
+            elif period == "weekly":
+                start_date = end_date - timedelta(days=7)
+            elif period == "monthly":
+                start_date = end_date - timedelta(days=30)
+            elif period == "quarterly":
+                start_date = end_date - timedelta(days=90)
+            else:  # yearly
+                start_date = end_date - timedelta(days=365)
+        else:
+            # Default to today
+            start_date = end_date = date.today()
+        
+        start_datetime = datetime.combine(start_date, datetime.min.time()).isoformat()
+        end_datetime = datetime.combine(end_date, datetime.max.time()).isoformat()
+        
+        # Fetch orders in date range
+        orders = supabase_admin.table("orders").select("*").gte("created_at", start_datetime).lte("created_at", end_datetime).execute()
+        
+        # Fetch all products for pricing and tax
+        products_data = supabase_admin.table("products").select("id, price, tax_per_unit").execute()
+        product_prices = {p["id"]: float(p["price"]) for p in products_data.data}
+        product_tax_rates = {p["id"]: float(p.get("tax_per_unit", 0)) for p in products_data.data}
+        
+        # Fetch order items separately
+        order_items_data = []
+        if orders.data:
+            order_ids = [order["id"] for order in orders.data]
+            order_items = supabase_admin.table("order_items").select("*").in_("order_id", order_ids).execute()
+            order_items_data = order_items.data
+        
+        # Section 1: Order History
+        order_history = []
+        for order in orders.data:
+            delivery_fee = float(order.get("delivery_fee", 0))
+            tax_amount = float(order.get("tax", 0))
+            total_amount = float(order.get("total", 0))
+            total_without_tax_delivery = total_amount - tax_amount - delivery_fee
+            
+            order_history.append({
+                "order_number": order["order_number"],
+                "status": order["status"],
+                "total_amount": total_amount,
+                "total_without_tax_delivery": total_without_tax_delivery,
+                "tax": tax_amount,
+                "delivery": delivery_fee,
+                "address": order.get("delivery_address", ""),
+                "payment_status": order.get("payment_status", ""),
+                "order_type": order.get("order_type", ""),
+                "created_at": order["created_at"]
+            })
+        
+        # Section 2: Product Sales Summary
+        product_sales = {}
+        total_units_sold = 0
+        
+        for item in order_items_data:
+            product_id = item["product_id"]
+            product_name = item.get("product_name", "Unknown")
+            quantity = item["quantity"]
+            price_per_unit = product_prices.get(product_id, 0)
+            tax_rate = product_tax_rates.get(product_id, 0)
+            tax_per_unit = tax_rate
+            
+            if product_id not in product_sales:
+                product_sales[product_id] = {
+                    "product_name": product_name,
+                    "units_sold": 0,
+                    "price_per_unit": price_per_unit,
+                    "total_amount": 0,
+                    "tax_per_unit": tax_per_unit,
+                    "total_tax": 0
+                }
+            
+            product_sales[product_id]["units_sold"] += quantity
+            product_sales[product_id]["total_amount"] += price_per_unit * quantity
+            product_sales[product_id]["total_tax"] += tax_per_unit * quantity
+            total_units_sold += quantity
+        
+        # Calculate totals from orders
+        total_tax_made = sum(float(order.get("tax", 0)) for order in orders.data)
+        total_delivery_made = sum(float(order.get("delivery_fee", 0)) for order in orders.data)
+        grand_total = sum(float(order.get("total", 0)) for order in orders.data if order.get("payment_status") == "paid")
+        
+        return {
+            "period": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat(),
+                "type": period or "custom"
+            },
+            "order_history": order_history,
+            "product_sales_summary": {
+                "products": list(product_sales.values()),
+                "totals": {
+                    "total_units_sold": total_units_sold,
+                    "total_tax_made": total_tax_made,
+                    "total_delivery_made": total_delivery_made,
+                    "grand_total": grand_total
+                }
+            }
+        }
