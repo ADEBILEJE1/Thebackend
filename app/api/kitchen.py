@@ -298,8 +298,9 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
         "order_items(*, order_item_options(*, product_options(*))),"
         "website_customers(id, full_name, email, phone),"
         "customer_addresses(id, full_address, delivery_areas(name, estimated_time))"
-    ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
-    # ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("status.desc", "batch_created_at").execute()
+    # ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").order("batch_created_at").execute()
+    ).in_("status", ["transit", "preparing"]).not_.is_("batch_id", "null").execute()
+    
     
     if not result.data:
         return {"batches": []}
@@ -328,7 +329,8 @@ async def get_kitchen_batch_queue(current_user: dict = Depends(require_chef_staf
         batches[batch_id]["orders"].append(order)
         batches[batch_id]["total_items"] += len(order.get("order_items", []))
     
-    return {"batches": list(batches.values())}
+    # return {"batches": list(batches.values())}
+    return {"batches": sorted(batches.values(), key=lambda x: x["preparing_at"] or x["orders"][0]["batch_created_at"])}
 
 
 
