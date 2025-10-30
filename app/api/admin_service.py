@@ -144,11 +144,11 @@ class AdminService:
         # Set date range - default to today if not provided
         if not date_from or not date_to:
             today = date.today()
-            start_date = datetime.combine(today, datetime.min.time())
-            end_date = datetime.combine(today, datetime.max.time())
+            start_date = NIGERIA_TZ.localize(datetime.combine(today, datetime.min.time()))
+            end_date = NIGERIA_TZ.localize(datetime.combine(today, datetime.max.time()))
         else:
-            start_date = datetime.combine(date_from, datetime.min.time())
-            end_date = datetime.combine(date_to, datetime.max.time())
+            start_date = NIGERIA_TZ.localize(date_from, datetime.min.time())
+            end_date = NIGERIA_TZ.localize(date_to, datetime.max.time())
         
         cache_key = f"admin:dashboard:overview:{user_role}:{start_date.date()}:{end_date.date()}"
         cached = redis_client.get(cache_key)
@@ -1493,11 +1493,11 @@ class AdminService:
             # Default to today
             start_date = end_date = date.today()
         
-        start_datetime = datetime.combine(start_date, datetime.min.time()).isoformat()
-        end_datetime = datetime.combine(end_date, datetime.max.time()).isoformat()
+        start_datetime = NIGERIA_TZ.localize(datetime.combine(start_date, datetime.min.time())).isoformat()
+        end_datetime = NIGERIA_TZ.localize(datetime.combine(end_date, datetime.max.time())).isoformat()
         
         # Fetch orders in date range
-        orders = supabase_admin.table("orders").select("*").gte("created_at", start_datetime).lte("created_at", end_datetime).execute()
+        orders = supabase_admin.table("orders").select("*").eq("payment_status", "paid").gte("created_at", start_datetime).lte("created_at", end_datetime).execute()
         
         # Fetch all products for pricing and tax
         products_data = supabase_admin.table("products").select("id, price, tax_per_unit").execute()
@@ -1508,8 +1508,11 @@ class AdminService:
         order_items_data = []
         if orders.data:
             order_ids = [order["id"] for order in orders.data]
-            order_items = supabase_admin.table("order_items").select("*").in_("order_id", order_ids).execute()
-            order_items_data = order_items.data
+            # Batch process if too many orders
+            for i in range(0, len(order_ids), 100):
+                batch = order_ids[i:i+100]
+                result = supabase_admin.table("order_items").select("*").in_("order_id", batch).execute()
+                order_items_data.extend(result.data)
         
         # Section 1: Order History
         order_history = []
