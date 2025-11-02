@@ -17,3 +17,4 @@ pytz
 httpx
 resend
 fastapi-utils
+typing-inspect
