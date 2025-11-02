@@ -11,7 +11,7 @@ from .core.permissions import get_current_user
 from .website.api import router as website_router
 from .website.services import MonnifyService
 from fastapi_utils.tasks import repeat_every
-from services.redis import redis_client
+from .services.redis import redis_client
 
 
 app = FastAPI(title="Leban Street API")
