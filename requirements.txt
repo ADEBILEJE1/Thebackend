@@ -16,3 +16,4 @@ requests
 pytz
 httpx
 resend
+fastapi-utils
