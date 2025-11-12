@@ -717,24 +717,31 @@ class MonnifyService:
             
             redis_client.set(f"payment:{account_reference}", payment_session, 3600)
             
-            # Mark as fully processed
+            
             redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)  # 24 hours
             
             print(f"✅ Webhook processed successfully: {transaction_reference}")
             
         except Exception as e:
             print(f"❌ Webhook processing error: {str(e)}")
-            # Remove processing lock so it can be retried
+            
             redis_client.delete(f"webhook_processed:{transaction_reference}")
 
     
     @staticmethod
     def verify_monnify_signature(payload: dict, signature: str) -> bool:
-        payload_string = json.dumps(payload, separators=(",", ":"))
-        computed_hash = hashlib.sha512(
-            (settings.MONNIFY_SECRET_KEY + payload_string).encode()
+        import hashlib, hmac, json
+
+        
+        payload_str = json.dumps(payload, separators=(",", ":"))
+
+        computed_hash = hmac.new(
+            settings.MONNIFY_SECRET_KEY.encode(),
+            payload_str.encode(),
+            hashlib.sha512
         ).hexdigest()
-        return computed_hash == signature
+
+        return hmac.compare_digest(computed_hash, signature)
     
 
 
