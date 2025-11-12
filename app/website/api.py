@@ -585,7 +585,7 @@ async def verify_payment(account_reference: str, background_tasks: BackgroundTas
         
         paid_transaction = None
         expected_amount = float(payment_session["amount"])
-        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+        cutoff_time = datetime.utcnow() - timedelta(minutes=15)
         session_created_time_utc = datetime.fromisoformat(payment_session["created_at"])
         session_created_time = (session_created_time_utc - timedelta(hours=1)).replace(tzinfo=None)
         
