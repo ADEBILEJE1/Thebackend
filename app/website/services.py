@@ -728,41 +728,16 @@ class MonnifyService:
             redis_client.delete(f"webhook_processed:{transaction_reference}")
 
     
-
-    # @staticmethod
-    # def verify_transaction_hash(payload: Dict) -> bool:
-    #     """Verify Monnify transaction hash"""
-    #     import hashlib
-        
-    #     # Extract hash from payload
-    #     received_hash = payload.get("transactionHash")
-    #     if not received_hash:
-    #         return False
-        
-    #     # Monnify hash formula (check their docs for exact fields)
-    #     # Usually: SHA512(SECRET_KEY + paymentReference + amount + paidOn + transactionReference)
-    #     hash_string = (
-    #         f"{settings.MONNIFY_SECRET_KEY}"
-    #         f"{payload.get('paymentReference', '')}"
-    #         f"{payload.get('amountPaid', '')}"
-    #         f"{payload.get('paidOn', '')}"
-    #         f"{payload.get('transactionReference', '')}"
-    #     )
-        
-    #     computed_hash = hashlib.sha512(hash_string.encode()).hexdigest()
-        
-    #     # Secure comparison
-    #     import hmac
-    #     return hmac.compare_digest(computed_hash, received_hash)
+    @staticmethod
+    def verify_monnify_signature(payload: dict, signature: str) -> bool:
+        payload_string = json.dumps(payload, separators=(",", ":"))
+        computed_hash = hashlib.sha512(
+            (settings.MONNIFY_SECRET_KEY + payload_string).encode()
+        ).hexdigest()
+        return computed_hash == signature
     
 
-@staticmethod
-def verify_monnify_signature(payload: dict, signature: str) -> bool:
-    payload_string = json.dumps(payload, separators=(",", ":"))
-    computed_hash = hashlib.sha512(
-        (settings.MONNIFY_SECRET_KEY + payload_string).encode()
-    ).hexdigest()
-    return computed_hash == signature
+
 
 
 class EmailService:
