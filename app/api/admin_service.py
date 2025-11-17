@@ -1176,7 +1176,7 @@ class AdminService:
             "created_at", start_date.isoformat()
         ).lte(
             "created_at", f"{end_date.isoformat()}T23:59:59"
-        ).eq("payment_status", "paid").neq("status", "cancelled").execute()
+        ).eq("payment_status", "paid").neq("status", "cancelled").limit(50000).execute()
         
         for order in orders.data:
             order_date = order["created_at"][:10]
@@ -1392,7 +1392,7 @@ class AdminService:
         end_datetime = NIGERIA_TZ.localize(datetime.combine(end_date, datetime.max.time())).isoformat()
         
         # Fetch orders in date range
-        orders = supabase_admin.table("orders").select("*").eq("payment_status", "paid").gte("created_at", start_datetime).lte("created_at", end_datetime).execute()
+        orders = supabase_admin.table("orders").select("*").eq("payment_status", "paid").gte("created_at", start_datetime).lte("created_at", end_datetime).limit(50000).execute()
         
         # Fetch all products for pricing and tax
         products_data = supabase_admin.table("products").select("id, price, tax_per_unit").execute()
