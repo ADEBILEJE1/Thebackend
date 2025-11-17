@@ -81,7 +81,7 @@ class AdminService:
         # Get orders for the date range
         orders = supabase.table("orders").select("total, status").gte(
             "created_at", start_date.isoformat()
-        ).lte("created_at", end_date.isoformat()).neq("status", "cancelled").execute()
+        ).lte("created_at", end_date.isoformat()).neq("status", "cancelled").limit(50000).execute()
         
         period_revenue = sum(Decimal(str(o["total"])) for o in orders.data)
         period_orders = len(orders.data)
@@ -251,12 +251,12 @@ class AdminService:
             start_date = date_from
             end_date = date_to
         
-        # Get orders with items and categories
+        
         orders = supabase_admin.table("orders").select("*").gte(
             "created_at", start_date.isoformat()
         ).lte(
             "created_at", f"{end_date.isoformat()}T23:59:59"
-        ).eq("payment_status", "paid").neq("status", "cancelled").execute()
+        ).eq("payment_status", "paid").neq("status", "cancelled").limit(50000).execute()
         # Fetch order_items separately
         for order in orders.data:
             items = supabase_admin.table("order_items").select("*, products(categories(name))").eq("order_id", order["id"]).execute()
@@ -1035,7 +1035,7 @@ class AdminService:
             end_date = date_to
         
         # Get all paid orders in the period
-        orders = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").in_("payment_status", ["paid"]).neq("status", "cancelled").execute()
+        orders = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").in_("payment_status", ["paid"]).neq("status", "cancelled").limit(50000).execute()
         
         # Initialize payment tracking
         payment_breakdown = {

@@ -375,7 +375,7 @@ class SalesService:
         end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
-        # Get order items with product details
+        
         order_items_result = supabase.table("order_items").select(
             "*, orders!inner(created_at, status), products!inner(name, price, categories(name))"
         ).gte("orders.created_at", start_date.isoformat()).neq("orders.status", "cancelled").execute()
@@ -750,63 +750,98 @@ class SalesService:
         }
     
 
-    # Add to sales_service.py
+    
+
+    # @staticmethod
+    # async def deduct_stock_immediately(items: List[Dict[str, Any]], user_id: str):
+    #     """Deduct stock immediately for offline orders with real-time updates"""
+
+    #     user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
+    #     is_staff = len(user_check.data) > 0
+        
+    #     for item in items:
+    #         # Get current product
+    #         product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            
+    #         if not product.data:
+    #             continue
+                
+    #         product_data = product.data[0]
+    #         current_units = product_data["units"]
+    #         low_threshold = product_data["low_stock_threshold"]
+            
+    #         # Calculate new stock
+    #         new_units = current_units - item["quantity"]
+
+    #         if new_units < 0:
+    #             raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {current_units}, Requested: {item['quantity']}")
+            
+    #         # Determine new status
+    #         if new_units == 0:
+    #             new_status = "out_of_stock"
+    #         elif new_units <= low_threshold:
+    #             new_status = "low_stock"
+    #         else:
+    #             new_status = "in_stock"
+            
+    #         # Update product
+    #         supabase.table("products").update({
+    #             "units": new_units,
+    #             "status": new_status,
+    #             # "updated_by": user_id,
+    #             "updated_by": user_id if is_staff else None, 
+    #             "updated_at": get_nigerian_time().isoformat()
+    #         }).eq("id", item["product_id"]).execute()
+            
+           
+        
+    #     # Invalidate inventory caches for real-time updates
+    #     redis_client.delete_pattern("products:list:*")
+    #     redis_client.delete_pattern("inventory:dashboard:*")
+    #     redis_client.delete_pattern("sales:products:*")
+    #     redis_client.delete("inventory:alerts:low_stock")
+
+
 
     @staticmethod
     async def deduct_stock_immediately(items: List[Dict[str, Any]], user_id: str):
-        """Deduct stock immediately for offline orders with real-time updates"""
+        """Deduct stock immediately for offline orders with atomic updates"""
 
         user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
         is_staff = len(user_check.data) > 0
         
         for item in items:
-            # Get current product
-            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            product_id = item["product_id"]
+            quantity = item["quantity"]
+            
+            
+            product = supabase.table("products").select("name, low_stock_threshold").eq("id", product_id).execute()
             
             if not product.data:
                 continue
                 
-            product_data = product.data[0]
-            current_units = product_data["units"]
-            low_threshold = product_data["low_stock_threshold"]
+            product_name = product.data[0]["name"]
+            low_threshold = product.data[0]["low_stock_threshold"]
             
-            # Calculate new stock
-            new_units = current_units - item["quantity"]
-
-            if new_units < 0:
-                raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {current_units}, Requested: {item['quantity']}")
             
-            # Determine new status
-            if new_units == 0:
-                new_status = "out_of_stock"
-            elif new_units <= low_threshold:
-                new_status = "low_stock"
-            else:
-                new_status = "in_stock"
+            result = supabase.rpc('deduct_stock_atomic', {
+                'p_product_id': product_id,
+                'p_quantity': quantity,
+                'p_low_threshold': low_threshold,
+                'p_user_id': user_id if is_staff else None,
+                'p_updated_at': get_nigerian_time().isoformat()
+            }).execute()
             
-            # Update product
-            supabase.table("products").update({
-                "units": new_units,
-                "status": new_status,
-                # "updated_by": user_id,
-                "updated_by": user_id if is_staff else None, 
-                "updated_at": get_nigerian_time().isoformat()
-            }).eq("id", item["product_id"]).execute()
-            
-            # Log stock entry
-            # supabase.table("stock_entries").insert({
-            #     "product_id": item["product_id"],
-            #     "quantity": item["quantity"],
-            #     "entry_type": "remove",
-            #     "notes": f"Offline order sale",
-            #     "entered_by": user_id
-            # }).execute()
+            if not result.data or not result.data[0]['success']:
+                current = result.data[0]['current_stock'] if result.data else 0
+                raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
         
-        # Invalidate inventory caches for real-time updates
+        # Invalidate caches
         redis_client.delete_pattern("products:list:*")
         redis_client.delete_pattern("inventory:dashboard:*")
         redis_client.delete_pattern("sales:products:*")
         redis_client.delete("inventory:alerts:low_stock")
+
 
     @staticmethod
     async def restore_stock_immediately(items: List[Dict[str, Any]], user_id: str):
