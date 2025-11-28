@@ -539,11 +539,11 @@ class SalesService:
             if o.get("created_at") and last_hour_start.isoformat() <= o["created_at"] < current_hour_start.isoformat()
         ]
         
-        # Calculate velocity
+       
         current_revenue = sum(float(o["total"]) for o in current_hour_orders if o["status"] != "cancelled")
         last_hour_revenue = sum(float(o["total"]) for o in last_hour_orders if o["status"] != "cancelled")
         
-        # Active orders (pending/preparing)
+        
         active_orders = [o for o in orders if o["status"] in ["pending", "preparing"]]
         
         live_data = {
@@ -561,11 +561,11 @@ class SalesService:
             "queue_status": {
                 "pending_orders": len([o for o in active_orders if o["status"] == "pending"]),
                 "preparing_orders": len([o for o in active_orders if o["status"] == "preparing"]),
-                "average_wait_time": "5-10 min"  # Could calculate based on historical data
+                "average_wait_time": "5-10 min"  
             }
         }
         
-        # Cache for 15 seconds
+       
         redis_client.set(cache_key, live_data, 15)
         
         return live_data
@@ -573,39 +573,39 @@ class SalesService:
     @staticmethod
     async def generate_financial_report(start_date: date, end_date: date) -> Dict[str, Any]:
         """Generate comprehensive financial report"""
-        # Get orders in date range
+       
         orders_result = supabase.table("orders").select("*, order_items(*)").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").execute()
         
         orders = orders_result.data
         completed_orders = [o for o in orders if o["status"] == "completed"]
         cancelled_orders = [o for o in orders if o["status"] == "cancelled"]
         
-        # Revenue calculations
+        
         gross_revenue = sum(float(o["total"]) for o in completed_orders)
         tax_collected = sum(float(o["tax"]) for o in completed_orders)
         net_revenue = gross_revenue - tax_collected
         
-        # Cancelled revenue (potential loss)
+       
         cancelled_revenue = sum(float(o["total"]) for o in cancelled_orders)
         
-        # Payment method breakdown with proper tracking
+       
         payment_breakdown = defaultdict(float)
         
         for order in completed_orders:
             order_total = float(order["total"])
             
             if order["order_type"] == "offline":
-                # Use actual payment method from order
-                payment_method = order.get("payment_method", "cash")  # Default to cash for legacy data
+                
+                payment_method = order.get("payment_method", "cash")  
                 payment_breakdown[payment_method] += order_total
             else:
-                # Online orders
+               
                 payment_breakdown["online"] += order_total
         
-        # Convert to regular dict with proper formatting
+        
         payment_methods = {k: round(v, 2) for k, v in payment_breakdown.items()}
         
-        # Daily breakdown
+       
         daily_breakdown = defaultdict(lambda: {
             "orders": 0, 
             "revenue": 0, 
@@ -622,14 +622,14 @@ class SalesService:
             daily_breakdown[order_date]["revenue"] += order_total
             daily_breakdown[order_date]["tax"] += order_tax
             
-            # Track payment methods per day
+            
             if order["order_type"] == "offline":
                 payment_method = order.get("payment_method", "cash")
                 daily_breakdown[order_date]["payment_methods"][payment_method] += order_total
             else:
                 daily_breakdown[order_date]["payment_methods"]["online"] += order_total
         
-        # Convert daily breakdown to list format
+       
         daily_data = []
         for date_str, data in sorted(daily_breakdown.items()):
             daily_data.append({
@@ -640,11 +640,11 @@ class SalesService:
                 "payment_methods": {k: round(v, 2) for k, v in data["payment_methods"].items()}
             })
         
-        # Order type breakdown with payment insights
+       
         offline_orders = [o for o in completed_orders if o["order_type"] == "offline"]
         online_orders = [o for o in completed_orders if o["order_type"] == "online"]
         
-        # Payment method statistics for offline orders
+       
         offline_payment_stats = defaultdict(int)
         for order in offline_orders:
             payment_method = order.get("payment_method", "cash")
@@ -695,28 +695,28 @@ class SalesService:
         end_date = datetime.now(NIGERIA_TZ)
         start_date = end_date - timedelta(days=days)
         
-        # Orders created by this staff
+        
         orders = supabase.table("orders").select("*, order_items(*)").eq("created_by", staff_id).gte("created_at", start_date.isoformat()).execute()
         completed_orders = [o for o in orders.data if o["status"] == "completed"]
         
-        # Activity tracking
+        
         activities = supabase.table("activity_logs").select("*").eq("user_id", staff_id).gte("created_at", start_date.isoformat()).execute()
         
-        # Calculate metrics
+       
         total_revenue = sum(float(o["total"]) for o in completed_orders)
         total_orders = len(orders.data)
         
-        # Active time calculation (rough estimate based on activity gaps)
+       
         activity_times = [datetime.fromisoformat(a["created_at"]) for a in activities.data]
         activity_times.sort()
         
         active_minutes = 0
         for i in range(1, len(activity_times)):
             gap = (activity_times[i] - activity_times[i-1]).total_seconds() / 60
-            if gap <= 30:  # Activities within 30 min considered active session
+            if gap <= 30:  
                 active_minutes += gap
         
-        # Product sales breakdown
+        
         product_sales = {}
         for order in completed_orders:
             for item in order["order_items"]:
@@ -752,55 +752,47 @@ class SalesService:
 
     
 
+
+
+
     # @staticmethod
     # async def deduct_stock_immediately(items: List[Dict[str, Any]], user_id: str):
-    #     """Deduct stock immediately for offline orders with real-time updates"""
+    #     """Deduct stock immediately for offline orders with atomic updates"""
 
     #     user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
     #     is_staff = len(user_check.data) > 0
         
     #     for item in items:
-    #         # Get current product
-    #         product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+    #         product_id = item["product_id"]
+    #         quantity = item["quantity"]
+            
+            
+    #         product = supabase.table("products").select("name, low_stock_threshold").eq("id", product_id).execute()
             
     #         if not product.data:
     #             continue
                 
-    #         product_data = product.data[0]
-    #         current_units = product_data["units"]
-    #         low_threshold = product_data["low_stock_threshold"]
+    #         product_name = product.data[0]["name"]
+    #         low_threshold = product.data[0]["low_stock_threshold"]
             
-    #         # Calculate new stock
-    #         new_units = current_units - item["quantity"]
-
-    #         if new_units < 0:
-    #             raise ValueError(f"Insufficient stock for {product_data['name']}. Available: {current_units}, Requested: {item['quantity']}")
             
-    #         # Determine new status
-    #         if new_units == 0:
-    #             new_status = "out_of_stock"
-    #         elif new_units <= low_threshold:
-    #             new_status = "low_stock"
-    #         else:
-    #             new_status = "in_stock"
+    #         result = supabase.rpc('deduct_stock_atomic', {
+    #             'p_product_id': product_id,
+    #             'p_quantity': quantity,
+    #             'p_low_threshold': low_threshold,
+    #             'p_user_id': user_id if is_staff else None,
+    #             'p_updated_at': get_nigerian_time().isoformat()
+    #         }).execute()
             
-    #         # Update product
-    #         supabase.table("products").update({
-    #             "units": new_units,
-    #             "status": new_status,
-    #             # "updated_by": user_id,
-    #             "updated_by": user_id if is_staff else None, 
-    #             "updated_at": get_nigerian_time().isoformat()
-    #         }).eq("id", item["product_id"]).execute()
-            
-           
+    #         if not result.data or not result.data[0]['success']:
+    #             current = result.data[0]['current_stock'] if result.data else 0
+    #             raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
         
-    #     # Invalidate inventory caches for real-time updates
+    #     # Invalidate caches
     #     redis_client.delete_pattern("products:list:*")
     #     redis_client.delete_pattern("inventory:dashboard:*")
     #     redis_client.delete_pattern("sales:products:*")
     #     redis_client.delete("inventory:alerts:low_stock")
-
 
 
     @staticmethod
@@ -810,38 +802,56 @@ class SalesService:
         user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
         is_staff = len(user_check.data) > 0
         
-        for item in items:
-            product_id = item["product_id"]
-            quantity = item["quantity"]
-            
-            
-            product = supabase.table("products").select("name, low_stock_threshold").eq("id", product_id).execute()
-            
-            if not product.data:
-                continue
-                
-            product_name = product.data[0]["name"]
-            low_threshold = product.data[0]["low_stock_threshold"]
-            
-            
-            result = supabase.rpc('deduct_stock_atomic', {
-                'p_product_id': product_id,
-                'p_quantity': quantity,
-                'p_low_threshold': low_threshold,
-                'p_user_id': user_id if is_staff else None,
-                'p_updated_at': get_nigerian_time().isoformat()
-            }).execute()
-            
-            if not result.data or not result.data[0]['success']:
-                current = result.data[0]['current_stock'] if result.data else 0
-                raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
+        # Batch fetch all products upfront
+        product_ids = [item["product_id"] for item in items]
+        products_result = supabase.table("products").select("id, name, low_stock_threshold").in_("id", product_ids).execute()
+        products_map = {p["id"]: p for p in products_result.data}
         
-        # Invalidate caches
+        deducted = []  # Track successful deductions for rollback
+        
+        try:
+            for item in items:
+                product_id = item["product_id"]
+                quantity = item["quantity"]
+                
+                product = products_map.get(product_id)
+                if not product:
+                    continue
+                    
+                product_name = product["name"]
+                low_threshold = product["low_stock_threshold"]
+                
+                result = supabase.rpc('deduct_stock_atomic', {
+                    'p_product_id': product_id,
+                    'p_quantity': quantity,
+                    'p_low_threshold': low_threshold,
+                    'p_user_id': user_id if is_staff else None,
+                    'p_updated_at': get_nigerian_time().isoformat()
+                }).execute()
+                
+                if not result.data or not result.data[0]['success']:
+                    current = result.data[0]['current_stock'] if result.data else 0
+                    raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
+                
+                deducted.append({"product_id": product_id, "quantity": quantity, "low_threshold": low_threshold})
+        
+        except Exception as e:
+            
+            for item in deducted:
+                supabase.rpc('restore_stock_atomic', {
+                    'p_product_id': item["product_id"],
+                    'p_quantity': item["quantity"],
+                    'p_low_threshold': item["low_threshold"],
+                    'p_user_id': user_id if is_staff else None,
+                    'p_updated_at': get_nigerian_time().isoformat()
+                }).execute()
+            raise e
+        
+        
         redis_client.delete_pattern("products:list:*")
         redis_client.delete_pattern("inventory:dashboard:*")
         redis_client.delete_pattern("sales:products:*")
         redis_client.delete("inventory:alerts:low_stock")
-
 
     @staticmethod
     async def restore_stock_immediately(items: List[Dict[str, Any]], user_id: str):
@@ -879,7 +889,7 @@ class SalesService:
                     "entered_by": user_id
                 }).execute()
         
-        # Clear caches for real-time updates
+        
         redis_client.delete_pattern("products:list:*")
         redis_client.delete_pattern("inventory:dashboard:*")
         redis_client.delete_pattern("sales:products:*")
@@ -917,13 +927,13 @@ class SalesService:
             if not product_data["is_available"] or product_data["status"] == "out_of_stock":
                 raise ValueError(f"{product_data['name']} is not available")
             
-            # NEW: Support options array
+            
             options = item.get("options", [])
             
             if product_data.get("has_options") and not options:
                 raise ValueError(f"{product_data['name']} requires option selection")
             
-            # Calculate total quantity from options or use item quantity
+           
             if options:
                 total_quantity = sum(opt["quantity"] for opt in options)
             else:
@@ -932,7 +942,7 @@ class SalesService:
             if product_data["units"] < total_quantity:
                 raise ValueError(f"Insufficient stock for {product_data['name']}")
             
-            # Validate options
+            
             if options:
                 for opt in options:
                     option = supabase.table("product_options").select("*").eq("id", opt["option_id"]).eq("product_id", item["product_id"]).execute()
@@ -952,7 +962,7 @@ class SalesService:
                 "is_extra": False
             })
             
-            # Handle extras
+            
             if "extras" in item and item["extras"]:
                 for extra in item["extras"]:
                     extra_product = supabase.table("products").select("*").eq("id", extra["id"]).execute()
