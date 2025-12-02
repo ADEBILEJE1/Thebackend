@@ -214,29 +214,39 @@ async def require_chef_staff(current_user: dict = Depends(get_current_user)):
         )
 
 
+# async def require_sales_staff(current_user: dict = Depends(get_current_user)):
+#     allowed_roles = [UserRole.SALES, UserRole.MANAGER, UserRole.SUPER_ADMIN]
+#     cache_key = CacheKeys.USER_PERMISSIONS.format(user_id=current_user["id"])
+#     cached_permission = redis_client.hget(cache_key, str(allowed_roles))
+    
+#     if cached_permission == "allowed":
+#         return current_user
+#     elif cached_permission == "denied":
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Insufficient permissions"
+#         )
+    
+#     check_role = current_user.get("effective_role", current_user["role"])
+    
+#     if check_role in allowed_roles:
+#         redis_client.hset(cache_key, {str(allowed_roles): "allowed"})
+#         redis_client.expire(cache_key, 300)
+#         return current_user
+#     else:
+#         redis_client.hset(cache_key, {str(allowed_roles): "denied"})
+#         redis_client.expire(cache_key, 300)
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Insufficient permissions"
+#         )
+
+
 async def require_sales_staff(current_user: dict = Depends(get_current_user)):
-    allowed_roles = [UserRole.SALES, UserRole.MANAGER, UserRole.SUPER_ADMIN]
-    cache_key = CacheKeys.USER_PERMISSIONS.format(user_id=current_user["id"])
-    cached_permission = redis_client.hget(cache_key, str(allowed_roles))
-    
-    if cached_permission == "allowed":
-        return current_user
-    elif cached_permission == "denied":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions"
-        )
-    
     check_role = current_user.get("effective_role", current_user["role"])
-    
-    if check_role in allowed_roles:
-        redis_client.hset(cache_key, {str(allowed_roles): "allowed"})
-        redis_client.expire(cache_key, 300)
-        return current_user
-    else:
-        redis_client.hset(cache_key, {str(allowed_roles): "denied"})
-        redis_client.expire(cache_key, 300)
+    if check_role not in [UserRole.SALES, UserRole.MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions"
         )
+    return current_user

@@ -77,7 +77,7 @@ def get_nigerian_time():
 
 
 
-# Main Sales Dashboard
+
 @router.get("/dashboard")
 async def get_sales_dashboard(
     request: Request,
@@ -132,7 +132,7 @@ async def get_products_for_website(
         redis_client.set(cache_key, [], 300)
         return []
     
-    # Batch fetch all related data
+   
     product_ids = [p["id"] for p in products_result.data]
     category_ids = list(set([p["category_id"] for p in products_result.data if p.get("category_id")]))
     
@@ -140,7 +140,7 @@ async def get_products_for_website(
     extras_result = supabase_admin.table("products").select("*").in_("main_product_id", product_ids).eq("is_available", True).execute()
     options_result = supabase_admin.table("product_options").select("*").in_("product_id", product_ids).execute()
     
-    # Map related data
+    
     categories_map = {c["id"]: c for c in categories_result.data}
     extras_map = {}
     for extra in extras_result.data:
@@ -154,7 +154,7 @@ async def get_products_for_website(
             options_map[opt["product_id"]] = []
         options_map[opt["product_id"]].append(opt)
     
-    # Apply search filter
+   
     if search:
         search_lower = search.lower()
         products_result.data = [
@@ -163,7 +163,7 @@ async def get_products_for_website(
                (p.get("category_id") and search_lower in categories_map.get(p["category_id"], {}).get("name", "").lower())
         ]
     
-    # Format response
+   
     products = []
     for product in products_result.data:
         display_name = product["name"]
@@ -172,7 +172,7 @@ async def get_products_for_website(
         
         category = categories_map.get(product.get("category_id"), {"id": None, "name": "Uncategorized"})
         
-        # Format extras
+        
         formatted_extras = []
         for extra in extras_map.get(product["id"], []):
             extra_name = extra["name"]
@@ -268,7 +268,7 @@ async def search_products_for_sales(
     extras_result = supabase_admin.table("products").select("*").in_("main_product_id", product_ids).eq("is_available", True).execute()
     options_result = supabase_admin.table("product_options").select("*").in_("product_id", product_ids).execute()
     
-    # Map related data for quick lookups
+    
     categories_map = {c["id"]: c for c in categories_result.data}
     extras_map = defaultdict(list)
     for extra in extras_result.data:
@@ -278,7 +278,7 @@ async def search_products_for_sales(
     for opt in options_result.data:
         options_map[opt["product_id"]].append(opt)
     
-    # Format response to match the existing /sales/products endpoint
+    
     products = []
     for product in products_result.data:
         display_name = product["name"]
@@ -344,7 +344,7 @@ async def get_categories_for_orders(
     return result.data
 
 
-# Revenue Analytics
+
 @router.get("/analytics/revenue")
 async def get_revenue_analytics(
     request: Request,
@@ -364,7 +364,7 @@ async def get_revenue_analytics(
     
     return revenue_data
 
-# Staff Performance (Manager+ only)
+
 @router.get("/analytics/performance")
 async def get_staff_performance(
     request: Request,
@@ -381,7 +381,7 @@ async def get_staff_performance(
         user_id=staff_id
     )
     
-    # Log activity
+   
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "view", "staff_performance", staff_id, {"days": days}, request
@@ -389,7 +389,7 @@ async def get_staff_performance(
     
     return performance_data
 
-# Customer Analytics
+
 @router.get("/analytics/customers")
 async def get_customer_analytics(
     request: Request,
@@ -404,7 +404,7 @@ async def get_customer_analytics(
     
     return customer_data
 
-# Product Sales Analysis with Inventory Integration
+
 @router.get("/analytics/products-inventory")
 async def get_products_with_inventory_analysis(
     request: Request,
@@ -415,10 +415,10 @@ async def get_products_with_inventory_analysis(
     if days > 365:
         raise HTTPException(status_code=400, detail="Maximum 365 days allowed")
     
-    # Get integrated product analysis
+    
     product_data = await SalesService.get_product_sales_analysis(days=days)
     
-    # Log activity
+   
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "view", "products_inventory_analysis", None, {"days": days}, request
@@ -426,7 +426,7 @@ async def get_products_with_inventory_analysis(
     
     return product_data
 
-# Quick Stock Alerts for Sales Staff
+
 @router.get("/alerts/stock")
 async def get_sales_stock_alerts(
     request: Request,
@@ -438,13 +438,13 @@ async def get_sales_stock_alerts(
     if cached:
         return cached
     
-    # Get products that are selling but have stock issues
-    product_data = await SalesService.get_product_sales_analysis(days=7)  # Last 7 days
+   
+    product_data = await SalesService.get_product_sales_analysis(days=7)  
     
-    # Extract critical alerts
+    
     critical_alerts = []
     
-    # Out of stock bestsellers
+    
     for item in product_data["inventory_insights"]["unavailable_bestsellers"]:
         critical_alerts.append({
             "type": "out_of_stock_bestseller",
@@ -455,7 +455,7 @@ async def get_sales_stock_alerts(
             "recommended_action": "Stop taking orders, inform customers"
         })
     
-    # Low stock high sellers
+    
     for item in product_data["inventory_insights"]["critical_reorder_needed"]:
         if item["reorder_urgency"] == "critical":
             critical_alerts.append({
@@ -478,12 +478,12 @@ async def get_sales_stock_alerts(
         "timestamp": get_nigerian_time().isoformat()
     }
     
-    # Cache for 2 minutes
+    
     redis_client.set(cache_key, alerts_data, 120)
     
     return alerts_data
 
-# Live Sales Metrics
+
 @router.get("/live")
 async def get_live_sales_metrics(
     request: Request,
@@ -513,7 +513,7 @@ async def get_financial_report(
     
     financial_data = await SalesService.generate_financial_report(start_date, end_date)
     
-    # Log activity
+    
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
         "generate", "financial_report", None, 
@@ -524,18 +524,18 @@ async def get_financial_report(
     return financial_data
 
 
-# Sales Targets Management
+
 @router.get("/targets")
 async def get_sales_targets(
     request: Request,
-    period: str = "monthly",  # daily, weekly, monthly
+    period: str = "monthly",  
     current_user: dict = Depends(require_manager_up)
 ):
     """Get sales targets and progress"""
     if period not in ["daily", "weekly", "monthly"]:
         raise HTTPException(status_code=400, detail="Period must be daily, weekly, or monthly")
     
-    # Get current period dates
+    
     today = date.today()
     if period == "daily":
         start_date = today
@@ -548,8 +548,7 @@ async def get_sales_targets(
         next_month = start_date.replace(month=start_date.month + 1) if start_date.month < 12 else start_date.replace(year=start_date.year + 1, month=1)
         end_date = next_month - timedelta(days=1)
     
-    # Get sales targets from database (you'd need a targets table)
-    # For now, using placeholder values
+    
     targets = {
         "daily": {"orders": 50, "revenue": 2000},
         "weekly": {"orders": 300, "revenue": 12000},
@@ -558,14 +557,14 @@ async def get_sales_targets(
     
     current_target = targets[period]
     
-    # Get actual performance
+   
     orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).lte("created_at", f"{end_date.isoformat()}T23:59:59").neq("status", "cancelled").execute()
     
     orders = orders_result.data
     actual_orders = len(orders)
     actual_revenue = sum(float(o["total"]) for o in orders)
     
-    # Calculate progress
+    
     order_progress = (actual_orders / current_target["orders"] * 100) if current_target["orders"] > 0 else 0
     revenue_progress = (actual_revenue / current_target["revenue"] * 100) if current_target["revenue"] > 0 else 0
     
@@ -599,8 +598,7 @@ async def set_sales_targets(
     if orders_target <= 0 or revenue_target <= 0:
         raise HTTPException(status_code=400, detail="Targets must be positive values")
     
-    # Store targets (you'd implement a targets table)
-    # For now, just return success message
+   
     
     await log_activity(
         current_user["id"], current_user["email"], current_user["role"],
@@ -632,12 +630,12 @@ async def get_peak_hours_analysis(
     end_date = get_nigerian_time()
     start_date = end_date - timedelta(days=days)
     
-    # Get orders in date range
+    
     orders_result = supabase.table("orders").select("*").gte("created_at", start_date.isoformat()).neq("status", "cancelled").execute()
     
     orders = orders_result.data
     
-    # Analyze by hour
+    
     hourly_data = {}
     daily_data = {}
     
@@ -657,11 +655,11 @@ async def get_peak_hours_analysis(
         daily_data[day_name]["orders"] += 1
         daily_data[day_name]["revenue"] += float(order["total"])
     
-    # Find peak hours
+   
     peak_hour_orders = max(hourly_data.items(), key=lambda x: x[1]["orders"])[0] if hourly_data else 0
     peak_hour_revenue = max(hourly_data.items(), key=lambda x: x[1]["revenue"])[0] if hourly_data else 0
     
-    # Convert to lists
+    
     hourly_breakdown = [
         {"hour": hour, **data, "revenue": round(data["revenue"], 2)}
         for hour, data in sorted(hourly_data.items())
@@ -684,7 +682,7 @@ async def get_peak_hours_analysis(
         "daily_breakdown": daily_breakdown
     }
 
-# Order Completion Rate Analysis
+
 @router.get("/analytics/completion-rates")
 async def get_completion_rates(
     request: Request,
@@ -698,12 +696,12 @@ async def get_completion_rates(
     end_date = get_nigerian_time()
     start_date = end_date - timedelta(days=days)
     
-    # Get orders with status breakdown
+   
     orders_result = supabase_admin.table("orders").select("*").gte("created_at", start_date.isoformat()).execute()
     
     orders = orders_result.data
     
-    # Status breakdown
+   
     status_counts = {}
     for order in orders:
         status = order["status"]
@@ -948,7 +946,7 @@ async def validate_sales_cart(
     
 
 
-# In sales.py - Update create_offline_order endpoint
+
 
 @router.post("/orders")
 async def create_offline_order(
@@ -1068,24 +1066,24 @@ async def confirm_order_payment(
     if not confirm_data.payment_confirmed:
         raise HTTPException(status_code=400, detail="Payment must be confirmed")
     
-    # Get order
+    
     order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).eq("status", "pending").execute()
     
     if not order.data:
         raise HTTPException(status_code=404, detail="Pending order not found")
     
-    # Update order status
+   
     supabase_admin.table("orders").update({
-        # "status": "confirmed",
+        
         "status": "transit",  
         "payment_status": "paid",
         "preparing_at": get_nigerian_time().isoformat()
     }).eq("id", order_id).execute()
     
-    # Deduct stock immediately with real-time updates
+    
     await SalesService.deduct_stock_immediately(order.data[0]["order_items"], current_user["id"])
     
-    # Notify kitchen
+
     from ..api.websocket import notify_order_update
     await notify_order_update(order_id, "new_order", order.data[0])
     
@@ -1096,7 +1094,7 @@ async def confirm_order_payment(
         request
     )
     
-    # Return confirmation with receipt data
+    
     return {
         "message": "Order confirmed and sent to kitchen",
         "receipt": {
@@ -1912,7 +1910,7 @@ async def print_order_customer_receipt(
     
     order = order_result.data[0]
     
-    # Fetch options
+    
     if order.get("order_items"):
         item_ids = [item['id'] for item in order["order_items"]]
         options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").in_("order_item_id", item_ids).execute()
@@ -1927,7 +1925,7 @@ async def print_order_customer_receipt(
         for item in order["order_items"]:
             item['options'] = options_map.get(item['id'], [])
     
-    # Build items HTML
+   
     items_html = ""
     for item in order.get("order_items", []):
         items_html += f'<tr><td class="main-item-desc">{item["quantity"]}X {item["product_name"]}</td><td class="main-item-price">{format_currency(item["total_price"])}</td></tr>'
@@ -1939,7 +1937,10 @@ async def print_order_customer_receipt(
         if item.get("notes"):
             items_html += f'<tr><td class="item-notes" colspan="2">NOTES: {item["notes"]}</td></tr>'
     
-    created_dt = datetime.fromisoformat(order['created_at'])
+    created_dt = datetime.fromisoformat(order['created_at'].replace('Z', '+00:00'))
+    if created_dt.tzinfo is None:
+        created_dt = pytz.UTC.localize(created_dt)
+    created_dt = created_dt.astimezone(NIGERIA_TZ)
     order_day = created_dt.strftime('%A').upper()
     order_time = created_dt.strftime('%I:%M %p')
 
