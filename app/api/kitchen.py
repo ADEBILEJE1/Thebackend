@@ -427,7 +427,7 @@ async def update_order_status(
 
     supabase.table("orders").update(update_data).eq("id", order_id).execute()
 
-    # Invalidate cache
+    
     invalidate_order_cache(order_id)
 
     # Notify via WebSocket
@@ -529,7 +529,7 @@ async def print_order_receipt(
     current_user: dict = Depends(require_chef_staff)
 ):
     """Generate printable order receipt for kitchen"""
-    # Get order with items
+    
     order_result = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
     
     if not order_result.data:
@@ -541,7 +541,7 @@ async def print_order_receipt(
         options_result = supabase_admin.table("order_item_options").select("*, product_options(*)").eq("order_item_id", item["id"]).execute()
         item["options"] = options_result.data
     
-    # Generate print-friendly format
+    
     receipt_data = {
         "order_number": order["order_number"],
         "order_type": order["order_type"],
@@ -752,7 +752,10 @@ async def get_kitchen_slip_view(
             items_html += f'<tr><td class="item-notes">NOTES: {item["notes"]}</td></tr>'
             
     # Format date and time
-    created_dt = datetime.fromisoformat(order['created_at'])
+    created_dt = datetime.fromisoformat(order['created_at'].replace('Z', '+00:00'))
+    if created_dt.tzinfo is None:
+        created_dt = pytz.UTC.localize(created_dt)
+    created_dt = created_dt.astimezone(NIGERIA_TZ)
     order_date = created_dt.strftime('%d/%m/%Y')
     order_time = created_dt.strftime('%I:%M %p')
 
@@ -959,7 +962,10 @@ async def print_customer_receipt_by_order(
             if item.get("notes"):
                 items_html += f'<tr><td class="item-notes" colspan="2">NOTES: {item["notes"]}</td></tr>'
 
-        created_dt = datetime.fromisoformat(order['created_at'])
+        created_dt = datetime.fromisoformat(order['created_at'].replace('Z', '+00:00'))
+        if created_dt.tzinfo is None:
+            created_dt = pytz.UTC.localize(created_dt)
+        created_dt = created_dt.astimezone(NIGERIA_TZ)
         order_date = created_dt.strftime('%d/%m/%Y')
         order_time = created_dt.strftime('%I:%M %p')
 

@@ -4,7 +4,7 @@ import os
 class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
-    SUPABASE_SERVICE_KEY: str  # Service role key for admin operations
+    SUPABASE_SERVICE_KEY: str 
     
     REDIS_URL: str = "redis://localhost:6379"
     
@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     resend_api_key: str
     resend_app_url: str
 
+    ENVIRONMENT: str = "development"
+
     MONNIFY_ACCOUNT_NAME: str = "LB" 
 
     MONNIFY_ENVIRONMENT: str = "sandbox"
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
 
     SPREADSHEET_API_KEY: str
     
-    # Dynamic property based on environment
+    
     @property
     def MONNIFY_BASE_URL(self) -> str:
         if self.MONNIFY_ENVIRONMENT == "production":

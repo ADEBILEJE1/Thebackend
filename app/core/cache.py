@@ -8,29 +8,29 @@ F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 class CacheKeys:
     """Centralized cache key management"""
     
-    # User/Auth
+    
     USER_SESSION = "session:{user_id}"
     USER_PROFILE = "profile:{user_id}"
     USER_PERMISSIONS = "permissions:{user_id}"
     
-    # Products
+    
     PRODUCT_LIST = "products:list:{filters}"
     PRODUCT_DETAIL = "product:{product_id}"
     CATEGORIES = "categories:all"
     CATEGORY_PRODUCTS = "category:{category_id}:products"
     
-    # Orders
+   
     ORDER_QUEUE = "orders:queue:{status}"
     ORDER_DETAIL = "order:{order_id}"
     TODAYS_ORDERS = "orders:today"
     
-    # Dashboard
+   
     DASHBOARD_STATS = "dashboard:stats:{user_id}"
     SALES_METRICS = "metrics:sales:{date}"
     INVENTORY_METRICS = "metrics:inventory"
     LOW_STOCK_ALERTS = "alerts:low_stock"
     
-    # Rate limiting
+   
     RATE_LIMIT = "rate_limit:{user_id}:{endpoint}"
 
 def cache_key_wrapper(seconds: int = 300):
@@ -41,28 +41,28 @@ def cache_key_wrapper(seconds: int = 300):
         async def wrapper(*args, **kwargs):
             cache_key = f"{func.__name__}:{hashlib.md5(str(args).encode() + str(kwargs).encode()).hexdigest()}"
 
-            # Try to get from cache
+            
             cached = redis_client.get(cache_key)
             if cached:
                 return cached
 
-            # Execute function
+            
             result = await func(*args, **kwargs)
 
-            # Store in cache
+           
             if result is not None:
                 redis_client.set(cache_key, result, seconds)
 
             return result
 
-        return cast(F, wrapper)  # ✅ tells FastAPI it's the same type as func
+        return cast(F, wrapper)  
     return decorator
 
 def invalidate_cache(pattern: str):
     """Invalidate cache by pattern"""
     redis_client.delete_pattern(pattern)
 
-# Cache invalidation helpers
+
 def invalidate_product_cache(product_id: Optional[str] = None):
     """Invalidate product-related caches"""
     if product_id:

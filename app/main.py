@@ -12,9 +12,17 @@ from .website.api import router as website_router
 from .website.services import MonnifyService
 from fastapi_utils.tasks import repeat_every
 from .services.redis import redis_client
+from .config import settings
 
 
-app = FastAPI(title="Leban Street API")
+docs_url = None if settings.ENVIRONMENT == "production" else "/docs"
+redoc_url = None if settings.ENVIRONMENT == "production" else "/redoc"
+
+app = FastAPI(
+    title="Leban Street API",
+    docs_url=docs_url,
+    redoc_url=redoc_url
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,13 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -108,13 +109,6 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-
-
-
-
-# @app.get("/test-auth")
-# async def test_auth(request: Request, current_user: dict = Depends(get_current_user)):
-#     return {"user": current_user, "message": "Auth working"}
 
 
 
