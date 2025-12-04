@@ -332,12 +332,12 @@ async def calculate_delivery_by_area(area_id: str):
 async def get_checkout_summary(checkout_data: CheckoutRequest):
     """Get checkout summary with area-based delivery"""
     try:
-        # Use shared calculation
+       
         totals = await CartService.calculate_checkout_total(
             [order.dict() for order in checkout_data.orders]
         )
         
-        # Get order details for display
+        
         order_summaries = []
         for idx, order in enumerate(checkout_data.orders):
             processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
@@ -358,19 +358,22 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
                 ],
                 "subtotal": float(order_totals["subtotal"]),
                 "delivery_address": address.data[0]["full_address"],
-                # "delivery_fee": float(address.data[0]["delivery_areas"]["delivery_fee"])
                 "delivery_fee": float(address.data[0]["delivery_areas"]["delivery_fee"] or 0)
             })
         
         return {
             "orders": order_summaries,
-            "total_subtotal": totals["subtotal_float"],  # Use float version
+            "total_subtotal": totals["subtotal_float"], 
             "total_vat": totals["vat_float"],
             "total_delivery": totals["delivery_float"],
             "grand_total": totals["total_float"]
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        print(f"CHECKOUT ERROR: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
@@ -389,16 +392,16 @@ async def complete_checkout(
     batch_created_at = get_nigerian_time().isoformat()
     
     created_orders = []
-    all_items = []  # Collect all items for stock deduction
+    all_items = [] 
     
     for order in checkout_data.orders:
         processed_items = await CartService.validate_cart_items([item.dict() for item in order.items])
         totals = CartService.calculate_order_total(processed_items)
-        all_items.extend(processed_items)  # Add to collection
+        all_items.extend(processed_items) 
         
-        # Get delivery fee from address area
+       
         address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order.delivery_address_id).execute()
-        # delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+        
         delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"] or 0)
         
         order_data = {
@@ -440,7 +443,7 @@ async def complete_checkout(
             result = supabase_admin.table("order_items").insert(item_data).execute()
             order_item_id = result.data[0]["id"]
             
-            # Insert multiple options
+           
             for option_id in item.get("option_ids", []):
                 supabase_admin.table("order_item_options").insert({
                     "id": str(uuid.uuid4()),
