@@ -22,7 +22,7 @@ import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
 
 from datetime import datetime, timedelta
-from ..database import supabase
+from ..database import supabase, supabase_admin
 from ..services.redis import redis_client
 from ..core.cache import CacheKeys
 from ..config import settings
@@ -265,7 +265,7 @@ class CartService:
         
         for item in items:
             # Validate main product
-            product = supabase.table("products").select("*").eq("id", item["product_id"]).execute()
+            product = supabase_admin.table("products").select("*").eq("id", item["product_id"]).execute()
             
             if not product.data:
                 raise ValueError(f"Product {item['product_id']} not found")
@@ -293,7 +293,7 @@ class CartService:
             # Validate options
             if options:
                 for opt in options:
-                    option = supabase.table("product_options").select("*").eq("id", opt["option_id"]).eq("product_id", item["product_id"]).execute()
+                    option = supabase_admin.table("product_options").select("*").eq("id", opt["option_id"]).eq("product_id", item["product_id"]).execute()
                     if not option.data:
                         raise ValueError(f"Invalid option for {product_data['name']}")
             
@@ -316,7 +316,7 @@ class CartService:
             # Validate and add extras
             extras = item.get("extras", [])
             for extra in extras:
-                extra_product = supabase.table("products").select("*").eq("id", extra["id"]).execute()
+                extra_product = supabase_admin.table("products").select("*").eq("id", extra["id"]).execute()
                 
                 if not extra_product.data:
                     raise ValueError(f"Extra product {extra['id']} not found")
@@ -369,7 +369,7 @@ class CartService:
             total_subtotal += totals["subtotal"]
             total_vat += totals["tax"]
             
-            address = supabase.table("customer_addresses").select(
+            address = supabase_admin.table("customer_addresses").select(
                 "area_id, delivery_areas(delivery_fee)"
             ).eq("id", order.get("delivery_address_id")).execute()
             
