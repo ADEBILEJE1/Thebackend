@@ -665,12 +665,12 @@ class MonnifyService:
                 timeout=30
             )
             
-            print(f"📊 Account Response: {account_response.text}")
+            # print(f"📊 Account Response: {account_response.text}")
             
             if account_response.status_code == 200:
                 data = account_response.json()["responseBody"]
                 
-                # Check if there are transactions
+               
                 if data.get("transactionCount", 0) > 0 and data.get("totalAmount", 0) > 0:
                     # Account has transactions - payment is PAID
                     return {
