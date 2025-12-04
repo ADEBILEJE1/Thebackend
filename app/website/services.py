@@ -547,7 +547,7 @@ class MonnifyService:
             response = await client.post(url, headers=headers)
             response.raise_for_status()
             data = response.json()
-            print(f"DEBUG Access Token Response: {data}")
+            # print(f"DEBUG Access Token Response: {data}")
             return data["responseBody"]["accessToken"]
 
 
@@ -586,7 +586,7 @@ class MonnifyService:
                 )
                 
                 if get_response.status_code == 200:
-                    # Account exists, return it
+                    
                     data = get_response.json()["responseBody"]
                     account = data["accounts"][0]
                     
@@ -600,9 +600,9 @@ class MonnifyService:
                         "expires_at": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) + timedelta(minutes=5)
                     }
             except:
-                pass  # Account doesn't exist, create new one
+                pass  
 
-        # Create new account
+        
         payload = {
             "accountReference": account_reference,
             "accountName": "LEBANST KITCHEN",
@@ -653,7 +653,7 @@ class MonnifyService:
             "Content-Type": "application/json"
         }
         
-        # Create session with TLS adapter
+        
         session = requests.Session()
         session.mount('https://', MonnifyService.TLSAdapter())
         
@@ -693,23 +693,23 @@ class MonnifyService:
         try:
             payment_status = payload.get("paymentStatus")
             
-            # Only process PAID status
+           
             if payment_status != "PAID":
                 return
             
-            # Get payment session
+            
             payment_session = redis_client.get(f"payment:{account_reference}")
             
             if not payment_session:
-                print(f"⚠️ Payment session not found: {account_reference}")
+                print(f" Payment session not found: {account_reference}")
                 return
             
-            # Check if already completed
+            
             if payment_session.get("status") == "completed":
-                print(f"ℹ️ Payment already completed: {account_reference}")
+                print(f" Payment already completed: {account_reference}")
                 return
             
-            # Update session with webhook data
+            
             payment_session["webhook_status"] = payment_status
             payment_session["webhook_data"] = payload
             payment_session["transaction_reference"] = transaction_reference
@@ -718,7 +718,7 @@ class MonnifyService:
             redis_client.set(f"payment:{account_reference}", payment_session, 3600)
             
             
-            redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)  # 24 hours
+            redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)  
             
             print(f"✅ Webhook processed successfully: {transaction_reference}")
             
@@ -756,13 +756,13 @@ class EmailService:
             orders = supabase.table("orders").select("id").eq("website_customer_id", customer_id).eq("payment_status", "paid").execute()
             
             if len(orders.data) != 1:  
-                print(f"ℹ️ Not first order for {customer_email}, welcome email skipped.")
+                print(f" Not first order for {customer_email}, welcome email skipped.")
                 return
             
-            # Check if already sent
+           
             email_sent_key = f"welcome_email_sent:{customer_id}"
             if redis_client.get(email_sent_key):
-                print(f"ℹ️ Welcome email already sent to {customer_email}, skipped.")
+                print(f" Welcome email already sent to {customer_email}, skipped.")
                 return
             
             
@@ -1171,7 +1171,7 @@ class EmailService:
     async def send_ready_for_delivery(customer_email: str, order_number: str):
         """Notify customer order is ready for delivery"""
         try:
-            # 1. Fetch order and related delivery info
+            
             order_result = supabase.table("orders").select(
                 "*, customer_addresses(full_address, delivery_areas(estimated_time))"
             ).eq("order_number", order_number).execute()
@@ -1182,16 +1182,16 @@ class EmailService:
 
             order_data = order_result.data[0]
             
-            # 2. Extract address and time
+           
             delivery_address = "N/A"
-            estimated_time = "30-45 minutes" # Fallback
+            estimated_time = "30-45 minutes" 
 
             if order_data.get("customer_addresses"):
                 delivery_address = order_data["customer_addresses"]["full_address"]
                 if order_data["customer_addresses"].get("delivery_areas"):
                     estimated_time = order_data["customer_addresses"]["delivery_areas"]["estimated_time"]
             
-            # 3. Build content
+            
             content = f"""
             <h1 style="color: #000000; font-size: 24px; margin-top: 0; margin-bottom: 20px;">Your Order is Out for Delivery!</h1>
             <p style="margin-bottom: 20px;">Hi there,</p>
@@ -1214,7 +1214,7 @@ class EmailService:
             <p style="margin-top: 30px;">Thanks again for choosing Leban Street.</p>
             """
 
-            # 4. Get full HTML and send
+          
             html_content = EmailService._get_base_email_template(
                 title=f"Your Leban Street Order ({order_number}) is Out for Delivery!",
                 content=content,

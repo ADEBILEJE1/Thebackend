@@ -370,10 +370,7 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        import traceback
-        print(f"CHECKOUT ERROR: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+    
 
 
 
