@@ -381,6 +381,14 @@ async def complete_checkout(
     session_token: str = Query(...)
 ):
     """Complete the checkout process"""
+
+    current_hour = get_nigerian_time().hour
+    if current_hour < 10 or current_hour >= 23:
+        raise HTTPException(
+            status_code=400,
+            detail="We only accept orders between 10 AM and 11 PM. Please try again during operating hours."
+        )
+    
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
