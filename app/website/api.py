@@ -331,6 +331,14 @@ async def calculate_delivery_by_area(area_id: str):
 @router.post("/checkout/summary")
 async def get_checkout_summary(checkout_data: CheckoutRequest):
     """Get checkout summary with area-based delivery"""
+
+    current_hour = get_nigerian_time().hour
+    if current_hour < 10 or current_hour >= 23:
+        raise HTTPException(
+            status_code=400,
+            detail="We only accept orders between 10 AM and 11 PM. Please try again during operating hours."
+        )
+
     try:
        
         totals = await CartService.calculate_checkout_total(
