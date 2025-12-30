@@ -720,7 +720,7 @@ class MonnifyService:
             
             redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)  
             
-            print(f"✅ Webhook processed successfully: {transaction_reference}")
+
             
         except Exception as e:
             print(f"❌ Webhook processing error: {str(e)}")

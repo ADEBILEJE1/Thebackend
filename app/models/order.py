@@ -40,7 +40,7 @@ class PaymentMethod(str, Enum):
 
 class Order(BaseModel):
     id: Optional[str] = None
-    order_number: str  # Unique, like "ORD-20250828-001"
+    order_number: str  
     order_type: OrderType
     status: OrderStatus = OrderStatus.PENDING
     payment_status: PaymentStatus = PaymentStatus.PENDING
@@ -61,7 +61,7 @@ class Order(BaseModel):
     total: Decimal
     
     # Tracking
-    created_by: Optional[str] = None  # For offline orders
+    created_by: Optional[str] = None  
     confirmed_at: Optional[datetime] = None
     preparing_at: Optional[datetime] = None
     ready_at: Optional[datetime] = None

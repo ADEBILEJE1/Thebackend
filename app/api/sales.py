@@ -1870,7 +1870,7 @@ async def print_batch_customer_receipt(
         <div class="order-info">
             <div><strong>ORDER:</strong> {order.get('order_number', '')}</div>
             <div><strong>BATCH:</strong> {order.get('batch_id', 'N/A')}</div>
-            <div><strong>TYPE:</strong> {order.get('order_placement_type', '').upper()}</div>
+            <div><strong>TYPE:</strong> {(order.get('order_placement_type') or '').upper()}</div>
             <div><strong>CUSTOMER:</strong> {order.get('customer_name', 'WALK-IN')}</div>
             <div><strong>DAY:</strong> {order_day}</div>
             <div><strong>TIME:</strong> {order_time}</div>
@@ -1986,7 +1986,7 @@ async def print_order_customer_receipt(
         <div class="order-info">
             <div><strong>ORDER:</strong> {order.get('order_number', '')}</div>
             <div><strong>BATCH:</strong> {order.get('batch_id', 'N/A')}</div>
-            <div><strong>TYPE:</strong> {order.get('order_placement_type', '').upper()}</div>
+            <div><strong>TYPE:</strong> {(order.get('order_placement_type') or '').upper()}</div>
             <div><strong>CUSTOMER:</strong> {order.get('customer_name', 'WALK-IN')}</div>
             <div><strong>DAY:</strong> {order_day}</div>
             <div><strong>TIME:</strong> {order_time}</div>
