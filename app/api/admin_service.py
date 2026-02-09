@@ -263,11 +263,17 @@ class AdminService:
         #     order["order_items"] = items.data
 
         order_ids = [order["id"] for order in orders.data]
-        all_items = supabase_admin.table("order_items").select("*, products(categories(name))").in_("order_id", order_ids).limit(50000).execute()
+        all_items_data = []
+
+        batch_size = 100
+        for i in range(0, len(order_ids), batch_size):
+            batch = order_ids[i:i+batch_size]
+            result = supabase_admin.table("order_items").select("*, products(categories(name))").in_("order_id", batch).execute()
+            all_items_data.extend(result.data)
 
         # Group by order_id
         items_by_order = defaultdict(list)
-        for item in all_items.data:
+        for item in all_items_data:
             items_by_order[item["order_id"]].append(item)
 
         # Attach to orders
