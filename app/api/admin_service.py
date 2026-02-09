@@ -258,9 +258,21 @@ class AdminService:
             "created_at", f"{end_date.isoformat()}T23:59:59"
         ).eq("payment_status", "paid").neq("status", "cancelled").limit(50000).execute()
         # Fetch order_items separately
+        # for order in orders.data:
+        #     items = supabase_admin.table("order_items").select("*, products(categories(name))").eq("order_id", order["id"]).execute()
+        #     order["order_items"] = items.data
+
+        order_ids = [order["id"] for order in orders.data]
+        all_items = supabase_admin.table("order_items").select("*, products(categories(name))").in_("order_id", order_ids).limit(50000).execute()
+
+        # Group by order_id
+        items_by_order = defaultdict(list)
+        for item in all_items.data:
+            items_by_order[item["order_id"]].append(item)
+
+        # Attach to orders
         for order in orders.data:
-            items = supabase_admin.table("order_items").select("*, products(categories(name))").eq("order_id", order["id"]).execute()
-            order["order_items"] = items.data
+            order["order_items"] = items_by_order.get(order["id"], [])
         
         # Revenue calculations with separate components
         product_revenue_online = Decimal('0')
