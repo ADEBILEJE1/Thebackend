@@ -762,33 +762,52 @@ class SalesService:
     #     user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
     #     is_staff = len(user_check.data) > 0
         
-    #     for item in items:
-    #         product_id = item["product_id"]
-    #         quantity = item["quantity"]
-            
-            
-    #         product = supabase.table("products").select("name, low_stock_threshold").eq("id", product_id).execute()
-            
-    #         if not product.data:
-    #             continue
-                
-    #         product_name = product.data[0]["name"]
-    #         low_threshold = product.data[0]["low_stock_threshold"]
-            
-            
-    #         result = supabase.rpc('deduct_stock_atomic', {
-    #             'p_product_id': product_id,
-    #             'p_quantity': quantity,
-    #             'p_low_threshold': low_threshold,
-    #             'p_user_id': user_id if is_staff else None,
-    #             'p_updated_at': get_nigerian_time().isoformat()
-    #         }).execute()
-            
-    #         if not result.data or not result.data[0]['success']:
-    #             current = result.data[0]['current_stock'] if result.data else 0
-    #             raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
+    #     # Batch fetch all products upfront
+    #     product_ids = [item["product_id"] for item in items]
+    #     products_result = supabase.table("products").select("id, name, low_stock_threshold").in_("id", product_ids).execute()
+    #     products_map = {p["id"]: p for p in products_result.data}
         
-    #     # Invalidate caches
+    #     deducted = []  # Track successful deductions for rollback
+        
+    #     try:
+    #         for item in items:
+    #             product_id = item["product_id"]
+    #             quantity = item["quantity"]
+                
+    #             product = products_map.get(product_id)
+    #             if not product:
+    #                 continue
+                    
+    #             product_name = product["name"]
+    #             low_threshold = product["low_stock_threshold"]
+                
+    #             result = supabase.rpc('deduct_stock_atomic', {
+    #                 'p_product_id': product_id,
+    #                 'p_quantity': quantity,
+    #                 'p_low_threshold': low_threshold,
+    #                 'p_user_id': user_id if is_staff else None,
+    #                 'p_updated_at': get_nigerian_time().isoformat()
+    #             }).execute()
+                
+    #             if not result.data or not result.data[0]['success']:
+    #                 current = result.data[0]['current_stock'] if result.data else 0
+    #                 raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
+                
+    #             deducted.append({"product_id": product_id, "quantity": quantity, "low_threshold": low_threshold})
+        
+    #     except Exception as e:
+            
+    #         for item in deducted:
+    #             supabase.rpc('restore_stock_atomic', {
+    #                 'p_product_id': item["product_id"],
+    #                 'p_quantity': item["quantity"],
+    #                 'p_low_threshold': item["low_threshold"],
+    #                 'p_user_id': user_id if is_staff else None,
+    #                 'p_updated_at': get_nigerian_time().isoformat()
+    #             }).execute()
+    #         raise e
+        
+        
     #     redis_client.delete_pattern("products:list:*")
     #     redis_client.delete_pattern("inventory:dashboard:*")
     #     redis_client.delete_pattern("sales:products:*")
@@ -797,57 +816,60 @@ class SalesService:
 
     @staticmethod
     async def deduct_stock_immediately(items: List[Dict[str, Any]], user_id: str):
-        """Deduct stock immediately for offline orders with atomic updates"""
+        """Deduct stock immediately when order is confirmed"""
+        import asyncio
 
-        user_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
-        is_staff = len(user_check.data) > 0
-        
         # Batch fetch all products upfront
         product_ids = [item["product_id"] for item in items]
         products_result = supabase.table("products").select("id, name, low_stock_threshold").in_("id", product_ids).execute()
         products_map = {p["id"]: p for p in products_result.data}
-        
-        deducted = []  # Track successful deductions for rollback
-        
+
+        async def deduct_single(item):
+            product_id = item["product_id"]
+            quantity = item["quantity"]
+
+            product = products_map.get(product_id)
+            if not product:
+                return None
+
+            product_name = product["name"]
+            low_threshold = product["low_stock_threshold"]
+
+            result = supabase.rpc('deduct_stock_atomic', {
+                'p_product_id': product_id,
+                'p_quantity': quantity,
+                'p_low_threshold': low_threshold,
+                'p_user_id': user_id,
+                'p_updated_at': get_nigerian_time().isoformat()
+            }).execute()
+
+            if not result.data or not result.data[0]['success']:
+                current = result.data[0]['current_stock'] if result.data else 0
+                raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
+
+            return {"product_id": product_id, "quantity": quantity, "low_threshold": low_threshold}
+
         try:
+            results = await asyncio.gather(*[deduct_single(item) for item in items])
+            deducted = [r for r in results if r is not None]
+        except Exception as e:
+            # Rollback all that were already deducted before the failure
             for item in items:
-                product_id = item["product_id"]
-                quantity = item["quantity"]
-                
-                product = products_map.get(product_id)
+                product = products_map.get(item["product_id"])
                 if not product:
                     continue
-                    
-                product_name = product["name"]
-                low_threshold = product["low_stock_threshold"]
-                
-                result = supabase.rpc('deduct_stock_atomic', {
-                    'p_product_id': product_id,
-                    'p_quantity': quantity,
-                    'p_low_threshold': low_threshold,
-                    'p_user_id': user_id if is_staff else None,
-                    'p_updated_at': get_nigerian_time().isoformat()
-                }).execute()
-                
-                if not result.data or not result.data[0]['success']:
-                    current = result.data[0]['current_stock'] if result.data else 0
-                    raise ValueError(f"Insufficient stock for {product_name}. Available: {current}, Requested: {quantity}")
-                
-                deducted.append({"product_id": product_id, "quantity": quantity, "low_threshold": low_threshold})
-        
-        except Exception as e:
-            
-            for item in deducted:
-                supabase.rpc('restore_stock_atomic', {
-                    'p_product_id': item["product_id"],
-                    'p_quantity': item["quantity"],
-                    'p_low_threshold': item["low_threshold"],
-                    'p_user_id': user_id if is_staff else None,
-                    'p_updated_at': get_nigerian_time().isoformat()
-                }).execute()
+                try:
+                    supabase.rpc('restore_stock_atomic', {
+                        'p_product_id': item["product_id"],
+                        'p_quantity': item["quantity"],
+                        'p_low_threshold': product["low_stock_threshold"],
+                        'p_user_id': user_id,
+                        'p_updated_at': get_nigerian_time().isoformat()
+                    }).execute()
+                except:
+                    pass
             raise e
-        
-        
+
         redis_client.delete_pattern("products:list:*")
         redis_client.delete_pattern("inventory:dashboard:*")
         redis_client.delete_pattern("sales:products:*")
