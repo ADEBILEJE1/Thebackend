@@ -28,7 +28,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://lebanstreet.com",
-        "https://www.lebanstreet.com"
+        "https://www.lebanstreet.com",
+        "http://localhost:3001"
       
     ],
     allow_credentials=True,
