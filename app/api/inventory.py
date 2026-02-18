@@ -770,6 +770,11 @@ async def toggle_availability(
     if not result.data:
         raise HTTPException(status_code=404, detail="Product not found")
     
+    # Clear product caches
+    redis_client.delete_pattern("products:list:*")
+    redis_client.delete_pattern("sales:products:*")
+    redis_client.delete_pattern("inventory:*")
+    
     return {"message": f"Product {'enabled' if availability.is_available else 'disabled'} for website"}
 
 
