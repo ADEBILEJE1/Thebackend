@@ -1053,7 +1053,8 @@ async def create_offline_order(
         request
     )
     
-    return created_order.data[0]
+    full_order = supabase_admin.table("orders").select("*, order_items(*)").eq("id", order_id).execute()
+    return full_order.data[0]
 
 @router.post("/orders/{order_id}/confirm")
 async def confirm_order_payment(
