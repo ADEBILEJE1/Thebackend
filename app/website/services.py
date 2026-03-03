@@ -3,6 +3,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import re
 import uuid
+import asyncio
 import ssl
 import resend
 import os
@@ -527,6 +528,29 @@ class MonnifyService:
    
     
 
+    # @staticmethod
+    # async def get_access_token() -> str:
+    #     """Fetch access token from Monnify"""
+    #     credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
+    #     encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+    #     headers = {
+    #         "Authorization": f"Basic {encoded_credentials}",
+    #         "Content-Type": "application/json"
+    #     }
+
+    #     url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
+        
+    #     ssl_context = ssl.create_default_context()
+    #     ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        
+    #     async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
+    #         response = await client.post(url, headers=headers)
+    #         response.raise_for_status()
+    #         data = response.json()
+    #         # print(f"DEBUG Access Token Response: {data}")
+    #         return data["responseBody"]["accessToken"]
+
     @staticmethod
     async def get_access_token() -> str:
         """Fetch access token from Monnify"""
@@ -543,12 +567,17 @@ class MonnifyService:
         ssl_context = ssl.create_default_context()
         ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
         
-        async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
-            response = await client.post(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            # print(f"DEBUG Access Token Response: {data}")
-            return data["responseBody"]["accessToken"]
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(verify=ssl_context, timeout=60.0) as client:
+                    response = await client.post(url, headers=headers)
+                    response.raise_for_status()
+                    data = response.json()
+                    return data["responseBody"]["accessToken"]
+            except httpx.ReadTimeout:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(2 ** attempt)
 
 
     
