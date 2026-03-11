@@ -640,7 +640,8 @@ class MonnifyService:
             "customerEmail": customer_email,
             "customerName": customer_name,
             "preferredBanks": ["50515"], 
-            "getAllAvailableBanks": False
+            "getAllAvailableBanks": False,
+            "customerPhone": customer_phone or "08000000000"
         }
 
         async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
@@ -650,7 +651,9 @@ class MonnifyService:
                 json=payload
             )
 
-        response.raise_for_status()
+        if response.status_code != 200:
+            print(f"❌ Monnify error: {response.status_code} - {response.text}")
+            response.raise_for_status()
         data = response.json()["responseBody"]
         account = data["accounts"][0]
 
