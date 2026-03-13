@@ -504,16 +504,16 @@ async def create_payment_account(
     payment_reference = f"tranx-{str(uuid4())}"
     
     try:
-        account_data = await MonnifyService.create_invoice(
+        account_data = await MonnifyService.create_virtual_account(
             amount=payment_data.total_amount,
             customer_email=payment_data.customer_email,
             customer_name=payment_data.customer_name,
+            customer_phone=payment_data.customer_phone,
             payment_reference=payment_reference
         )
         
         payment_session = {
             "payment_reference": payment_reference,
-            "invoice_reference": account_data["invoice_reference"],
             "customer_id": session_data["customer_id"],
             "orders": [order.dict() for order in payment_data.orders],
             "amount": float(payment_data.total_amount),
@@ -521,7 +521,7 @@ async def create_payment_account(
             "created_at": get_nigerian_time().isoformat()
         }
         
-        redis_client.set(f"payment:{account_data['invoice_reference']}", payment_session, 3600)
+        redis_client.set(f"payment:{account_data['account_reference']}", payment_session, 3600)
         
         return {
             **account_data,  
@@ -537,12 +537,15 @@ async def create_payment_account(
 
 
 
-async def verify_payment(invoice_reference: str, background_tasks: BackgroundTasks):
+@router.get("/payment/verify/{account_reference}")  
+async def verify_payment(account_reference: str, background_tasks: BackgroundTasks):
     """Verify payment status"""
     try:
-        payment_session = redis_client.get(f"payment:{invoice_reference}")
+        payment_session = redis_client.get(f"payment:{account_reference}")
         if not payment_session:
             raise HTTPException(status_code=404, detail="Payment session not found")
+        
+        
         
         # Check if already completed
         if payment_session.get("status") == "completed":
@@ -560,10 +563,12 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
                     "orders": orders_data
                 }
         
-        # Check invoice status with Monnify
+        # Get access token
         access_token = await MonnifyService.get_access_token()
         
-        url = f"{settings.MONNIFY_BASE_URL}/api/v1/invoice/detail?invoiceReference={invoice_reference}"
+        
+        # Call transactions endpoint
+        url = f"{settings.MONNIFY_BASE_URL}/api/v1/bank-transfer/reserved-accounts/transactions?accountReference={account_reference}&page=0&size=10"
         
         response = requests.get(
             url,
@@ -571,28 +576,66 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
             timeout=30
         )
         
+        
         if response.status_code != 200:
             return {
                 "payment_status": "pending",
                 "message": "Payment verification failed"
             }
         
-        invoice_data = response.json().get("responseBody", {})
-        invoice_status = invoice_data.get("invoiceStatus")
+        transactions_data = response.json()
         
-        if invoice_status != "PAID":
+        if not transactions_data.get("responseBody"):
+            return {
+                "payment_status": "pending",
+                "message": "No payment data available"
+            }
+        
+        content = transactions_data["responseBody"].get("content", [])
+        
+        if not content:
             return {
                 "payment_status": "pending",
                 "message": "No payment received yet"
             }
         
-        # Check amount
-        amount_paid = float(invoice_data.get("amount", 0))
+        paid_transaction = None
         expected_amount = float(payment_session["amount"])
-        if amount_paid < expected_amount:
+        cutoff_time = datetime.utcnow() - timedelta(minutes=15)
+        session_created_time_utc = datetime.fromisoformat(payment_session["created_at"])
+        session_created_time = (session_created_time_utc - timedelta(hours=1)).replace(tzinfo=None)
+        
+        
+        for txn in content:
+            txn_amount = float(txn.get("amountPaid", 0))
+            txn_ref = txn.get("transactionReference")
+
+           
+            txn_time_str = txn.get("createdOn")
+            txn_time = datetime.fromisoformat(txn_time_str.replace("+00:00", "").replace("Z", ""))
+
+            
+            # Check: PAID + correct amount + recent + unused
+            if (txn.get("paymentStatus") == "PAID" and 
+                abs(txn_amount - expected_amount) < 1.0 and
+                txn_time > cutoff_time and
+                txn_time > session_created_time):
+                
+                # Check if already used
+                existing = supabase_admin.table("orders").select("id").eq("monnify_transaction_ref", txn_ref).execute()
+                
+                if existing.data:
+                    print(f"⚠️ Transaction {txn_ref} already used")
+                    continue
+                
+                paid_transaction = txn
+                print(f"✅ Found valid transaction: {txn_ref}")
+                break
+        
+        if not paid_transaction:
             return {
                 "payment_status": "pending",
-                "message": "Incorrect amount received"
+                "message": "Payment not confirmed yet. Please ensure payment was made within the last 10 minutes."
             }
         
         # Check if orders already exist for this payment reference
@@ -608,7 +651,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
             }
         
         # Lock to prevent race conditions
-        processing_lock = f"processing:{invoice_reference}"
+        processing_lock = f"processing:{account_reference}"
         lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
         
         if not lock_acquired:
@@ -639,10 +682,10 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
                     "order_type": "online",
                     "status": "confirmed",
                     "payment_status": "paid",
-                    "batch_id": batch_id,
-                    "batch_created_at": batch_created_at,
+                    "batch_id": batch_id,  
+                    "batch_created_at": batch_created_at, 
                     "payment_reference": payment_session["payment_reference"],
-                    "monnify_transaction_ref": invoice_data.get("transactionReference", invoice_reference),
+                    "monnify_transaction_ref": paid_transaction.get("transactionReference"),
                     "subtotal": float(totals["subtotal"]),
                     "tax": float(totals["tax"]),
                     "delivery_fee": delivery_fee,
@@ -701,15 +744,17 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
                     customer.data[0]["full_name"]
                 )
            
+            # Mark as completed
             payment_session["status"] = "completed"
             payment_session["orders_created"] = [o["id"] for o in created_orders]
             payment_session["completed_at"] = get_nigerian_time().isoformat()
-            redis_client.set(f"payment:{invoice_reference}", payment_session, 86400)
+            redis_client.set(f"payment:{account_reference}", payment_session, 86400)
            
             return {
                 "payment_status": "success",
                 "orders": created_orders,
                 "tracking_references": [o["order_number"] for o in created_orders],
+                "payment_details": paid_transaction
             }
         
         finally:
@@ -754,17 +799,20 @@ async def payment_webhook(request: Request, background_tasks: BackgroundTasks):
     
     
     transaction_reference = payload.get("transactionReference")
+    account_reference = payload.get("accountReference")
     
     duplicate_key = f"webhook_processed:{transaction_reference}"
     if redis_client.get(duplicate_key):
-        print(f"Duplicate webhook ignored: {transaction_reference}")
+        print(f"ℹ️ Duplicate webhook ignored: {transaction_reference}")
         return {"status": "success", "message": "Already processed"}
     
     redis_client.set(duplicate_key, "processing", 600)
     
+    
     background_tasks.add_task(
         MonnifyService.process_webhook_payment,
         payload,
+        account_reference,
         transaction_reference
     )
     

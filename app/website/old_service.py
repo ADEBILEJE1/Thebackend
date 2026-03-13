@@ -585,10 +585,11 @@ class MonnifyService:
     
 
     @staticmethod
-    async def create_invoice(
+    async def create_virtual_account(
         amount: Decimal,
         customer_email: str,
         customer_name: str,
+        customer_phone: str,
         payment_reference: str
     ) -> Dict[str, Any]:
         access_token = await MonnifyService.get_access_token()
@@ -598,46 +599,74 @@ class MonnifyService:
             "Content-Type": "application/json"
         }
 
+        # Check if customer already has a reserved account
+        account_reference = f"CUST-{customer_email.split('@')[0]}"
+        
+        # SSL context
         ssl_context = ssl.create_default_context()
         ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        
+        # Try to get existing account first
+        async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
+            try:
+                get_response = await client.get(
+                    f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
+                    headers=headers
+                )
+                
+                if get_response.status_code == 200:
+                    
+                    data = get_response.json()["responseBody"]
+                    account = data["accounts"][0]
+                    
+                    return {
+                        "payment_reference": payment_reference,
+                        "account_reference": account_reference,
+                        "account_number": account["accountNumber"],
+                        "account_name": account["accountName"],
+                        "bank_name": account["bankName"],
+                        "amount": amount,
+                        "expires_at": datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) + timedelta(minutes=5)
+                    }
+            except:
+                pass  
 
-        invoice_reference = payment_reference
-        expiry_date = (datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
-
+        
         payload = {
-            "amount": float(amount),
-            "invoiceReference": invoice_reference,
-            "description": "LebanStreet Order Payment",
+            "accountReference": account_reference,
+            "accountName": "LEBANST KITCHEN",
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": customer_email,
             "customerName": customer_name,
-            "expiryDate": expiry_date,
-            "paymentMethods": ["ACCOUNT_TRANSFER"]
+            "preferredBanks": ["50515"], 
+            "getAllAvailableBanks": False,
+            "customerPhone": customer_phone or "08000000000"
         }
 
         async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
             response = await client.post(
-                f"{MonnifyService.get_base_url()}/api/v1/invoice/create",
+                f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts",
                 headers=headers,
                 json=payload
             )
 
         if response.status_code != 200:
-            print(f"❌ Monnify invoice error: {response.status_code} - {response.text}")
+            print(f"❌ Monnify error: {response.status_code} - {response.text}")
             response.raise_for_status()
-
         data = response.json()["responseBody"]
+        account = data["accounts"][0]
 
         return {
             "payment_reference": payment_reference,
-            "invoice_reference": invoice_reference,
-            "account_number": data["accountNumber"],
-            "account_name": data["accountName"],
-            "bank_name": data["bankName"],
-            "amount": float(amount),
-            "expires_at": expiry_date
+            "account_reference": account_reference,
+            "account_number": account["accountNumber"],
+            "account_name": account["accountName"],
+            "bank_name": account["bankName"],
+            "amount": amount,
+            "expires_at": datetime.utcnow() + timedelta(hours=1)
         }
+
 
 
 
@@ -691,48 +720,43 @@ class MonnifyService:
 
 
     @staticmethod
-    async def process_webhook_payment(payload: Dict, transaction_reference: str):
+    async def process_webhook_payment(payload: Dict, account_reference: str, transaction_reference: str):
         """Background task for webhook processing"""
         try:
             payment_status = payload.get("paymentStatus")
             
+           
             if payment_status != "PAID":
                 return
             
-            # Extract invoice reference from payload
-            invoice_reference = payload.get("invoiceReference") or payload.get("paymentReference")
             
-            if not invoice_reference:
-                print(f"❌ No invoice reference in webhook payload")
-                return
-
-            payment_session = redis_client.get(f"payment:{invoice_reference}")
+            payment_session = redis_client.get(f"payment:{account_reference}")
             
             if not payment_session:
-                print(f"❌ Payment session not found: {invoice_reference}")
+                print(f" Payment session not found: {account_reference}")
                 return
+            
             
             if payment_session.get("status") == "completed":
-                print(f"ℹ️ Payment already completed: {invoice_reference}")
+                print(f" Payment already completed: {account_reference}")
                 return
             
-            # Validate amount
-            amount_paid = float(payload.get("amountPaid", 0))
-            expected_amount = float(payment_session["amount"])
-            if amount_paid < expected_amount:
-                print(f"⚠️ Amount mismatch: paid {amount_paid}, expected {expected_amount}")
-                return
             
             payment_session["webhook_status"] = payment_status
             payment_session["webhook_data"] = payload
             payment_session["transaction_reference"] = transaction_reference
             payment_session["webhook_received_at"] = datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
             
-            redis_client.set(f"payment:{invoice_reference}", payment_session, 3600)
-            redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)
+            redis_client.set(f"payment:{account_reference}", payment_session, 3600)
+            
+            
+            redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)  
+            
+
             
         except Exception as e:
             print(f"❌ Webhook processing error: {str(e)}")
+            
             redis_client.delete(f"webhook_processed:{transaction_reference}")
 
     
