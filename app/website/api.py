@@ -536,7 +536,7 @@ async def create_payment_account(
 
 
 
-
+@router.get("/payment/verify/{invoice_reference}")
 async def verify_payment(invoice_reference: str, background_tasks: BackgroundTasks):
     """Verify payment status"""
     try:
