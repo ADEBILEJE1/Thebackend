@@ -541,6 +541,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
     """Verify payment status"""
     try:
         payment_session = redis_client.get(f"payment:{invoice_reference}")
+        print(f"🔍 Payment session status: {payment_session.get('status')}")
         if not payment_session:
             raise HTTPException(status_code=404, detail="Payment session not found")
         
@@ -579,7 +580,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         
         invoice_data = response.json().get("responseBody", {})
         invoice_status = invoice_data.get("invoiceStatus")
-        
+        print(f"🔍 Invoice status from Monnify: {invoice_status}")
         if invoice_status != "PAID":
             return {
                 "payment_status": "pending",
@@ -610,7 +611,8 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         # Lock to prevent race conditions
         processing_lock = f"processing:{invoice_reference}"
         lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
-        
+        print(f"🔍 Lock acquired: {lock_acquired}")
+
         if not lock_acquired:
             # Check if processing already completed by another request
             fresh_session = redis_client.get(f"payment:{invoice_reference}")
