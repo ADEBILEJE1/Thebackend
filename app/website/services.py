@@ -723,7 +723,7 @@ class MonnifyService:
                 print(f"⚠️ Amount mismatch: paid {amount_paid}, expected {expected_amount}")
                 return
             
-            payment_session["webhook_status"] = payment_status
+            payment_session["webhook_status"] = "PAID"
             payment_session["webhook_data"] = payload
             payment_session["transaction_reference"] = transaction_reference
             payment_session["webhook_received_at"] = datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
