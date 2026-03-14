@@ -695,6 +695,7 @@ class MonnifyService:
         """Background task for webhook processing"""
         try:
             payment_status = payload.get("paymentStatus")
+            print(f"🔍 Full webhook payload: {payload}")
             print(f"🔍 Webhook payment_status: {payment_status}")
             
             if payment_status != "PAID":
