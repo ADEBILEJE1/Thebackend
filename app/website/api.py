@@ -612,10 +612,24 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
         
         if not lock_acquired:
-            return {
-                "payment_status": "processing",
-                "message": "Payment is being processed, please wait"
-            }
+            # Check if processing already completed by another request
+            fresh_session = redis_client.get(f"payment:{invoice_reference}")
+            if fresh_session and fresh_session.get("status") == "completed":
+                existing_orders = fresh_session.get("orders_created", [])
+                if existing_orders:
+                    orders_data = []
+                    for order_id in existing_orders:
+                        order = supabase_admin.table("orders").select("*").eq("id", order_id).execute()
+                        if order.data:
+                            orders_data.append(order.data[0])
+                    
+                    return {
+                        "payment_status": "success",
+                        "message": "Payment already processed",
+                        "orders": orders_data
+                }
+    
+            raise HTTPException(status_code=409, detail="Payment is being processed, please retry in a few seconds")
         
         try:
             created_orders = []
