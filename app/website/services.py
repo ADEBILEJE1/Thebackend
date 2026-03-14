@@ -727,6 +727,7 @@ class MonnifyService:
                 print(f"⚠️ Amount mismatch: paid {amount_paid}, expected {expected_amount}")
                 return
             
+            payment_session["status"] = "completed"
             payment_session["webhook_status"] = "PAID"
             payment_session["webhook_data"] = payload
             payment_session["transaction_reference"] = transaction_reference
