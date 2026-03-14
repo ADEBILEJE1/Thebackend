@@ -694,7 +694,7 @@ class MonnifyService:
     async def process_webhook_payment(payload: Dict, transaction_reference: str):
         """Background task for webhook processing"""
         try:
-            payment_status = payload.get("paymentStatus")
+            payment_status = payload.get("eventData", {}).get("paymentStatus")
             print(f"🔍 Full webhook payload: {payload}")
             print(f"🔍 Webhook payment_status: {payment_status}")
             
@@ -702,7 +702,7 @@ class MonnifyService:
                 return
             
             # Extract invoice reference from payload
-            invoice_reference = payload.get("invoiceReference") or payload.get("paymentReference")
+            invoice_reference = payload.get("eventData", {}).get("paymentReference") or payload.get("eventData", {}).get("transactionReference")
             
             if not invoice_reference:
                 print(f"❌ No invoice reference in webhook payload")
@@ -721,7 +721,7 @@ class MonnifyService:
                 return
             
             # Validate amount
-            amount_paid = float(payload.get("amountPaid", 0))
+            amount_paid = float(payload.get("eventData", {}).get("amountPaid", 0))
             expected_amount = float(payment_session["amount"])
             if amount_paid < expected_amount:
                 print(f"⚠️ Amount mismatch: paid {amount_paid}, expected {expected_amount}")

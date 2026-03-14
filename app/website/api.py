@@ -769,7 +769,7 @@ async def payment_webhook(request: Request, background_tasks: BackgroundTasks):
         return {"status": "error", "message": "Invalid hash"}
     
     
-    transaction_reference = payload.get("transactionReference")
+    transaction_reference = payload.get("eventData", {}).get("transactionReference")
     
     duplicate_key = f"webhook_processed:{transaction_reference}"
     if redis_client.get(duplicate_key):
