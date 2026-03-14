@@ -564,7 +564,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         # Check invoice status with Monnify
         access_token = await MonnifyService.get_access_token()
         
-        url = f"{settings.MONNIFY_BASE_URL}/api/v1/invoice/detail?invoiceReference={invoice_reference}"
+        url = f"{settings.MONNIFY_BASE_URL}/api/v1/merchant/transactions/query?paymentReference={invoice_reference}"
         
         response = requests.get(
             url,
@@ -596,7 +596,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
             }
         
         # Check amount
-        amount_paid = float(invoice_data.get("amount", 0))
+        amount_paid = float(invoice_data.get("amountPaid", 0))
         expected_amount = float(payment_session["amount"])
         if amount_paid < expected_amount:
             return {
