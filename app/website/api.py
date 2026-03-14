@@ -582,7 +582,11 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         invoice_status = invoice_data.get("invoiceStatus")
         if not invoice_status or invoice_status != "PAID":
             invoice_status = payment_session.get("webhook_status")
-        print(f"🔍 Invoice status from Monnify: {invoice_status}")
+
+
+        print(f"🔍 Monnify API status: {invoice_data.get('invoiceStatus')}")
+        print(f"🔍 Webhook status: {payment_session.get('webhook_status')}")
+        print(f"🔍 Final invoice_status: {invoice_status}")
 
 
         if invoice_status != "PAID":
