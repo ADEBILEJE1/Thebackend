@@ -786,11 +786,12 @@ async def payment_webhook(request: Request, background_tasks: BackgroundTasks):
     
     redis_client.set(duplicate_key, "processing", 600)
     
-    background_tasks.add_task(
-        MonnifyService.process_webhook_payment,
-        payload,
-        transaction_reference
-    )
+    # background_tasks.add_task(
+    #     MonnifyService.process_webhook_payment,
+    #     payload,
+    #     transaction_reference
+    # )
+    await MonnifyService.process_webhook_payment(payload, transaction_reference)
     
     return {"status": "success"}
     
