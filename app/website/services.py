@@ -695,6 +695,7 @@ class MonnifyService:
         """Background task for webhook processing"""
         try:
             payment_status = payload.get("paymentStatus")
+            print(f"🔍 Webhook payment_status: {payment_status}")
             
             if payment_status != "PAID":
                 return
@@ -707,6 +708,8 @@ class MonnifyService:
                 return
 
             payment_session = redis_client.get(f"payment:{invoice_reference}")
+            print(f"🔍 Webhook invoice_reference: {invoice_reference}")
+            print(f"🔍 Webhook payment_session found: {payment_session is not None}")
             
             if not payment_session:
                 print(f"❌ Payment session not found: {invoice_reference}")
