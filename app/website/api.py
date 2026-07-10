@@ -579,12 +579,12 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
             }
         
         invoice_data = response.json().get("responseBody", {})
-        invoice_status = invoice_data.get("invoiceStatus")
+        invoice_status = invoice_data.get("paymentStatus")
         if not invoice_status or invoice_status != "PAID":
             invoice_status = payment_session.get("webhook_status")
 
 
-        print(f"🔍 Monnify API status: {invoice_data.get('invoiceStatus')}")
+        print(f"🔍 Monnify API status: {invoice_data.get('paymentStatus')}")
         print(f"🔍 Webhook status: {payment_session.get('webhook_status')}")
         print(f"🔍 Final invoice_status: {invoice_status}")
 
@@ -618,7 +618,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         
         # Lock to prevent race conditions
         processing_lock = f"processing:{invoice_reference}"
-        lock_acquired = redis_client.client.set(processing_lock, "locked", ex=60, nx=True)
+        lock_acquired = redis_client.set(processing_lock, "locked", ex=60, nx=True)
         print(f"🔍 Lock acquired: {lock_acquired}")
 
         if not lock_acquired:
