@@ -6,14 +6,14 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str
     SUPABASE_SERVICE_KEY: str 
     
-    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_URL: str 
     
     SENDGRID_API_KEY: str
     FROM_EMAIL: str
     FRONTEND_URL: str
     
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str
+    CELERY_RESULT_BACKEND: str 
 
     resend_api_key: str
     resend_app_url: str
