@@ -240,6 +240,15 @@ class RedisClient:
                 self.client.set(key, value)
         self._safe(_do)
 
+    def set_nx(self, key: str, value: Any, expire: int) -> bool:
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, default=str)
+        def _do():
+            # redis-py set(nx=True, ex=seconds) returns True if set, None if key exists
+            result = self.client.set(key, value, nx=True, ex=expire)
+            return result is True
+        return self._safe(_do, default=False)
+    
     def get(self, key: str) -> Optional[Any]:
         def _do():
             value = self.client.get(key)
