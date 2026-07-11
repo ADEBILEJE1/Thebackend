@@ -91,7 +91,8 @@ class CustomerService:
     def send_login_pin(email: str) -> bool:
         pin = CustomerService.generate_pin()
         redis_client.set(f"login_pin:{email}", pin, 600)
-        
+        key = os.getenv("RESEND_API_KEY")
+        print(f"KEY: '{key}' LEN: {len(key) if key else 0}")
         try:
             resend.Emails.send({
                 "from": "noreply@lebanstreet.com",
