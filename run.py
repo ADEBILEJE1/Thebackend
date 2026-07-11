@@ -1,5 +1,7 @@
 import uvicorn
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from app.main import app
 from app.utils.cache_warmer import warm_all_caches
 import asyncio

@@ -618,7 +618,7 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
         
         # Lock to prevent race conditions
         processing_lock = f"processing:{invoice_reference}"
-        lock_acquired = redis_client.set_nx(processing_lock, "locked", ex=60)
+        lock_acquired = redis_client.set_nx(processing_lock, "locked", expire=60)
         print(f"🔍 Lock acquired: {lock_acquired}")
 
         if not lock_acquired:
