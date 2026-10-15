@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request, Query, UploadFile, File
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, model_validator
 from enum  import Enum
 from decimal import Decimal
 import uuid
@@ -44,8 +44,24 @@ class CategoryUpdate(BaseModel):
 class ProductOptionInline(BaseModel):
     name: str = Field(max_length=100)
     display_order: int = Field(default=0, ge=0)
+class DiscountType(str, Enum):
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
 
-class ProductCreate(BaseModel):
+class SaleFields(BaseModel):
+    is_sale: Optional[bool] = None
+    discount_type: Optional[DiscountType] = None
+    discount_value: Optional[Decimal] = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_sale(self):
+        if self.is_sale is None and (self.discount_type or self.discount_value):
+            raise ValueError("is_sale must be sent along with discount fields")
+        if self.discount_type == DiscountType.PERCENTAGE and self.discount_value and self.discount_value > 100:
+            raise ValueError("Percentage discount cannot exceed 100")
+        return self
+
+class ProductCreate(SaleFields):
     name: str = Field(..., max_length=200)
     supplier_id: Optional[str] = None
     sku: Optional[str] = None
@@ -63,7 +79,7 @@ class ProductCreate(BaseModel):
     has_options: bool = False
     options: Optional[List[ProductOptionInline]] = []
 
-class ProductUpdate(BaseModel):
+class ProductUpdate(SaleFields):
     name: Optional[str] = Field(None, max_length=200)
     category_id: Optional[str] = None
     sku: Optional[str] = None
@@ -305,7 +321,31 @@ async def create_category(
 
     return {"message": "Category created", "data": result.data[0]}
 
+def build_sale_columns(sale: SaleFields, price: Decimal, user_id: str, current: Optional[dict] = None) -> dict:
+    """Returns the DB columns to write, or {} if the sale fields are untouched."""
+    if sale.is_sale is None:
+        return {}
 
+    current = current or {}
+    d_type = sale.discount_type.value if sale.discount_type else current.get("discount_type")
+    d_value = sale.discount_value if sale.discount_value is not None else current.get("discount_value")
+
+    if sale.is_sale:
+        if d_type is None or d_value is None:
+            raise HTTPException(400, "discount_type and discount_value are required to start a sale")
+        d_value = Decimal(str(d_value))
+        if d_type == "percentage" and d_value > 100:
+            raise HTTPException(400, "Percentage discount cannot exceed 100")
+        if d_type == "fixed" and d_value >= price:
+            raise HTTPException(400, "Fixed discount must be less than the product price")
+
+    return {
+        "is_sale": sale.is_sale,
+        "discount_type": d_type,
+        "discount_value": float(d_value) if d_value is not None else None,
+        "sale_updated_by": user_id,
+        "sale_updated_at": get_nigerian_time().isoformat(),
+    }
 
 @router.get("/categories", response_model=List[dict])
 async def get_categories(
@@ -373,13 +413,15 @@ async def create_product(
        main_product = supabase.table("products").select("id, product_type").eq("id", product.main_product_id).execute()
        if not main_product.data:
            raise HTTPException(status_code=404, detail="Main product not found")
-       
+       if product.is_sale:
+            raise HTTPException(status_code=400, detail="Discounts can only be applied to main products")
        if main_product.data[0]["product_type"] != "main":
            raise HTTPException(status_code=400, detail="Can only link to main products")
    
    elif product.product_type == "main" and product.main_product_id:
        raise HTTPException(status_code=400, detail="Main products cannot have a main product reference")
-   
+    
+
    # Check SKU uniqueness if provided
    if product.sku and product.supplier_id:
        existing_sku = supabase.table("products").select("id").eq("sku", product.sku).eq("supplier_id", product.supplier_id).execute()
@@ -393,18 +435,19 @@ async def create_product(
    elif product.units > 0:
        status = StockStatus.LOW_STOCK
    
-   product_dict = product.dict(exclude={"options"})
+   product_dict = product.dict(exclude={"options", "is_sale", "discount_type", "discount_value"})
    product_dict["price"] = float(product_dict["price"])
    product_dict["tax_per_unit"] = float(product_dict["tax_per_unit"])
-   
+
    product_data = {
-       **product_dict,
-       "name": product.name,
-       "description": product.description,
-       "status": status,
-       "has_options": product.has_options,
-       "created_by": current_user["id"],
-       "updated_by": current_user["id"]
+        **product_dict,
+        "name": product.name,
+        "description": product.description,
+        "status": status,
+        "has_options": product.has_options,
+        "created_by": current_user["id"],
+        "updated_by": current_user["id"],
+        **build_sale_columns(product, product.price, current_user["id"]),
    }
    
    result = supabase_admin.table("products").insert(product_data).execute()
@@ -523,7 +566,12 @@ async def update_product(
     current_user: dict = Depends(require_inventory_staff)
 ):
  
-    current_product = supabase.table("products").select("name").eq("id", product_id).maybe_single().execute()
+    current_product = (
+    supabase.table("products")
+    .select("name, price, product_type, is_sale, discount_type, discount_value")
+    .eq("id", product_id).maybe_single().execute()
+    )
+
     if not current_product.data:
         raise HTTPException(status_code=404, detail="Product not found")
 
@@ -538,11 +586,24 @@ async def update_product(
                 detail="A product with this name already exists"
             )
 
-    
+    effective_type = update.product_type or current_product.data["product_type"]
+
+    if effective_type == "extra":
+        if update.is_sale:
+            raise HTTPException(status_code=400, detail="Discounts can only be applied to main products")
+        # A main product with an active sale is being converted to an extra: end the sale
+        if current_product.data["is_sale"]:
+            update.is_sale = False
+    sale_cols = build_sale_columns(
+    update, Decimal(str(current_product.data["price"])), current_user["id"], current_product.data
+    )
+
     final_updates = {
-        k: v for k, v in updates.items() 
-        if k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit"]
+        k: v for k, v in updates.items()
+        if k not in ["change_reason", "effective_date", "options", "price", "tax_per_unit",
+                    "is_sale", "discount_type", "discount_value"]
     }
+    final_updates.update(sale_cols)
     
    
     if final_updates:
@@ -564,7 +625,12 @@ async def update_product(
     invalidate_product_cache(product_id)
     redis_client.delete_pattern("website:products:*")
     
-    return {"message": "Product updated"}
+    return {
+    "message": "Product updated",
+    "is_sale": sale_cols.get("is_sale", current_product.data["is_sale"]),
+    "discount_type": sale_cols.get("discount_type", current_product.data["discount_type"]),
+    "discount_value": sale_cols.get("discount_value", current_product.data["discount_value"]),
+    }
 
 
 

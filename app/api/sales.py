@@ -7,7 +7,7 @@ import uuid
 from collections import defaultdict
 from fastapi import Security, HTTPException, Depends
 from fastapi.security import APIKeyHeader
-
+from ..core.pricing import sale_fields_for_display
 import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
 
@@ -202,6 +202,7 @@ async def get_products_for_website(
             "id": product["id"],
             "name": display_name,
             "price": float(product["price"]),
+            **sale_fields_for_display(product),
             "description": product["description"],
             "image_url": product["image_url"],
             "available_stock": product["units"],
@@ -315,6 +316,7 @@ async def search_products_for_sales(
             "id": product["id"],
             "name": display_name,
             "price": float(product["price"]),
+            **sale_fields_for_display(product),
             "description": product["description"],
             "image_url": product["image_url"],
             "available_stock": product["units"],
