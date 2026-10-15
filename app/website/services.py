@@ -18,7 +18,7 @@ from urllib3.poolmanager import PoolManager
 import math
 import requests
 import base64
-
+from ..core.pricing import compute_unit_price
 import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
 
@@ -299,7 +299,8 @@ class CartService:
                     if not option.data:
                         raise ValueError(f"Invalid option for {product_data['name']}")
             
-            final_price = Decimal(str(product_data["price"]))
+            original_price = Decimal(str(product_data["price"]))
+            final_price = compute_unit_price(product_data)
             
             # Add main product
             processed_items.append({
@@ -308,6 +309,8 @@ class CartService:
                 "options": options,
                 "quantity": total_quantity,
                 "unit_price": final_price,
+                "original_unit_price": original_price,                 # new
+                "discount_per_unit": original_price - final_price,     # new
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
                 "total_price": final_price * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
@@ -347,8 +350,10 @@ class CartService:
                     "options": [],
                     "quantity": extra_quantity,
                     "unit_price": extra_price,
-                    "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
-                    "total_price": extra_price * extra_quantity,
+                    "original_unit_price": extra_price,
+                    "discount_per_unit": Decimal("0"),   
+                    "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
+                    "total_price": final_price * total_quantity,
                     "preparation_time_minutes": extra_data.get("preparation_time_minutes", 15),
                     "notes": extra.get("notes"),
                     "is_extra": True
@@ -356,18 +361,28 @@ class CartService:
         
         return processed_items
     
+    _MONEY_KEYS = ("unit_price", "total_price", "tax_per_unit", "original_unit_price", "discount_per_unit")
+
+    @staticmethod
+    def serialize_items(items: List[Dict]) -> List[Dict]:
+        return [{**i, **{k: str(i[k]) for k in CartService._MONEY_KEYS if k in i}} for i in items]
+
+    @staticmethod
+    def deserialize_items(items: List[Dict]) -> List[Dict]:
+        return [{**i, **{k: Decimal(str(i[k])) for k in CartService._MONEY_KEYS if k in i}} for i in items]
 
     @staticmethod
     async def calculate_checkout_total(orders: List[Dict]) -> Dict[str, Any]:
         """Single source of truth for all checkout calculations"""
         total_subtotal = Decimal('0')
         total_vat = Decimal('0')
+        total_discount = Decimal('0')
         delivery_fees_by_area = {}
         
         for order in orders:
             processed_items = await CartService.validate_cart_items(order.get("items", []))
             totals = CartService.calculate_order_total(processed_items)
-            
+            total_discount += totals["discount"]
             total_subtotal += totals["subtotal"]
             total_vat += totals["tax"]
             
@@ -392,7 +407,7 @@ class CartService:
             "vat": total_vat,
             "delivery": total_delivery,
             "total": grand_total,
-            # Also include float versions for JSON response
+            "total_discount_float": float(total_discount),
             "subtotal_float": float(total_subtotal),
             "vat_float": float(total_vat),
             "delivery_float": float(total_delivery),
@@ -405,17 +420,23 @@ class CartService:
     def calculate_order_total(items: List[Dict]) -> Dict[str, Decimal]:
         """Calculate order totals using per-product tax rates"""
         subtotal = sum(item["total_price"] for item in items)
-        
-        # Calculate tax based on individual product tax rates
+
         vat = sum(
-            Decimal(str(item["tax_per_unit"])) * item["quantity"] 
+            Decimal(str(item["tax_per_unit"])) * item["quantity"]
             for item in items
         )
-        
+
+        # Savings from active sales (extras and non-sale items contribute 0)
+        discount = sum(
+            (Decimal(str(item.get("discount_per_unit", 0))) * item["quantity"] for item in items),
+            Decimal("0"),
+        )
+
         return {
             "subtotal": subtotal,
             "tax": vat,
-            "total": subtotal + vat
+            "total": subtotal + vat,
+            "discount": discount,
         }
     
     @staticmethod

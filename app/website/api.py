@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks
 
 import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
-
+from ..core.pricing import sale_fields_for_display
 from .models import *
 from .services import CustomerService, DeliveryService, CartService, AddressService, EmailService
 from ..database import supabase, supabase_admin
@@ -128,7 +128,8 @@ async def get_products_for_website(
             "has_options": product.get("has_options", False),
             "options": options,
             "extras": extras,
-            "category": category
+            "category": category,
+            **sale_fields_for_display(product),
         })
     
     # result.sort(key=lambda x: (x["category"]["name"], x["name"]))
@@ -357,10 +358,12 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
                 "order_index": idx,
                 "items": [
                     {
-                        "product_name": item["product_name"],
-                        "quantity": item["quantity"],
-                        "unit_price": float(item["unit_price"]),
-                        "total_price": float(item["total_price"])
+                            "product_name": item["product_name"],
+                            "quantity": item["quantity"],
+                            "unit_price": float(item["unit_price"]),
+                            "original_unit_price": float(item["original_unit_price"]),
+                            "discount_per_unit": float(item["discount_per_unit"]),
+                            "total_price": float(item["total_price"])
                     }
                     for item in processed_items
                 ],
@@ -371,7 +374,8 @@ async def get_checkout_summary(checkout_data: CheckoutRequest):
         
         return {
             "orders": order_summaries,
-            "total_subtotal": totals["subtotal_float"], 
+            "total_subtotal": totals["subtotal_float"],
+            "total_discount": totals["total_discount_float"],   # new
             "total_vat": totals["vat_float"],
             "total_delivery": totals["delivery_float"],
             "grand_total": totals["total_float"]
@@ -484,20 +488,31 @@ async def create_payment_account(
     if not session_data:
         raise HTTPException(status_code=401, detail="Invalid session")
     
-    # ========== USE SAME CALCULATION AS CHECKOUT ==========
+    # after the "Price mismatch" check
     try:
         calculated_totals = await CartService.calculate_checkout_total(
             [order.dict() for order in payment_data.orders]
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-    # Validate client sent correct total
+
     if abs(Decimal(str(calculated_totals["total"])) - Decimal(str(payment_data.total_amount))) > Decimal('0.01'):
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Price mismatch. Expected: {calculated_totals['total']}, Got: {payment_data.total_amount}"
         )
+
+    # snapshot, only after the total has been verified
+    try:
+        priced_orders = []
+        for order in payment_data.orders:
+            items = await CartService.validate_cart_items([i.dict() for i in order.items])
+            priced_orders.append({
+                **order.dict(),
+                "priced_items": CartService.serialize_items(items),
+            })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     # ========== END VALIDATION ==========
     
     # payment_reference = f"tranx-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}-{str(uuid4())[:6]}"
@@ -515,7 +530,7 @@ async def create_payment_account(
             "payment_reference": payment_reference,
             "invoice_reference": account_data["invoice_reference"],
             "customer_id": session_data["customer_id"],
-            "orders": [order.dict() for order in payment_data.orders],
+            "orders": priced_orders,
             "amount": float(payment_data.total_amount),
             "status": "pending",
             "created_at": get_nigerian_time().isoformat()
@@ -648,9 +663,13 @@ async def verify_payment(invoice_reference: str, background_tasks: BackgroundTas
             batch_created_at = get_nigerian_time().isoformat()
            
             for order_data in payment_session["orders"]:
-                processed_items = await CartService.validate_cart_items(order_data["items"])
+                if "priced_items" in order_data:
+                    processed_items = CartService.deserialize_items(order_data["priced_items"])
+                else:
+                    processed_items = await CartService.validate_cart_items(order_data["items"])
                 totals = CartService.calculate_order_total(processed_items)
                 all_items.extend(processed_items)
+
 
                 for item in processed_items:
                     item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
@@ -1111,7 +1130,8 @@ async def get_search_suggestions(q: str = Query(min_length=2)):
             "options": formatted_options,
             "category": category,
             "extras": formatted_extras,
-            "status": product["status"]
+            "status": product["status"],
+            **sale_fields_for_display(product),
         })
     
     redis_client.set(cache_key, result_products, 60)

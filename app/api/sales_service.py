@@ -12,6 +12,7 @@ from ..services.redis import redis_client
 from ..core.cache import CacheKeys
 from ..models.order import OrderType, OrderStatus, PaymentStatus
 from ..models.user import UserRole
+from ..core.pricing import compute_unit_price
 
 
 
@@ -971,14 +972,19 @@ class SalesService:
                     if not option.data:
                         raise ValueError(f"Invalid option for {product_data['name']}")
             
+            original_price = Decimal(str(product_data["price"]))
+            unit_price = compute_unit_price(product_data)
+
             processed_items.append({
                 "product_id": item["product_id"],
                 "product_name": product_data["name"],
                 "options": options,
                 "quantity": total_quantity,
-                "unit_price": Decimal(str(product_data["price"])),
+                "unit_price": unit_price,
+                "original_unit_price": original_price,
+                "discount_per_unit": original_price - unit_price,
                 "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
-                "total_price": Decimal(str(product_data["price"])) * total_quantity,
+                "total_price": unit_price * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes"),
                 "is_extra": False
@@ -1000,6 +1006,8 @@ class SalesService:
                         "options": [],
                         "quantity": extra["quantity"],
                         "unit_price": extra_price,
+                        "original_unit_price": extra_price,
+                        "discount_per_unit": Decimal("0"),
                         "tax_per_unit": Decimal(str(extra_data.get("tax_per_unit", 0))),
                         "total_price": extra_price * extra["quantity"],
                         "preparation_time_minutes": extra_data.get("preparation_time_minutes", 15),
