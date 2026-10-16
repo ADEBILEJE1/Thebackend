@@ -20,3 +20,11 @@ def sale_fields_for_display(product: dict) -> dict:
         "discount_type": product.get("discount_type") if on else None,
         "discount_value": float(product["discount_value"]) if on and product.get("discount_value") is not None else None,
     }
+
+def compute_unit_tax(product: dict, unit_price: Decimal) -> Decimal:
+    """Tax per unit, scaled to the price actually charged (so a discount lowers the tax too)."""
+    base_tax = Decimal(str(product.get("tax_per_unit") or 0))
+    base_price = Decimal(str(product["price"]))
+    if base_tax <= 0 or base_price <= 0 or unit_price == base_price:
+        return base_tax
+    return (base_tax * unit_price / base_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
