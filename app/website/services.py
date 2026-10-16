@@ -18,7 +18,7 @@ from urllib3.poolmanager import PoolManager
 import math
 import requests
 import base64
-from ..core.pricing import compute_unit_price, compute_unit_tax
+from ..core.pricing import compute_unit_price
 import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
 
@@ -311,7 +311,7 @@ class CartService:
                 "unit_price": final_price,
                 "original_unit_price": original_price,                 # new
                 "discount_per_unit": original_price - final_price,     # new
-                "tax_per_unit": compute_unit_tax(product_data, final_price),
+                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
                 "total_price": final_price * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes"),

@@ -12,7 +12,7 @@ from ..services.redis import redis_client
 from ..core.cache import CacheKeys
 from ..models.order import OrderType, OrderStatus, PaymentStatus
 from ..models.user import UserRole
-from ..core.pricing import compute_unit_price, compute_unit_tax
+from ..core.pricing import compute_unit_price
 
 
 
@@ -983,7 +983,7 @@ class SalesService:
                 "unit_price": unit_price,
                 "original_unit_price": original_price,
                 "discount_per_unit": original_price - unit_price,
-                "tax_per_unit": compute_unit_tax(product_data, unit_price),
+                "tax_per_unit": Decimal(str(product_data.get("tax_per_unit", 0))),
                 "total_price": unit_price * total_quantity,
                 "preparation_time_minutes": product_data.get("preparation_time_minutes", 15),
                 "notes": item.get("notes"),
