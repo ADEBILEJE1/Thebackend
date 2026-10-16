@@ -290,6 +290,151 @@ class RawMaterialStockUpdate(BaseModel):
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
+class BulkSaleApply(BaseModel):
+    discount_type: DiscountType
+    discount_value: Decimal = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_bulk_sale(self):
+        # 100% would make products free; the frontend treats that as "no sale"
+        if self.discount_type == DiscountType.PERCENTAGE and self.discount_value >= 100:
+            raise ValueError("Percentage discount must be less than 100")
+        return self
+
+
+def _chunks(items: list, size: int = 100):
+    """Keeps .in_() filters short enough for the request URL."""
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def _clear_sale_caches():
+    for pattern in (
+        "website:products:*",   # website menu + /sales/products (same prefix)
+        "products:list:*",      # admin product list
+        "sales:products:*",     # POS product search
+        "search:suggestions:*", # website search dropdown
+    ):
+        redis_client.delete_pattern(pattern)
+
+
+@router.post("/bulk-sale")
+async def apply_bulk_sale(
+    sale: BulkSaleApply,
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """Put ALL main products on the selected sale (replaces any existing sale on them)."""
+    mains = (
+        supabase_admin.table("products")
+        .select("id, price")
+        .eq("product_type", "main")
+        .execute()
+        .data
+    )
+    if not mains:
+        raise HTTPException(status_code=404, detail="No main products found")
+
+    value = sale.discount_value
+
+    # A fixed discount must stay below the price, so cheaper products are skipped
+    if sale.discount_type == DiscountType.FIXED:
+        eligible = [p["id"] for p in mains if Decimal(str(p["price"])) > value]
+    else:
+        eligible = [p["id"] for p in mains]
+
+    eligible_set = set(eligible)
+    skipped = [p["id"] for p in mains if p["id"] not in eligible_set]
+
+    if not eligible:
+        raise HTTPException(
+            status_code=400,
+            detail="The fixed discount is not lower than the price of any main product"
+        )
+
+    now = get_nigerian_time().isoformat()
+
+    sale_payload = {
+        "is_sale": True,
+        "discount_type": sale.discount_type.value,
+        "discount_value": float(value),
+        "sale_updated_by": current_user["id"],
+        "sale_updated_at": now,
+        "updated_by": current_user["id"],
+        "updated_at": now,
+    }
+    for chunk in _chunks(eligible):
+        supabase_admin.table("products").update(sale_payload).in_("id", chunk).execute()
+
+    # Skipped products must not keep an older, different sale running
+    if skipped:
+        end_payload = {
+            "is_sale": False,
+            "sale_updated_by": current_user["id"],
+            "sale_updated_at": now,
+            "updated_by": current_user["id"],
+            "updated_at": now,
+        }
+        for chunk in _chunks(skipped):
+            supabase_admin.table("products").update(end_payload).in_("id", chunk).execute()
+
+    _clear_sale_caches()
+
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "bulk_sale_apply", "product", None,
+        {
+            "discount_type": sale.discount_type.value,
+            "discount_value": float(value),
+            "applied": len(eligible),
+            "skipped": len(skipped),
+        },
+        request
+    )
+
+    return {
+        "message": f"Sale applied to {len(eligible)} main products",
+        "applied": len(eligible),
+        "skipped": len(skipped),
+        "discount_type": sale.discount_type.value,
+        "discount_value": float(value),
+    }
+
+
+@router.delete("/bulk-sale")
+async def end_bulk_sale(
+    request: Request,
+    current_user: dict = Depends(require_inventory_staff)
+):
+    """End the sale on every main product that is currently on sale."""
+    now = get_nigerian_time().isoformat()
+
+    result = (
+        supabase_admin.table("products")
+        .update({
+            "is_sale": False,
+            "sale_updated_by": current_user["id"],
+            "sale_updated_at": now,
+            "updated_by": current_user["id"],
+            "updated_at": now,
+        })
+        .eq("product_type", "main")
+        .eq("is_sale", True)
+        .execute()
+    )
+    ended = len(result.data or [])
+
+    _clear_sale_caches()
+
+    await log_activity(
+        current_user["id"], current_user["email"], current_user["role"],
+        "bulk_sale_end", "product", None,
+        {"ended": ended},
+        request
+    )
+
+    return {"message": f"Sale ended on {ended} main products", "ended": ended}
+
 
 def get_nigerian_time():
     return datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
