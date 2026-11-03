@@ -18,11 +18,11 @@ class Settings(BaseSettings):
     resend_api_key: str
     resend_app_url: str
 
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = "production"
 
     MONNIFY_ACCOUNT_NAME: str = "LB" 
 
-    MONNIFY_ENVIRONMENT: str = "sandbox"
+    MONNIFY_ENVIRONMENT: str = "production"
     MONNIFY_API_KEY: str
     MONNIFY_SECRET_KEY: str
     MONNIFY_CONTRACT_CODE: str

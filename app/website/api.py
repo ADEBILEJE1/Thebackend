@@ -8,7 +8,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from fastapi import BackgroundTasks
-
+import httpx
 import pytz
 NIGERIA_TZ = pytz.timezone('Africa/Lagos')
 from ..core.pricing import sale_fields_for_display
@@ -23,7 +23,240 @@ from ..config import settings
 
 
 router = APIRouter(prefix="/website", tags=["Website"])
-
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _orders_by_ids(order_ids: list) -> list:
+    """Fetch orders for a list of ids."""
+    if not order_ids:
+        return []
+    result = supabase_admin.table("orders").select("*").in_("id", order_ids).execute()
+    return result.data or []
+ 
+ 
+async def resolve_payment(invoice_reference: str, session: dict) -> dict:
+    """
+    Decide whether a payment is genuinely PAID, using two independent sources:
+      1. Monnify's transaction query API (we ask them directly)
+      2. The signed webhook data saved on the payment session earlier
+ 
+    Status AND amount always come from the same source, so one source can
+    never confirm the status while the other supplies a missing amount.
+    """
+    expected = float(session["amount"])
+ 
+    # Source 1: ask Monnify directly
+    api = {"paid": False, "amount": 0.0, "tx_ref": None}
+    try:
+        token = await MonnifyService.get_access_token()
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{settings.MONNIFY_BASE_URL}/api/v1/merchant/transactions/query",
+                params={"paymentReference": invoice_reference},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            body = resp.json().get("responseBody", {}) or {}
+            api = {
+                "paid": body.get("paymentStatus") == "PAID",
+                "amount": float(body.get("amountPaid") or 0),
+                "tx_ref": body.get("transactionReference"),
+            }
+        else:
+            print(f"⚠️ Monnify query returned {resp.status_code}: {resp.text}")
+    except Exception as e:
+        print(f"⚠️ Monnify query failed, falling back to webhook data: {e}")
+ 
+    # Source 2: the signed webhook saved on the session
+    event = (session.get("webhook_data") or {}).get("eventData", {}) or {}
+    hook = {
+        "paid": session.get("webhook_status") == "PAID",
+        "amount": float(event.get("amountPaid") or 0),
+        "tx_ref": event.get("transactionReference") or session.get("transaction_reference"),
+    }
+ 
+    print(f"🔍 Monnify API -> {api}")
+    print(f"🔍 Webhook     -> {hook}")
+ 
+    # Accept whichever source confirms PAID with a sufficient amount
+    for source, data in (("monnify_api", api), ("webhook", hook)):
+        if data["paid"] and data["amount"] >= expected:
+            return {
+                "paid": True,
+                "source": source,
+                "transaction_reference": data["tx_ref"] or invoice_reference,
+            }
+ 
+    if api["paid"] or hook["paid"]:
+        return {"paid": False, "message": "Incorrect amount received"}
+    return {"paid": False, "message": "No payment received yet"}
+ 
+ 
+def _rollback_orders(order_ids: list, item_ids: list) -> None:
+    """Best-effort cleanup if order creation fails halfway."""
+    try:
+        if item_ids:
+            supabase_admin.table("order_item_options").delete().in_("order_item_id", item_ids).execute()
+            supabase_admin.table("order_items").delete().in_("id", item_ids).execute()
+        if order_ids:
+            supabase_admin.table("orders").delete().in_("id", order_ids).execute()
+    except Exception as e:
+        print(f"❌ Rollback failed, manual cleanup needed for orders {order_ids}: {e}")
+ 
+ 
+async def fulfill_payment(
+    invoice_reference: str,
+    transaction_reference: str,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Create orders for a confirmed payment. Safe to call from both the verify
+    endpoint and the webhook: only one caller does the work, and the other
+    gets the existing orders back.
+ 
+    Returns:
+        list of orders on success
+        None if another request currently holds the lock
+    """
+    lock_key = f"processing:{invoice_reference}"
+    lock_acquired = redis_client.set_nx(lock_key, "locked", expire=60)
+    print(f"🔍 Lock acquired: {lock_acquired}")
+    if not lock_acquired:
+        return None
+ 
+    created_order_ids: list = []
+    created_item_ids: list = []
+ 
+    try:
+        # Re-read everything INSIDE the lock so we never act on stale data
+        payment_session = redis_client.get(f"payment:{invoice_reference}")
+        if not payment_session:
+            raise HTTPException(status_code=404, detail="Payment session not found")
+ 
+        existing = supabase_admin.table("orders").select("*").eq(
+            "payment_reference", payment_session["payment_reference"]
+        ).execute()
+        if existing.data:
+            if payment_session.get("status") != "completed":
+                payment_session["status"] = "completed"
+                payment_session["orders_created"] = [o["id"] for o in existing.data]
+                redis_client.set(f"payment:{invoice_reference}", payment_session, 86400)
+            return existing.data
+ 
+        created_orders = []
+        all_items = []
+        batch_id = CartService.generate_batch_id()
+        batch_created_at = get_nigerian_time().isoformat()
+ 
+        try:
+            for order_data in payment_session["orders"]:
+                if "priced_items" in order_data:
+                    processed_items = CartService.deserialize_items(order_data["priced_items"])
+                else:
+                    processed_items = await CartService.validate_cart_items(order_data["items"])
+                totals = CartService.calculate_order_total(processed_items)
+                all_items.extend(processed_items)
+ 
+                for item in processed_items:
+                    item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
+ 
+                address = supabase_admin.table("customer_addresses").select(
+                    "*, delivery_areas(delivery_fee)"
+                ).eq("id", order_data["delivery_address_id"]).execute()
+                delivery_fee = (
+                    float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
+                )
+ 
+                order_entry = {
+                    "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
+                    "order_type": "online",
+                    "status": "confirmed",
+                    "payment_status": "paid",
+                    "batch_id": batch_id,
+                    "batch_created_at": batch_created_at,
+                    "payment_reference": payment_session["payment_reference"],
+                    "monnify_transaction_ref": transaction_reference,
+                    "subtotal": float(totals["subtotal"]),
+                    "tax": float(totals["tax"]),
+                    "delivery_fee": delivery_fee,
+                    "total": float(totals["total"]) + delivery_fee,
+                    "website_customer_id": payment_session["customer_id"],
+                    "delivery_address_id": order_data["delivery_address_id"],
+                    "confirmed_at": get_nigerian_time().isoformat(),
+                }
+ 
+                created_order = supabase_admin.table("orders").insert(order_entry).execute()
+                order_id = created_order.data[0]["id"]
+                created_order_ids.append(order_id)
+ 
+                datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                order_number = f"LEBANST-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
+ 
+                updated_order = supabase_admin.table("orders").update(
+                    {"order_number": order_number}
+                ).eq("id", order_id).execute()
+ 
+                for item in processed_items:
+                    item_data = {
+                        "order_id": order_id,
+                        "product_id": item["product_id"],
+                        "product_name": item["product_name"],
+                        "quantity": item["quantity"],
+                        "unit_price": float(item["unit_price"]),
+                        "total_price": float(item["total_price"]),
+                        "notes": item.get("notes"),
+                        "is_extra": item.get("is_extra", False),
+                    }
+                    result = supabase_admin.table("order_items").insert(item_data).execute()
+                    order_item_id = result.data[0]["id"]
+                    created_item_ids.append(order_item_id)
+ 
+                    for option_id in item.get("option_ids", []):
+                        supabase_admin.table("order_item_options").insert({
+                            "id": str(uuid.uuid4()),
+                            "order_item_id": order_item_id,
+                            "option_id": option_id,
+                        }).execute()
+ 
+                created_orders.append(updated_order.data[0])
+ 
+        except Exception:
+            # Don't leave half-built paid orders behind; a retry can start clean
+            _rollback_orders(created_order_ids, created_item_ids)
+            raise
+ 
+        # Stock deduction: orders are already saved, so don't undo them if this fails
+        try:
+            await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
+        except Exception as e:
+            print(f"❌ STOCK DEDUCTION FAILED for {invoice_reference}, fix manually: {e}")
+            payment_session["stock_deduction_failed"] = True
+ 
+        customer = supabase_admin.table("website_customers").select(
+            "email, full_name"
+        ).eq("id", payment_session["customer_id"]).execute()
+        if customer.data:
+            background_tasks.add_task(
+                EmailService.send_order_confirmation_batch,
+                customer.data[0]["email"],
+                created_orders,
+            )
+            background_tasks.add_task(
+                EmailService.send_welcome_email_task,
+                payment_session["customer_id"],
+                customer.data[0]["email"],
+                customer.data[0]["full_name"],
+            )
+ 
+        payment_session["status"] = "completed"
+        payment_session["orders_created"] = [o["id"] for o in created_orders]
+        payment_session["completed_at"] = get_nigerian_time().isoformat()
+        redis_client.set(f"payment:{invoice_reference}", payment_session, 86400)
+ 
+        return created_orders
+ 
+    finally:
+        redis_client.delete(lock_key)
 
 
 
@@ -333,12 +566,12 @@ async def calculate_delivery_by_area(area_id: str):
 async def get_checkout_summary(checkout_data: CheckoutRequest):
     """Get checkout summary with area-based delivery"""
 
-    current_hour = get_nigerian_time().hour
-    if current_hour < 10 or current_hour >= 23:
-        raise HTTPException(
-            status_code=400,
-            detail="We only accept orders between 10 AM and 11 PM. Please try again during operating hours."
-        )
+    # current_hour = get_nigerian_time().hour
+    # if current_hour < 12 or current_hour >= 23:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="We only accept orders between 12 PM and 11 PM. Please try again during operating hours."
+    #     )
 
     try:
        
@@ -394,12 +627,12 @@ async def complete_checkout(
 ):
     """Complete the checkout process"""
 
-    current_hour = get_nigerian_time().hour
-    if current_hour < 10 or current_hour >= 23:
-        raise HTTPException(
-            status_code=400,
-            detail="We only accept orders between 10 AM and 11 PM. Please try again during operating hours."
-        )
+    # current_hour = get_nigerian_time().hour
+    # if current_hour < 12 or current_hour >= 23:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="We only accept orders between 12 PM and 11 PM. Please try again during operating hours."
+    #     )
     
     session_data = redis_client.get(f"customer_session:{session_token}")
     if not session_data:
@@ -553,267 +786,117 @@ async def create_payment_account(
 
 @router.get("/payment/verify/{invoice_reference}")
 async def verify_payment(invoice_reference: str, background_tasks: BackgroundTasks):
-    """Verify payment status"""
+    """Verify payment status using Monnify's API and the signed webhook data."""
     try:
         payment_session = redis_client.get(f"payment:{invoice_reference}")
-        print(f"🔍 Payment session status: {payment_session.get('status')}")
         if not payment_session:
             raise HTTPException(status_code=404, detail="Payment session not found")
-        
-        # Check if already completed
+ 
+        print(f"🔍 Payment session status: {payment_session.get('status')}")
+ 
+        # Already completed: return the existing orders
         if payment_session.get("status") == "completed":
-            existing_orders = payment_session.get("orders_created", [])
-            if existing_orders:
-                orders_data = []
-                for order_id in existing_orders:
-                    order = supabase_admin.table("orders").select("*").eq("id", order_id).execute()
-                    if order.data:
-                        orders_data.append(order.data[0])
-                
+            orders = _orders_by_ids(payment_session.get("orders_created", []))
+            if orders:
                 return {
                     "payment_status": "success",
                     "message": "Payment already processed",
-                    "orders": orders_data
+                    "orders": orders,
+                    "tracking_references": [o["order_number"] for o in orders],
                 }
-        
-        # Check invoice status with Monnify
-        access_token = await MonnifyService.get_access_token()
-        
-        url = f"{settings.MONNIFY_BASE_URL}/api/v1/merchant/transactions/query?paymentReference={invoice_reference}"
-        
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=30
+ 
+        # Decide if it's paid, using the API and the webhook together
+        result = await resolve_payment(invoice_reference, payment_session)
+        if not result["paid"]:
+            return {"payment_status": "pending", "message": result["message"]}
+ 
+        print(f"✅ Payment confirmed via {result['source']}")
+ 
+        orders = await fulfill_payment(
+            invoice_reference, result["transaction_reference"], background_tasks
         )
-        
-        if response.status_code != 200:
-            return {
-                "payment_status": "pending",
-                "message": "Payment verification failed"
-            }
-        
-        invoice_data = response.json().get("responseBody", {})
-        invoice_status = invoice_data.get("paymentStatus")
-        if not invoice_status or invoice_status != "PAID":
-            invoice_status = payment_session.get("webhook_status")
-
-
-        print(f"🔍 Monnify API status: {invoice_data.get('paymentStatus')}")
-        print(f"🔍 Webhook status: {payment_session.get('webhook_status')}")
-        print(f"🔍 Final invoice_status: {invoice_status}")
-
-
-        if invoice_status != "PAID":
-            return {
-                "payment_status": "pending",
-                "message": "No payment received yet"
-            }
-        
-        # Check amount
-        amount_paid = float(invoice_data.get("amountPaid", 0))
-        expected_amount = float(payment_session["amount"])
-        if amount_paid < expected_amount:
-            return {
-                "payment_status": "pending",
-                "message": "Incorrect amount received"
-            }
-        
-        # Check if orders already exist for this payment reference
-        existing_orders = supabase_admin.table("orders").select("*").eq(
-            "payment_reference", payment_session["payment_reference"]
-        ).execute()
-        
-        if existing_orders.data:
-            return {
-                "payment_status": "success",
-                "message": "Payment already processed",
-                "orders": existing_orders.data
-            }
-        
-        # Lock to prevent race conditions
-        processing_lock = f"processing:{invoice_reference}"
-        lock_acquired = redis_client.client.set_nx(processing_lock, "locked", expire=60)
-        print(f"🔍 Lock acquired: {lock_acquired}")
-
-        if not lock_acquired:
-            # Check if processing already completed by another request
-            fresh_session = redis_client.get(f"payment:{invoice_reference}")
-            if fresh_session and fresh_session.get("status") == "completed":
-                existing_orders = fresh_session.get("orders_created", [])
-                if existing_orders:
-                    orders_data = []
-                    for order_id in existing_orders:
-                        order = supabase_admin.table("orders").select("*").eq("id", order_id).execute()
-                        if order.data:
-                            orders_data.append(order.data[0])
-                    
-                    return {
-                        "payment_status": "success",
-                        "message": "Payment already processed",
-                        "orders": orders_data
-                }
-    
-            raise HTTPException(status_code=409, detail="Payment is being processed, please retry in a few seconds")
-        
-        try:
-            created_orders = []
-            all_items = []
-            batch_id = CartService.generate_batch_id()
-            batch_created_at = get_nigerian_time().isoformat()
-           
-            for order_data in payment_session["orders"]:
-                if "priced_items" in order_data:
-                    processed_items = CartService.deserialize_items(order_data["priced_items"])
-                else:
-                    processed_items = await CartService.validate_cart_items(order_data["items"])
-                totals = CartService.calculate_order_total(processed_items)
-                all_items.extend(processed_items)
-
-
-                for item in processed_items:
-                    item["option_ids"] = [opt["option_id"] for opt in item.get("options", [])]
-                    
-                address = supabase_admin.table("customer_addresses").select("*, delivery_areas(delivery_fee)").eq("id", order_data["delivery_address_id"]).execute()
-                delivery_fee = float(address.data[0]["delivery_areas"]["delivery_fee"]) if address.data else 0
-               
-                order_entry = {
-                    "order_number": f"TEMP-{get_nigerian_time().strftime('%Y%m%d%H%M%S')}",
-                    "order_type": "online",
-                    "status": "confirmed",
-                    "payment_status": "paid",
-                    "batch_id": batch_id,
-                    "batch_created_at": batch_created_at,
-                    "payment_reference": payment_session["payment_reference"],
-                    "monnify_transaction_ref": invoice_data.get("transactionReference", invoice_reference),
-                    "subtotal": float(totals["subtotal"]),
-                    "tax": float(totals["tax"]),
-                    "delivery_fee": delivery_fee,
-                    "total": float(totals["total"]) + delivery_fee,
-                    "website_customer_id": payment_session["customer_id"],
-                    "delivery_address_id": order_data["delivery_address_id"],
-                    "confirmed_at": get_nigerian_time().isoformat()
-                }
-               
-                created_order = supabase_admin.table("orders").insert(order_entry).execute()
-                order_id = created_order.data[0]["id"]
-
-                datetime_str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-                order_number = f"LEBANST-{datetime_str}-{str(order_id)[-6:].zfill(6)}"
-
-                updated_order = supabase_admin.table("orders").update({
-                    "order_number": order_number
-                }).eq("id", order_id).execute()
-               
-                for item in processed_items:
-                    item_data = {
-                        "order_id": order_id,
-                        "product_id": item["product_id"],
-                        "product_name": item["product_name"],
-                        "quantity": item["quantity"],
-                        "unit_price": float(item["unit_price"]),
-                        "total_price": float(item["total_price"]),
-                        "notes": item.get("notes"),
-                        "is_extra": item.get("is_extra", False)
-                    }
-                    result = supabase_admin.table("order_items").insert(item_data).execute()
-                    order_item_id = result.data[0]["id"]
-                    
-                    for option_id in item.get("option_ids", []):
-                        supabase_admin.table("order_item_options").insert({
-                            "id": str(uuid.uuid4()),
-                            "order_item_id": order_item_id,
-                            "option_id": option_id
-                        }).execute()
-               
-                created_orders.append(updated_order.data[0])
-
-            await SalesService.deduct_stock_immediately(all_items, payment_session["customer_id"])
-
-            customer = supabase_admin.table("website_customers").select("email, full_name").eq("id", payment_session["customer_id"]).execute()
-            if customer.data:
-                background_tasks.add_task(
-                    EmailService.send_order_confirmation_batch,
-                    customer.data[0]["email"],
-                    created_orders
-                )
-                background_tasks.add_task(
-                    EmailService.send_welcome_email_task,
-                    payment_session["customer_id"],
-                    customer.data[0]["email"],
-                    customer.data[0]["full_name"]
-                )
-           
-            payment_session["status"] = "completed"
-            payment_session["orders_created"] = [o["id"] for o in created_orders]
-            payment_session["completed_at"] = get_nigerian_time().isoformat()
-            redis_client.set(f"payment:{invoice_reference}", payment_session, 86400)
-           
-            return {
-                "payment_status": "success",
-                "orders": created_orders,
-                "tracking_references": [o["order_number"] for o in created_orders],
-            }
-        
-        finally:
-            redis_client.delete(processing_lock)
-           
+        if orders is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Payment is being processed, please retry in a few seconds",
+            )
+ 
+        return {
+            "payment_status": "success",
+            "orders": orders,
+            "tracking_references": [o["order_number"] for o in orders],
+        }
+ 
+    except HTTPException:
+        raise  
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
         import traceback
+        print(f"❌ Error: {e}")
         print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
+        raise HTTPException(status_code=500, detail="Could not verify payment")
+ 
+ 
 
 @router.post("/payment/webhook")
 async def payment_webhook(request: Request, background_tasks: BackgroundTasks):
-    """Handle Monnify payment webhook"""
-    
-    
+    """Handle Monnify payment webhook."""
+ 
+    # 1. IP allow-list (extra layer; the signature is the real protection)
     client_ip = request.client.host
-    
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
-    
-    MONNIFY_WEBHOOK_IP = settings.MONNIFY_WEBHOOK_IP
-    if client_ip != MONNIFY_WEBHOOK_IP:
+ 
+    if client_ip != settings.MONNIFY_WEBHOOK_IP:
         print(f"⚠️ UNAUTHORIZED WEBHOOK from {client_ip}")
-        return {"status": "error", "message": "Unauthorized"}
-    
-    
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    raw_body = await request.body()
+    signature = request.headers.get("monnify-signature", "")
+    if not MonnifyService.verify_monnify_signature(raw_body, signature):
+        print("⚠️ INVALID WEBHOOK SIGNATURE")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+ 
     try:
-        payload = await request.json()
-    except:
-        return {"status": "error", "message": "Invalid payload"}
-    
-   
-    signature = request.headers.get("monnify-signature")
-    if not signature or not MonnifyService.verify_monnify_signature(payload, signature):
-        print(f"⚠️ INVALID HASH: {payload}")
-        return {"status": "error", "message": "Invalid hash"}
-    
-    
-    transaction_reference = payload.get("eventData", {}).get("transactionReference")
+        payload = json.loads(raw_body)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+ 
+    transaction_reference = (payload.get("eventData") or {}).get("transactionReference")
+    if not transaction_reference:
+        raise HTTPException(status_code=400, detail="Missing transaction reference")
+ 
     
     duplicate_key = f"webhook_processed:{transaction_reference}"
     if redis_client.get(duplicate_key):
         print(f"Duplicate webhook ignored: {transaction_reference}")
         return {"status": "success", "message": "Already processed"}
-    
-    redis_client.set(duplicate_key, "processing", 600)
-    
-    # background_tasks.add_task(
-    #     MonnifyService.process_webhook_payment,
-    #     payload,
-    #     transaction_reference
-    # )
-    await MonnifyService.process_webhook_payment(payload, transaction_reference)
-    
+ 
+    try:
+        invoice_reference = await MonnifyService.process_webhook_payment(
+            payload, transaction_reference
+        )
+ 
+        if invoice_reference:
+            orders = await fulfill_payment(
+                invoice_reference, transaction_reference, background_tasks
+            )
+            if orders is None:
+                # Another request holds the lock; ask Monnify to retry later
+                raise HTTPException(status_code=503, detail="Busy, retry later")
+ 
+            redis_client.set(duplicate_key, "completed", 86400)
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"❌ Webhook processing error: {e}")
+        print(traceback.format_exc())
+        # A 500 makes Monnify retry, so a transient failure isn't lost
+        raise HTTPException(status_code=500, detail="Processing failed")
+ 
     return {"status": "success"}
-    
 
 
 
