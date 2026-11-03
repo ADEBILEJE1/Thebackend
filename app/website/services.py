@@ -11,6 +11,7 @@ import httpx
 from uuid import uuid4
 import random
 import string
+import hmac
 import hashlib
 import json
 from requests.adapters import HTTPAdapter
@@ -531,64 +532,35 @@ class AddressService:
         return result.data[0]
     
 class MonnifyService:
-
-
+ 
     class TLSAdapter(HTTPAdapter):
         def init_poolmanager(self, *args, **kwargs):
             ctx = ssl.create_default_context()
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-            kwargs['ssl_context'] = ctx
+            kwargs["ssl_context"] = ctx
             return super().init_poolmanager(*args, **kwargs)
-
-
-
+ 
     @staticmethod
     def get_base_url() -> str:
         """Get base URL based on environment"""
         return settings.MONNIFY_BASE_URL
-    
-   
-    
-
-    # @staticmethod
-    # async def get_access_token() -> str:
-    #     """Fetch access token from Monnify"""
-    #     credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
-    #     encoded_credentials = base64.b64encode(credentials.encode()).decode()
-
-    #     headers = {
-    #         "Authorization": f"Basic {encoded_credentials}",
-    #         "Content-Type": "application/json"
-    #     }
-
-    #     url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
-        
-    #     ssl_context = ssl.create_default_context()
-    #     ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        
-    #     async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
-    #         response = await client.post(url, headers=headers)
-    #         response.raise_for_status()
-    #         data = response.json()
-    #         # print(f"DEBUG Access Token Response: {data}")
-    #         return data["responseBody"]["accessToken"]
-
+ 
     @staticmethod
     async def get_access_token() -> str:
-        """Fetch access token from Monnify"""
+        """Fetch access token from Monnify (retries on timeout)"""
         credentials = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
-
+ 
         headers = {
             "Authorization": f"Basic {encoded_credentials}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-
+ 
         url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
-        
+ 
         ssl_context = ssl.create_default_context()
         ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        
+ 
         for attempt in range(3):
             try:
                 async with httpx.AsyncClient(verify=ssl_context, timeout=60.0) as client:
@@ -600,32 +572,30 @@ class MonnifyService:
                 if attempt == 2:
                     raise
                 await asyncio.sleep(2 ** attempt)
-
-
-    
-    
-    
-
+ 
     @staticmethod
     async def create_invoice(
         amount: Decimal,
         customer_email: str,
         customer_name: str,
-        payment_reference: str
+        payment_reference: str,
     ) -> Dict[str, Any]:
         access_token = await MonnifyService.get_access_token()
-        
+ 
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-
+ 
         ssl_context = ssl.create_default_context()
         ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-
+ 
         invoice_reference = payment_reference
-        expiry_date = (datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ) + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
-
+        expiry_date = (
+            datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ)
+            + timedelta(minutes=30)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+ 
         payload = {
             "amount": float(amount),
             "invoiceReference": invoice_reference,
@@ -635,22 +605,22 @@ class MonnifyService:
             "customerEmail": customer_email,
             "customerName": customer_name,
             "expiryDate": expiry_date,
-            "paymentMethods": ["ACCOUNT_TRANSFER"]
+            "paymentMethods": ["ACCOUNT_TRANSFER"],
         }
-
+ 
         async with httpx.AsyncClient(verify=ssl_context, timeout=30.0) as client:
             response = await client.post(
                 f"{MonnifyService.get_base_url()}/api/v1/invoice/create",
                 headers=headers,
-                json=payload
+                json=payload,
             )
-
+ 
         if response.status_code != 200:
             print(f"❌ Monnify invoice error: {response.status_code} - {response.text}")
             response.raise_for_status()
-
+ 
         data = response.json()["responseBody"]
-
+ 
         return {
             "payment_reference": payment_reference,
             "invoice_reference": invoice_reference,
@@ -658,126 +628,124 @@ class MonnifyService:
             "account_name": data["accountName"],
             "bank_name": data["bankName"],
             "amount": float(amount),
-            "expires_at": expiry_date
+            "expires_at": expiry_date,
         }
-
-
-
-    
-   
-        
-
-
+ 
     @staticmethod
     async def verify_payment(account_reference: str) -> Dict[str, Any]:
-        """Verify payment status by checking account transactions"""
+        """
+        Verify payment by checking reserved-account transactions.
+        NOTE: not used by the verify endpoint (it uses resolve_payment).
+        Runs blocking `requests` inside async code; wrap in
+        `asyncio.to_thread` if you start using it.
+        """
         access_token = await MonnifyService.get_access_token()
-        
+ 
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        
-        
+ 
         session = requests.Session()
-        session.mount('https://', MonnifyService.TLSAdapter())
-        
+        session.mount("https://", MonnifyService.TLSAdapter())
+ 
         try:
-            # Get account details which includes transaction info
             account_response = session.get(
                 f"{MonnifyService.get_base_url()}/api/v2/bank-transfer/reserved-accounts/{account_reference}",
                 headers=headers,
-                timeout=30
+                timeout=30,
             )
-            
-            # print(f"📊 Account Response: {account_response.text}")
-            
+ 
             if account_response.status_code == 200:
                 data = account_response.json()["responseBody"]
-                
-               
+ 
                 if data.get("transactionCount", 0) > 0 and data.get("totalAmount", 0) > 0:
-                    # Account has transactions - payment is PAID
                     return {
                         "paymentStatus": "PAID",
                         "transactionReference": account_reference,
                         "amountPaid": data.get("totalAmount"),
-                        "paidOn": data.get("createdOn")
+                        "paidOn": data.get("createdOn"),
                     }
-            
+ 
             return {"paymentStatus": "PENDING"}
-            
+ 
         except Exception as e:
             print(f"❌ Verification error: {str(e)}")
             return {"paymentStatus": "PENDING"}
-
-
+ 
     @staticmethod
-    async def process_webhook_payment(payload: Dict, transaction_reference: str):
-        """Background task for webhook processing"""
-        try:
-            payment_status = payload.get("eventData", {}).get("paymentStatus")
-            print(f"🔍 Full webhook payload: {payload}")
-            print(f"🔍 Webhook payment_status: {payment_status}")
-            
-            if payment_status != "PAID":
-                return
-            
-            # Extract invoice reference from payload
-            invoice_reference = payload.get("eventData", {}).get("paymentReference") or payload.get("eventData", {}).get("transactionReference")
-            
-            if not invoice_reference:
-                print(f"❌ No invoice reference in webhook payload")
-                return
-
-            payment_session = redis_client.get(f"payment:{invoice_reference}")
-            print(f"🔍 Webhook invoice_reference: {invoice_reference}")
-            print(f"🔍 Webhook payment_session found: {payment_session is not None}")
-            
-            if not payment_session:
-                print(f"❌ Payment session not found: {invoice_reference}")
-                return
-            
-            if payment_session.get("status") == "completed":
-                print(f"ℹ️ Payment already completed: {invoice_reference}")
-                return
-            
-            # Validate amount
-            amount_paid = float(payload.get("eventData", {}).get("amountPaid", 0))
-            expected_amount = float(payment_session["amount"])
-            if amount_paid < expected_amount:
-                print(f"⚠️ Amount mismatch: paid {amount_paid}, expected {expected_amount}")
-                return
-            
-            # payment_session["status"] = "completed"
-            payment_session["webhook_status"] = "PAID"
-            payment_session["webhook_data"] = payload
-            payment_session["transaction_reference"] = transaction_reference
-            payment_session["webhook_received_at"] = datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
-            
-            redis_client.set(f"payment:{invoice_reference}", payment_session, 3600)
-            redis_client.set(f"webhook_processed:{transaction_reference}", "completed", 86400)
-            
-        except Exception as e:
-            print(f"❌ Webhook processing error: {str(e)}")
-            redis_client.delete(f"webhook_processed:{transaction_reference}")
-
-    
+    async def process_webhook_payment(payload: Dict, transaction_reference: str) -> Optional[str]:
+        """
+        Validate a webhook and save it on the payment session.
+ 
+        Returns the invoice reference when the payment is confirmed PAID and
+        the amount is sufficient (the caller then creates the orders).
+        Returns None when there is nothing to do.
+        Exceptions are NOT swallowed: the route turns them into a 500 so
+        Monnify retries.
+        """
+        event_data = payload.get("eventData", {}) or {}
+        payment_status = event_data.get("paymentStatus")
+        print(f"🔍 Webhook payment_status: {payment_status}")
+ 
+        if payment_status != "PAID":
+            return None
+ 
+        invoice_reference = (
+            event_data.get("paymentReference") or event_data.get("transactionReference")
+        )
+        if not invoice_reference:
+            print("❌ No invoice reference in webhook payload")
+            return None
+ 
+        payment_session = redis_client.get(f"payment:{invoice_reference}")
+        print(f"🔍 Webhook invoice_reference: {invoice_reference}")
+        print(f"🔍 Webhook payment_session found: {payment_session is not None}")
+ 
+        if not payment_session:
+            print(f"❌ Payment session not found: {invoice_reference}")
+            return None
+ 
+        if payment_session.get("status") == "completed":
+            print(f"ℹ️ Payment already completed: {invoice_reference}")
+            return invoice_reference  # route will find the existing orders and finish
+ 
+        # Validate amount
+        amount_paid = float(event_data.get("amountPaid", 0))
+        expected_amount = float(payment_session["amount"])
+        if amount_paid < expected_amount:
+            print(f"⚠️ Amount mismatch: paid {amount_paid}, expected {expected_amount}")
+            return None
+ 
+        payment_session["webhook_status"] = "PAID"
+        payment_session["webhook_data"] = payload
+        payment_session["transaction_reference"] = transaction_reference
+        payment_session["webhook_received_at"] = (
+            datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(NIGERIA_TZ).isoformat()
+        )
+ 
+        # 24h, same lifetime as the rest of the flow
+        redis_client.set(f"payment:{invoice_reference}", payment_session, 86400)
+ 
+        return invoice_reference
+ 
     @staticmethod
-    def verify_monnify_signature(payload: dict, signature: str) -> bool:
-        import hashlib, hmac, json
-
-        
-        payload_str = json.dumps(payload, separators=(",", ":"))
-
+    def verify_monnify_signature(raw_body: bytes, signature: str) -> bool:
+        """
+        Verify the monnify-signature header: HMAC-SHA512 of the RAW request
+        body, keyed with your Monnify secret key. Never re-serialize the
+        parsed JSON; the bytes must be exactly what Monnify sent.
+        """
+        if not signature:
+            return False
+ 
         computed_hash = hmac.new(
             settings.MONNIFY_SECRET_KEY.encode(),
-            payload_str.encode(),
-            hashlib.sha512
+            raw_body,
+            hashlib.sha512,
         ).hexdigest()
-
+ 
         return hmac.compare_digest(computed_hash, signature)
-    
 
 
 
